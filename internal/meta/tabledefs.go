@@ -6,13 +6,13 @@ import (
 )
 
 type TableDef struct {
-	ID           int64  `json:"id"`
-	DatasourceID int64  `json:"datasourceId"`
-	SchemaName   string `json:"schemaName"`
-	TableName    string `json:"tableName"`
-	Label        string `json:"label"`
-	PKColumn     string `json:"pkColumn"`
-	PageSize     int    `json:"pageSize"`
+	ID           int64    `json:"id"`
+	DatasourceID int64    `json:"datasourceId"`
+	SchemaName   string   `json:"schemaName"`
+	TableName    string   `json:"tableName"`
+	Label        string   `json:"label"`
+	KeyColumns   []string `json:"keyColumns"`
+	PageSize     int      `json:"pageSize"`
 }
 
 type ColumnDef struct {
@@ -54,8 +54,12 @@ func (s *Store) SaveTableDef(def *TableDef, cols []ColumnDef) error {
 	if err != nil {
 		return err
 	}
-	res, err := tx.Exec(`INSERT INTO table_defs(datasource_id,schema_name,table_name,label,pk_column,page_size)
-		VALUES(?,?,?,?,?,?)`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, def.PKColumn, def.PageSize)
+	kj, err := json.Marshal(def.KeyColumns)
+	if err != nil {
+		return err
+	}
+	res, err := tx.Exec(`INSERT INTO table_defs(datasource_id,schema_name,table_name,label,key_columns,page_size)
+		VALUES(?,?,?,?,?,?)`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -73,8 +77,13 @@ func (s *Store) UpdateTableDef(def *TableDef, cols []ColumnDef) error {
 	if err != nil {
 		return err
 	}
-	res, err := tx.Exec(`UPDATE table_defs SET datasource_id=?,schema_name=?,table_name=?,label=?,pk_column=?,page_size=?
-		WHERE id=?`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, def.PKColumn, def.PageSize, def.ID)
+	kj, err := json.Marshal(def.KeyColumns)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	res, err := tx.Exec(`UPDATE table_defs SET datasource_id=?,schema_name=?,table_name=?,label=?,key_columns=?,page_size=?
+		WHERE id=?`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize, def.ID)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -111,7 +120,7 @@ func (s *Store) ReplaceColumns(defID int64, cols []ColumnDef) error {
 }
 
 func (s *Store) ListTableDefs() ([]TableDef, error) {
-	rows, err := s.db.Query(`SELECT id,datasource_id,schema_name,table_name,label,pk_column,page_size
+	rows, err := s.db.Query(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size
 		FROM table_defs ORDER BY label`)
 	if err != nil {
 		return nil, err
@@ -120,9 +129,11 @@ func (s *Store) ListTableDefs() ([]TableDef, error) {
 	var out []TableDef
 	for rows.Next() {
 		var d TableDef
-		if err := rows.Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &d.PKColumn, &d.PageSize); err != nil {
+		var kj string
+		if err := rows.Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize); err != nil {
 			return nil, err
 		}
+		json.Unmarshal([]byte(kj), &d.KeyColumns)
 		out = append(out, d)
 	}
 	return out, rows.Err()
@@ -130,15 +141,17 @@ func (s *Store) ListTableDefs() ([]TableDef, error) {
 
 func (s *Store) GetTableDef(id int64) (*TableDef, []ColumnDef, error) {
 	d := &TableDef{}
-	err := s.db.QueryRow(`SELECT id,datasource_id,schema_name,table_name,label,pk_column,page_size
+	var kj string
+	err := s.db.QueryRow(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size
 		FROM table_defs WHERE id=?`, id).
-		Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &d.PKColumn, &d.PageSize)
+		Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize)
 	if err == sql.ErrNoRows {
 		return nil, nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, nil, err
 	}
+	json.Unmarshal([]byte(kj), &d.KeyColumns)
 	cols, err := s.getColumns(id)
 	return d, cols, err
 }

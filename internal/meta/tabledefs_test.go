@@ -9,7 +9,7 @@ func TestTableDefCRUD(t *testing.T) {
 		t.Fatal(err)
 	}
 	def := &TableDef{DatasourceID: 1, SchemaName: "public", TableName: "customers",
-		Label: "Customers", PKColumn: "id", PageSize: 20}
+		Label: "Customers", KeyColumns: []string{"id"}, PageSize: 20}
 	cols := []ColumnDef{
 		{Name: "id", Label: "ID", FieldType: "number", Editable: true, Required: true,
 			Visible: true, Searchable: true, Sortable: true, Position: 0},

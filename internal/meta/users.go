@@ -2,28 +2,61 @@ package meta
 
 import (
 	"database/sql"
+	"errors"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
-func (s *Store) CreateUser(username, password string) error {
+// UserCtx is the per-request user snapshot (auth context), joined with role.
+type UserCtx struct {
+	ID             int64
+	Username       string
+	RoleID         int64
+	RoleName       string
+	IsAdmin        bool
+	PlatformManage bool
+	IsFirst        bool
+}
+
+// UserWithRole is a users-listing row.
+type UserWithRole struct {
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
+	RoleID   int64  `json:"roleId"`
+	RoleName string `json:"roleName"`
+	Disabled bool   `json:"disabled"`
+	IsFirst  bool   `json:"isFirst"`
+}
+
+func hash(password string) (string, error) {
 	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(h), err
+}
+
+// CreateUser creates an Admin user (CLI seeding / recovery path).
+func (s *Store) CreateUser(username, password string) error {
+	return s.CreateUserWithRole(username, password, 1)
+}
+
+func (s *Store) CreateUserWithRole(username, password string, roleID int64) error {
+	h, err := hash(password)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO users(username,password_hash) VALUES(?,?)`, username, string(h))
+	_, err = s.db.Exec(`INSERT INTO users(username,password_hash,role_id) VALUES(?,?,?)`,
+		username, h, roleID)
 	return err
 }
 
-// CreateFirstUser inserts a user only when the users table is empty.
-// Returns false when a user already exists. Single statement — no race window.
+// CreateFirstUser inserts the first user (Admin, is_first) only when the
+// users table is empty. Single statement — no race window.
 func (s *Store) CreateFirstUser(username, password string) (bool, error) {
-	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	h, err := hash(password)
 	if err != nil {
 		return false, err
 	}
-	res, err := s.db.Exec(`INSERT INTO users(username,password_hash)
-		SELECT ?,? WHERE NOT EXISTS(SELECT 1 FROM users)`, username, string(h))
+	res, err := s.db.Exec(`INSERT INTO users(username,password_hash,role_id,is_first)
+		SELECT ?,?,1,1 WHERE NOT EXISTS(SELECT 1 FROM users)`, username, string(h))
 	if err != nil {
 		return false, err
 	}
@@ -37,14 +70,20 @@ func (s *Store) CountUsers() (int, error) {
 	return n, err
 }
 
+// VerifyUser reports whether username/password is a valid, enabled login.
 func (s *Store) VerifyUser(username, password string) (bool, error) {
 	var h string
-	err := s.db.QueryRow(`SELECT password_hash FROM users WHERE username=?`, username).Scan(&h)
-	if err == sql.ErrNoRows {
+	var disabled bool
+	err := s.db.QueryRow(`SELECT password_hash,disabled FROM users WHERE username=?`, username).
+		Scan(&h, &disabled)
+	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
+	}
+	if disabled {
+		return false, nil
 	}
 	return bcrypt.CompareHashAndPassword([]byte(h), []byte(password)) == nil, nil
 }
@@ -53,11 +92,95 @@ func (s *Store) VerifyUser(username, password string) (bool, error) {
 func (s *Store) UserID(username string) (int64, bool, error) {
 	var id int64
 	err := s.db.QueryRow(`SELECT id FROM users WHERE username=?`, username).Scan(&id)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}
 	if err != nil {
 		return 0, false, err
 	}
 	return id, true, nil
+}
+
+// GetUserContext resolves a session username to its full auth context.
+// Disabled or missing users do not resolve.
+func (s *Store) GetUserContext(username string) (UserCtx, bool, error) {
+	var u UserCtx
+	var disabled bool
+	err := s.db.QueryRow(`SELECT u.id,u.username,u.role_id,r.name,r.is_admin,r.platform_manage,u.disabled,u.is_first
+		FROM users u JOIN roles r ON r.id=u.role_id WHERE u.username=?`, username).
+		Scan(&u.ID, &u.Username, &u.RoleID, &u.RoleName, &u.IsAdmin, &u.PlatformManage, &disabled, &u.IsFirst)
+	if errors.Is(err, sql.ErrNoRows) {
+		return u, false, nil
+	}
+	if err != nil {
+		return u, false, err
+	}
+	if disabled {
+		return u, false, nil
+	}
+	return u, true, nil
+}
+
+func (s *Store) ListUsers() ([]UserWithRole, error) {
+	rows, err := s.db.Query(`SELECT u.id,u.username,u.role_id,r.name,u.disabled,u.is_first
+		FROM users u JOIN roles r ON r.id=u.role_id ORDER BY u.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []UserWithRole{}
+	for rows.Next() {
+		var u UserWithRole
+		if err := rows.Scan(&u.ID, &u.Username, &u.RoleID, &u.RoleName, &u.Disabled, &u.IsFirst); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// UpdateUser applies only the non-nil fields.
+func (s *Store) UpdateUser(id int64, roleID *int64, disabled *bool, password *string) error {
+	if roleID != nil {
+		if _, err := s.db.Exec(`UPDATE users SET role_id=? WHERE id=?`, *roleID, id); err != nil {
+			return err
+		}
+	}
+	if disabled != nil {
+		if _, err := s.db.Exec(`UPDATE users SET disabled=? WHERE id=?`, *disabled, id); err != nil {
+			return err
+		}
+	}
+	if password != nil {
+		h, err := hash(*password)
+		if err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`UPDATE users SET password_hash=? WHERE id=?`, h, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) DeleteUser(id int64) error {
+	res, err := s.db.Exec(`DELETE FROM users WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) DeleteUserByUsername(username string) error {
+	res, err := s.db.Exec(`DELETE FROM users WHERE username=?`, username)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

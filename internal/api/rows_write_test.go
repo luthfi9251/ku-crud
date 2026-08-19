@@ -40,19 +40,19 @@ func TestRowWriteAndAudit(t *testing.T) {
 	}
 
 	// UPDATE row 1
-	w = do(s, "PUT", "/api/tables/1/rows/1", `{"name":"jo!"}`, c)
+	w = do(s, "PUT", "/api/tables/1/rows/"+encodeRowKey([]string{"1"}), `{"name":"jo!"}`, c)
 	if w.Code != 200 {
 		t.Fatalf("update = %d %s", w.Code, w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/1/rows/1", "", c); !strings.Contains(w.Body.String(), `"name":"jo!"`) {
+	if w = do(s, "GET", "/api/tables/1/rows/"+encodeRowKey([]string{"1"}), "", c); !strings.Contains(w.Body.String(), `"name":"jo!"`) {
 		t.Fatalf("row after update = %s", w.Body)
 	}
 
 	// DELETE row 4 (nia)
-	if w = do(s, "DELETE", "/api/tables/1/rows/4", "", c); w.Code != 200 {
+	if w = do(s, "DELETE", "/api/tables/1/rows/"+encodeRowKey([]string{"4"}), "", c); w.Code != 200 {
 		t.Fatalf("delete = %d %s", w.Code, w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/1/rows/4", "", c); w.Code != 404 {
+	if w = do(s, "GET", "/api/tables/1/rows/"+encodeRowKey([]string{"4"}), "", c); w.Code != 404 {
 		t.Fatalf("deleted row still there = %d", w.Code)
 	}
 

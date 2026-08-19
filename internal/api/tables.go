@@ -26,18 +26,18 @@ var (
 
 func validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 	if def.DatasourceID == 0 || def.SchemaName == "" || def.TableName == "" ||
-		def.Label == "" || def.PKColumn == "" {
-		return "datasourceId, schemaName, tableName, label, pkColumn are required"
+		def.Label == "" || len(def.KeyColumns) == 0 {
+		return "datasourceId, schemaName, tableName, label, keyColumns are required"
 	}
 	if def.PageSize <= 0 || def.PageSize > 200 {
 		return "pageSize must be 1..200"
 	}
-	for _, name := range []string{def.SchemaName, def.TableName, def.PKColumn} {
+	for _, name := range append([]string{def.SchemaName, def.TableName}, def.KeyColumns...) {
 		if _, err := ds.QuoteIdent(name); err != nil {
 			return "invalid identifier: " + name
 		}
 	}
-	pkSeen := false
+	keySeen := make([]bool, len(def.KeyColumns))
 	for i, c := range cols {
 		if !validFieldTypes[c.FieldType] {
 			return "column " + c.Name + ": invalid fieldType " + c.FieldType
@@ -51,8 +51,10 @@ func validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 		if _, err := ds.QuoteIdent(c.Name); err != nil {
 			return "invalid identifier: " + c.Name
 		}
-		if c.Name == def.PKColumn {
-			pkSeen = true
+		for k, key := range def.KeyColumns {
+			if c.Name == key {
+				keySeen[k] = true
+			}
 		}
 		for j := 0; j < i; j++ {
 			if cols[j].Name == c.Name || cols[j].Position == c.Position {
@@ -60,8 +62,10 @@ func validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 			}
 		}
 	}
-	if !pkSeen {
-		return "pk column must be one of the defined columns"
+	for k, seen := range keySeen {
+		if !seen {
+			return "key column " + def.KeyColumns[k] + " must be one of the defined columns"
+		}
 	}
 	return ""
 }
@@ -245,10 +249,13 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
 	}
-	for _, m := range ds.CompareDrift(cols, live).Missing {
-		if m == def.PKColumn {
-			writeErr(w, 409, "DRIFT", "pk column was dropped; edit the definition manually", nil)
-			return
+	missing := ds.CompareDrift(cols, live).Missing
+	for _, m := range missing {
+		for _, key := range def.KeyColumns {
+			if m == key {
+				writeErr(w, 409, "DRIFT", "key column "+m+" was dropped; edit the definition manually", nil)
+				return
+			}
 		}
 	}
 

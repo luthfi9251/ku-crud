@@ -38,7 +38,7 @@ func seedLive(t *testing.T, s *Server) {
 		t.Fatal(err)
 	}
 	def := &meta.TableDef{DatasourceID: 2, SchemaName: "public", TableName: "customers",
-		Label: "Customers", PKColumn: "id", PageSize: 2}
+		Label: "Customers", KeyColumns: []string{"id"}, PageSize: 2}
 	cols := []meta.ColumnDef{
 		{Name: "id", Label: "ID", FieldType: "number", Editable: false, Required: true,
 			Visible: true, Searchable: true, Sortable: true, Position: 0},
@@ -98,11 +98,11 @@ func TestRowListAndGet(t *testing.T) {
 		t.Fatalf("page2 = %s", w.Body)
 	}
 
-	w = do(s, "GET", "/api/tables/1/rows/2", "", c)
+	w = do(s, "GET", "/api/tables/1/rows/"+encodeRowKey([]string{"2"}), "", c)
 	if !strings.Contains(w.Body.String(), `"name":"joe"`) {
 		t.Fatalf("get row = %s", w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/1/rows/999", "", c); w.Code != 404 {
+	if w = do(s, "GET", "/api/tables/1/rows/"+encodeRowKey([]string{"999"}), "", c); w.Code != 404 {
 		t.Fatalf("missing row = %d", w.Code)
 	}
 }

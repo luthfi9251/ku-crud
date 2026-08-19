@@ -18,7 +18,7 @@ func seedDS(t *testing.T, s *Server) {
 }
 
 const defBody = `{"datasourceId":1,"schemaName":"public","tableName":"customers",
-"label":"Customers","pkColumn":"id","pageSize":20,"columns":[
+"label":"Customers","keyColumns":["id"],"pageSize":20,"columns":[
  {"name":"id","label":"ID","fieldType":"number","editable":true,"required":true,
   "visible":true,"searchable":true,"sortable":true,"position":0},
  {"name":"status","label":"Status","fieldType":"enum","enumOptions":["a","b"],
@@ -35,8 +35,8 @@ func TestTableDefEndpoints(t *testing.T) {
 	}
 
 	// PK not among columns → VALIDATION
-	w = do(s, "POST", "/api/tables", strings.Replace(defBody, `"pkColumn":"id"`, `"pkColumn":"nope"`, 1), c)
-	if w.Code != 400 || !strings.Contains(w.Body.String(), "pk") {
+	w = do(s, "POST", "/api/tables", strings.Replace(defBody, `"keyColumns":["id"]`, `"keyColumns":["nope"]`, 1), c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "key column") {
 		t.Fatalf("bad pk = %d %s", w.Code, w.Body)
 	}
 
