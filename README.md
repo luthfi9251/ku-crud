@@ -27,3 +27,9 @@ pick tables, and CRUD away.
 
 Frontend lives in web/ (React + Vite + Tailwind + shadcn/ui); `npm run build`
 in web/ refreshes web/dist which is embedded into the binary at compile time.
+
+## Building the single binary
+
+    make build          # builds web/ then embeds it into ./ku-crud
+
+`go build` alone embeds whatever is currently in web/dist.

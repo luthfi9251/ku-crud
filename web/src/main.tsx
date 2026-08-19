@@ -7,6 +7,7 @@ import Login from "./pages/Login";
 import Tables from "./pages/Tables";
 import Data from "./pages/Data";
 import Datasources from "./pages/Datasources";
+import Audit from "./pages/Audit";
 import "./index.css";
 
 const qc = new QueryClient({
@@ -19,7 +20,7 @@ const TablesLazy = Tables;
 // ponytail: plain table grid lives in Data.tsx
 const DataLazy = Data;
 const DatasourcesLazy = Datasources;
-const AuditLazy = () => <p>Not built yet</p>;
+const AuditLazy = Audit;
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
