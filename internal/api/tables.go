@@ -532,12 +532,16 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			continue // dropped
 		}
-		if c.FieldType != lc.FieldType {
-			c.FieldType = lc.FieldType
-			if lc.FieldType == "enum" {
-				c.EnumOptions = lc.EnumOptions
+		if ds.EffectiveType(c) != lc.FieldType {
+			if c.FieldType == "fk" {
+				c.BaseType = lc.FieldType // keep relation config; only base drifts
 			} else {
-				c.EnumOptions = nil
+				c.FieldType = lc.FieldType
+				if lc.FieldType == "enum" {
+					c.EnumOptions = lc.EnumOptions
+				} else {
+					c.EnumOptions = nil
+				}
 			}
 		}
 		out = append(out, c)

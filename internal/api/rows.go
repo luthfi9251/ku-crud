@@ -11,6 +11,8 @@ import (
 
 	"ku-crud/internal/ds"
 	"ku-crud/internal/meta"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func scanTargets(cols []string) []any {
@@ -197,7 +199,11 @@ func editablePayload(body map[string]any, cols []meta.ColumnDef, requireAll bool
 		}
 		v, present := body[c.Name]
 		if present {
-			if err := validateValue(c.FieldType, v, c.EnumOptions); err != nil {
+			ft := c.FieldType
+			if ft == "fk" {
+				ft = c.BaseType
+			}
+			if err := validateValue(ft, v, c.EnumOptions); err != nil {
 				return nil, nil, fmt.Errorf("%s: %w", c.Name, err)
 			}
 			names = append(names, c.Name)
@@ -283,12 +289,20 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer db.Close()
+	if err := s.checkFKValues(cols, names, vals); err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
 	sqlText, _, err := ds.BuildInsert(def.SchemaName, def.TableName, names)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", "bad columns", err.Error())
 		return
 	}
 	if _, err := db.Exec(sqlText, vals...); err != nil {
+		if fkViolation(err) {
+			writeErr(w, 409, "CONFLICT", "row is referenced by other rows (database constraint)", nil)
+			return
+		}
 		writeErr(w, 502, "CONN", "insert failed", err.Error())
 		return
 	}
@@ -329,6 +343,11 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
+	if err := s.checkFKValues(cols, names, vals); err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+
 	oldRows, err := fetchRows(db, def, cols, pkVals)
 	if err != nil {
 		writeErr(w, 502, "CONN", "fetch old failed", err.Error())
@@ -346,6 +365,10 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	args := append(append([]any{}, vals...), pkVals...)
 	if _, err := db.Exec(sqlText, args...); err != nil {
+		if fkViolation(err) {
+			writeErr(w, 409, "CONFLICT", "row is referenced by other rows (database constraint)", nil)
+			return
+		}
 		writeErr(w, 502, "CONN", "update failed", err.Error())
 		return
 	}
@@ -395,12 +418,25 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
 		return
 	}
+	conflicts, err := s.referencedBy(def, oldRows[0])
+	if err != nil {
+		writeErr(w, 502, "CONN", "reference check failed", err.Error())
+		return
+	}
+	if len(conflicts) > 0 {
+		writeErr(w, 409, "CONFLICT", "row is referenced by other rows", conflicts)
+		return
+	}
 	sqlText, err := ds.BuildDeleteByKey(def.SchemaName, def.TableName, def.KeyColumns)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", "bad identifiers", err.Error())
 		return
 	}
 	if _, err := db.Exec(sqlText, pkVals...); err != nil {
+		if fkViolation(err) {
+			writeErr(w, 409, "CONFLICT", "row is referenced by other rows (database constraint)", nil)
+			return
+		}
 		writeErr(w, 502, "CONN", "delete failed", err.Error())
 		return
 	}
@@ -408,4 +444,90 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 		s.auditBestEffort(u, def.ID, "DELETE", rowKeyString(def, old), old, nil)
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "affected": len(oldRows)})
+}
+
+// checkFKValues verifies each non-null fk payload value exists on the target
+// table (batched per fk column via the ref-value IN query).
+func (s *Server) checkFKValues(cols []meta.ColumnDef, names []string, vals []any) error {
+	for i, name := range names {
+		var c *meta.ColumnDef
+		for j := range cols {
+			if cols[j].Name == name && cols[j].FieldType == "fk" {
+				c = &cols[j]
+				break
+			}
+		}
+		if c == nil || vals[i] == nil {
+			continue
+		}
+		target, _, err := s.store.GetTableDef(c.FKTableDefID)
+		if err != nil {
+			return fmt.Errorf("%s: fk target unavailable", name)
+		}
+		db, err := s.liveDB(target.DatasourceID)
+		if err != nil {
+			return err
+		}
+		sqlText, err := ds.BuildFetchByRefValues(target.SchemaName, target.TableName,
+			c.FKRefColumn, nil, 1)
+		if err != nil {
+			db.Close()
+			return err
+		}
+		var one any
+		err = db.QueryRow(sqlText, vals[i]).Scan(&one)
+		db.Close()
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%s: referenced row not found", name)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// referencedBy reports defined tables whose fk columns point at def and hold
+// rows referencing the given old row. Detail rows feed the 409 body.
+func (s *Server) referencedBy(def *meta.TableDef, old map[string]any) ([]map[string]any, error) {
+	srcs, err := s.store.FKRefSources(def.ID)
+	if err != nil {
+		return nil, err
+	}
+	var conflicts []map[string]any
+	for _, src := range srcs {
+		refVal := old[src.RefColumn]
+		if refVal == nil {
+			continue
+		}
+		srcDef, _, err := s.store.GetTableDef(src.DefID)
+		if err != nil {
+			return nil, err
+		}
+		db, err := s.liveDB(srcDef.DatasourceID)
+		if err != nil {
+			return nil, err
+		}
+		countSQL, err := ds.BuildCountByRefEq(srcDef.SchemaName, srcDef.TableName, src.Column)
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
+		var n int
+		err = db.QueryRow(countSQL, refVal).Scan(&n)
+		db.Close()
+		if err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			conflicts = append(conflicts, map[string]any{"table": src.DefLabel, "column": src.Column, "count": n})
+		}
+	}
+	return conflicts, nil
+}
+
+// fkViolation detects a Postgres FK constraint failure (SQLSTATE 23503).
+func fkViolation(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && pe.Code == "23503"
 }

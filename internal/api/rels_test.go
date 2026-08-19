@@ -135,7 +135,60 @@ func TestRowListRelsRBAC(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"rels":{"customer_id"`) {
 		t.Fatalf("granted rels missing: %s", w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/"+tdTok(s, 2)+"/fkoptions/customer_id", "", rw); w.Code != 200 {
-		t.Fatalf("granted fkoptions = %d", w.Code)
+	w = do(s, "GET", "/api/tables/"+tdTok(s, 2)+"/fkoptions/customer_id", "", rw)
+	if w.Code != 200 {
+		t.Fatalf("granted fkoptions = %d %s", w.Code, w.Body)
+	}
+}
+
+func TestFKWriteAndDeleteProtection(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	seedFKLive(t, s)
+
+	// create with dangling fk value → 400
+	body := `{"note":"x","customer_id":999}`
+	w := do(s, "POST", "/api/tables/"+tdTok(s, 2)+"/rows", body, c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "referenced row not found") {
+		t.Fatalf("dangling fk = %d %s", w.Code, w.Body)
+	}
+
+	// create with valid fk → 200
+	if w = do(s, "POST", "/api/tables/"+tdTok(s, 2)+"/rows", `{"note":"o9","customer_id":3}`, c); w.Code != 200 {
+		t.Fatalf("valid fk create = %d %s", w.Code, w.Body)
+	}
+
+	// update to dangling fk → 400
+	w = do(s, "PUT", "/api/tables/"+tdTok(s, 2)+"/rows/"+encodeRowKey([]string{"1"}),
+		`{"customer_id":999}`, c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "referenced row not found") {
+		t.Fatalf("dangling fk update = %d %s", w.Code, w.Body)
+	}
+
+	// fk value type checked against baseType (number) → 400 on text value
+	w = do(s, "POST", "/api/tables/"+tdTok(s, 2)+"/rows", `{"note":"x","customer_id":"abc"}`, c)
+	if w.Code != 400 {
+		t.Fatalf("bad fk type = %d %s", w.Code, w.Body)
+	}
+
+	// delete referenced customer (id 1, referenced by order 1) → 409 with detail
+	w = do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"1"}), "", c)
+	if w.Code != 409 || !strings.Contains(w.Body.String(), "Orders") ||
+		!strings.Contains(w.Body.String(), "customer_id") {
+		t.Fatalf("delete blocked = %d %s", w.Code, w.Body)
+	}
+
+	// delete unreferenced customer (id 3 — order 'o9' references it after create above;
+	// so delete the order first, then the customer succeeds)
+	if w = do(s, "DELETE", "/api/tables/"+tdTok(s, 2)+"/rows/"+encodeRowKey([]string{"4"}), "", c); w.Code != 200 {
+		t.Fatalf("delete order o9 = %d %s", w.Code, w.Body)
+	}
+	if w = do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"3"}), "", c); w.Code != 200 {
+		t.Fatalf("delete unreferenced customer = %d %s", w.Code, w.Body)
+	}
+
+	// null fk on create is fine
+	if w = do(s, "POST", "/api/tables/"+tdTok(s, 2)+"/rows", `{"note":"o10"}`, c); w.Code != 200 {
+		t.Fatalf("null fk = %d %s", w.Code, w.Body)
 	}
 }
