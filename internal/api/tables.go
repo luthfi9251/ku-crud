@@ -277,7 +277,7 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 		out = append(out, meta.ColumnDef{
 			Name: lc.Name, Label: lc.Name, FieldType: lc.FieldType,
 			EnumOptions: lc.EnumOptions,
-			Editable: true, Visible: true, Searchable: true, Sortable: true,
+			Editable:    true, Visible: true, Searchable: true, Sortable: true,
 			Position: maxPos,
 		})
 	}
