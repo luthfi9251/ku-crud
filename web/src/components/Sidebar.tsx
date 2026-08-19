@@ -12,9 +12,11 @@ import {
   Layers,
   PanelLeftClose,
   PanelLeft,
+  Users as UsersIcon,
+  KeyRound,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { TableDef } from "@/lib/types";
+import type { Me, TableDef } from "@/lib/types";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -32,7 +34,7 @@ export function Sidebar({ className }: SidebarProps) {
 
   const me = useQuery({
     queryKey: ["me"],
-    queryFn: () => api<{ username: string }>("/auth/me"),
+    queryFn: () => api<Me>("/auth/me"),
   });
 
   const defs = useQuery({
@@ -51,10 +53,16 @@ export function Sidebar({ className }: SidebarProps) {
     }
   };
 
+  const isAdmin = !!me.data?.isAdmin;
+  const canPlatform = !!me.data?.platformManage;
   const navItems = [
-    { label: "Datasources", path: "/datasources", icon: Server },
+    ...(canPlatform ? [{ label: "Datasources", path: "/datasources", icon: Server }] : []),
     { label: "Tables & Schema", path: "/", icon: Table2 },
-    { label: "Audit Trail", path: "/audit", icon: ShieldCheck },
+    ...(isAdmin ? [
+      { label: "Users", path: "/users", icon: UsersIcon },
+      { label: "Roles & Access", path: "/roles", icon: KeyRound },
+    ] : []),
+    ...(canPlatform ? [{ label: "Audit Trail", path: "/audit", icon: ShieldCheck }] : []),
   ];
 
   return (
@@ -76,7 +84,7 @@ export function Sidebar({ className }: SidebarProps) {
               <div className="flex items-center gap-1.5">
                 <span className="font-bold tracking-tight text-sidebar-foreground">Ku-CRUD</span>
                 <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-blue-400 border border-blue-500/20">
-                  v1.0
+                  v1.1
                 </span>
               </div>
               <span className="text-[11px] text-sidebar-foreground/60 truncate">Database Portal</span>

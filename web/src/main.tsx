@@ -10,6 +10,8 @@ import TableForm from "./pages/TableForm";
 import Data from "./pages/Data";
 import Datasources from "./pages/Datasources";
 import Audit from "./pages/Audit";
+import Users from "./pages/Users";
+import Roles from "./pages/Roles";
 import "./index.css";
 
 const qc = new QueryClient({
@@ -30,6 +32,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="data/:id" element={<Data />} />
             <Route path="datasources" element={<Datasources />} />
             <Route path="audit" element={<Audit />} />
+            <Route path="users" element={<Users />} />
+            <Route path="roles" element={<Roles />} />
           </Route>
         </Routes>
       </HashRouter>

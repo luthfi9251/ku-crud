@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ShieldCheck, Filter, ChevronLeft, ChevronRight, Eye, PlusCircle, Edit3, Trash2, Calendar, Database } from "lucide-react";
 import { api } from "../lib/api";
+import { displayRowPk } from "../lib/rowkey";
 import type { AuditEntry, TableDef } from "../lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +31,7 @@ export default function Audit() {
   });
 
   const pages = audit.data ? Math.max(1, Math.ceil(audit.data.total / audit.data.pageSize)) : 1;
-  const defName = (id: number) => defs.data?.find((d) => d.id === id)?.label ?? `#${id}`;
+  const defName = (id: string) => defs.data?.find((d) => d.id === id)?.label ?? "unknown table";
 
   return (
     <div className="space-y-6">
@@ -101,21 +102,22 @@ export default function Audit() {
               <TableRow className="bg-muted/50 hover:bg-muted/50">
                 <TableHead className="w-48">Timestamp</TableHead>
                 <TableHead>Target Table</TableHead>
-                <TableHead className="w-32">Action</TableHead>
-                <TableHead className="w-36">Row PK</TableHead>
+                <TableHead className="w-32">User</TableHead>
+                <TableHead className="w-28">Action</TableHead>
+                <TableHead className="w-36">Row Key</TableHead>
                 <TableHead className="text-right">Diff Inspector</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {audit.isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center text-xs text-muted-foreground">
+                  <TableCell colSpan={6} className="h-24 text-center text-xs text-muted-foreground">
                     Loading audit trail logs...
                   </TableCell>
                 </TableRow>
               ) : (audit.data?.entries ?? []).length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-32 text-center">
+                  <TableCell colSpan={6} className="h-32 text-center">
                     <div className="flex flex-col items-center justify-center space-y-1">
                       <ShieldCheck className="h-7 w-7 text-muted-foreground/30" />
                       <p className="text-xs font-medium text-muted-foreground">No audit entries found</p>
@@ -134,11 +136,14 @@ export default function Audit() {
                     <TableCell className="font-semibold text-xs text-foreground">
                       {defName(e.tableDefId)}
                     </TableCell>
+                    <TableCell className="text-xs font-mono text-muted-foreground">
+                      {e.username || "—"}
+                    </TableCell>
                     <TableCell>
                       <ActionBadge action={e.action} />
                     </TableCell>
                     <TableCell className="font-mono text-xs font-medium">
-                      {e.rowPk}
+                      {displayRowPk(e.rowPk)}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button
@@ -198,7 +203,7 @@ export default function Audit() {
                 <ActionBadge action={selectedEntry.action} />
               </div>
               <DialogDescription className="text-xs font-mono mt-1">
-                Table: {defName(selectedEntry.tableDefId)} &bull; Row PK: {selectedEntry.rowPk} &bull; {selectedEntry.createdAt}
+                Table: {defName(selectedEntry.tableDefId)} &bull; User: {selectedEntry.username} &bull; Row Key: {displayRowPk(selectedEntry.rowPk)} &bull; {selectedEntry.createdAt}
               </DialogDescription>
             </DialogHeader>
 

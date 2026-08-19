@@ -17,6 +17,7 @@ import {
   Database,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
+import { encodeRowKey } from "../lib/rowkey";
 import type { ColumnDef, Row, RowsRes, TableDefPayload } from "../lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,7 +86,14 @@ export default function Data() {
 
   const cols = useMemo(() => (def.data?.columns ?? []).filter((c) => c.visible), [def.data]);
   const editable = cols.filter((c) => c.editable);
-  const pkCol = def.data?.pkColumn ?? "";
+  const keyCols = def.data?.keyColumns ?? [];
+  const perms = def.data?.permissions ?? { read: false, create: false, update: false, delete: false };
+  // composite key value for a row, or null when any key part is NULL
+  const rowKey = (row: Row): string[] | null => {
+    const vals = keyCols.map((c) => row[c]);
+    if (vals.some((v) => v === null || v === undefined)) return null;
+    return vals as string[];
+  };
 
   const save = useMutation({
     mutationFn: async () => {
@@ -97,7 +105,11 @@ export default function Data() {
       }
       const body = JSON.stringify(payload);
       if (form!.mode === "new") await api(`/tables/${id}/rows`, { method: "POST", body });
-      else await api(`/tables/${id}/rows/${encodeURIComponent(String(form!.row[pkCol]))}`, { method: "PUT", body });
+      else {
+        const key = rowKey(form!.row);
+        if (!key) throw new Error("row has a null key value");
+        await api(`/tables/${id}/rows/${encodeRowKey(key)}`, { method: "PUT", body });
+      }
     },
     onSuccess: () => {
       setForm(null);
@@ -106,7 +118,7 @@ export default function Data() {
   });
 
   const del = useMutation({
-    mutationFn: (pk: unknown) => api(`/tables/${id}/rows/${encodeURIComponent(String(pk))}`, { method: "DELETE" }),
+    mutationFn: (key: string[]) => api(`/tables/${id}/rows/${encodeRowKey(key)}`, { method: "DELETE" }),
     onSuccess: () => rows.refetch(),
   });
 
@@ -160,7 +172,7 @@ export default function Data() {
               </Badge>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              PK: <span className="font-mono text-foreground font-semibold">{pkCol}</span> &bull; {r?.total ?? 0} total records
+              Key: <span className="font-mono text-foreground font-semibold">{keyCols.join(" + ")}</span> &bull; {r?.total ?? 0} total records
             </p>
           </div>
         </div>
@@ -186,12 +198,14 @@ export default function Data() {
           >
             <RefreshCw className={`h-3.5 w-3.5 ${rows.isFetching ? "animate-spin" : ""}`} />
           </Button>
-          <Button
-            onClick={() => setForm({ mode: "new", row: {} })}
-            className="h-9 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1 text-xs"
-          >
-            <Plus className="h-4 w-4" /> New Row
-          </Button>
+          {perms.create && (
+            <Button
+              onClick={() => setForm({ mode: "new", row: {} })}
+              className="h-9 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1 text-xs"
+            >
+              <Plus className="h-4 w-4" /> New Row
+            </Button>
+          )}
         </div>
       </div>
 
@@ -297,7 +311,7 @@ export default function Data() {
                   </TableRow>
                 ) : (
                   (r?.rows ?? []).map((row, i) => (
-                    <TableRow key={String(row[pkCol]) + i} className="hover:bg-muted/20">
+                    <TableRow key={(rowKey(row) ?? []).join("\u0000") + i} className="hover:bg-muted/20">
                       {cols.map((c) => (
                         <TableCell key={c.name} className="text-xs font-mono max-w-xs truncate">
                           {renderValue(row[c.name], c.fieldType)}
@@ -305,26 +319,31 @@ export default function Data() {
                       ))}
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                            onClick={() => setForm({ mode: "edit", row: { ...row } })}
-                            title="Edit row"
-                          >
-                            <Edit className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => {
-                              if (confirm("Delete this record permanently?")) del.mutate(row[pkCol]);
-                            }}
-                            title="Delete row"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          {rowKey(row) && perms.update && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                              onClick={() => setForm({ mode: "edit", row: { ...row } })}
+                              title="Edit row"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {rowKey(row) && perms.delete && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                              onClick={() => {
+                                const key = rowKey(row);
+                                if (key && confirm("Delete this record permanently?")) del.mutate(key);
+                              }}
+                              title="Delete row"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -369,7 +388,7 @@ export default function Data() {
           <DialogHeader>
             <DialogTitle>{form?.mode === "new" ? "Insert New Record" : "Edit Record"}</DialogTitle>
             <DialogDescription className="text-xs">
-              {form?.mode === "new" ? "Provide values for editable table fields" : `Editing record PK #${form?.row[pkCol]}`}
+              {form?.mode === "new" ? "Provide values for editable table fields" : `Editing record ${keyCols.join(" + ")}`}
             </DialogDescription>
           </DialogHeader>
 
