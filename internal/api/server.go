@@ -43,10 +43,6 @@ func readJSON(r *http.Request, v any) error {
 	return nil
 }
 
-func notImplemented(w http.ResponseWriter, r *http.Request) {
-	writeErr(w, http.StatusNotImplemented, "INTERNAL", "not implemented", nil)
-}
-
 func (s *Server) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -69,8 +65,8 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/tables/{id}", s.RequireAuth(s.handleTableGet))
 	mux.HandleFunc("PUT /api/tables/{id}", s.RequireAuth(s.handleTableUpdate))
 	mux.HandleFunc("DELETE /api/tables/{id}", s.RequireAuth(s.handleTableDelete))
-	mux.HandleFunc("GET /api/tables/{id}/verify", s.RequireAuth(notImplemented))
-	mux.HandleFunc("POST /api/tables/{id}/resync", s.RequireAuth(notImplemented))
+	mux.HandleFunc("GET /api/tables/{id}/verify", s.RequireAuth(s.handleVerify))
+	mux.HandleFunc("POST /api/tables/{id}/resync", s.RequireAuth(s.handleResync))
 	mux.HandleFunc("GET /api/tables/{id}/rows", s.RequireAuth(s.handleRowList))
 	mux.HandleFunc("POST /api/tables/{id}/rows", s.RequireAuth(s.handleRowCreate))
 	mux.HandleFunc("GET /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowGet))

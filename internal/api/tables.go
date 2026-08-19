@@ -189,6 +189,106 @@ func (s *Server) handleDSTables(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, tables)
 }
 
+func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
+	def, cols, err := s.tableCtx(r)
+	if err != nil {
+		s.writeDefErr(w, err)
+		return
+	}
+	db, err := s.liveDB(def.DatasourceID)
+	if err != nil {
+		s.writeLiveErr(w, err)
+		return
+	}
+	defer db.Close()
+	live, err := ds.InspectTable(db, def.SchemaName, def.TableName)
+	if err != nil {
+		writeErr(w, 502, "CONN", "introspection failed", err.Error())
+		return
+	}
+	rep := ds.CompareDrift(cols, live)
+	if !rep.Empty() {
+		writeErr(w, 409, "DRIFT", "table definition is out of sync with the live schema", rep)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
+	def, cols, err := s.tableCtx(r)
+	if err != nil {
+		s.writeDefErr(w, err)
+		return
+	}
+	db, err := s.liveDB(def.DatasourceID)
+	if err != nil {
+		s.writeLiveErr(w, err)
+		return
+	}
+	defer db.Close()
+	live, err := ds.InspectTable(db, def.SchemaName, def.TableName)
+	if err != nil {
+		writeErr(w, 502, "CONN", "introspection failed", err.Error())
+		return
+	}
+	for _, m := range ds.CompareDrift(cols, live).Missing {
+		if m == def.PKColumn {
+			writeErr(w, 409, "DRIFT", "pk column was dropped; edit the definition manually", nil)
+			return
+		}
+	}
+
+	liveByName := map[string]ds.LiveColumn{}
+	for _, c := range live {
+		liveByName[c.Name] = c
+	}
+	maxPos := -1
+	for _, c := range cols {
+		if c.Position > maxPos {
+			maxPos = c.Position
+		}
+	}
+
+	var out []meta.ColumnDef
+	for _, c := range cols {
+		lc, ok := liveByName[c.Name]
+		if !ok {
+			continue // dropped
+		}
+		if c.FieldType != lc.FieldType {
+			c.FieldType = lc.FieldType
+			if lc.FieldType == "enum" {
+				c.EnumOptions = lc.EnumOptions
+			} else {
+				c.EnumOptions = nil
+			}
+		}
+		out = append(out, c)
+	}
+	defNames := map[string]bool{}
+	for _, c := range cols {
+		defNames[c.Name] = true
+	}
+	for _, lc := range live {
+		if defNames[lc.Name] {
+			continue
+		}
+		maxPos++
+		out = append(out, meta.ColumnDef{
+			Name: lc.Name, Label: lc.Name, FieldType: lc.FieldType,
+			EnumOptions: lc.EnumOptions,
+			Editable: true, Visible: true, Searchable: true, Sortable: true,
+			Position: maxPos,
+		})
+	}
+	if err := s.store.ReplaceColumns(def.ID, out); err != nil {
+		writeErr(w, 500, "INTERNAL", "resync failed", err.Error())
+		return
+	}
+	_, fresh, _ := s.store.GetTableDef(def.ID)
+	writeJSON(w, 200, tableDefPayload{*def, fresh})
+}
+
 func (s *Server) handleDSColumns(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	db, err := s.liveDB(id)

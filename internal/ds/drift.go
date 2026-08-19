@@ -1,0 +1,39 @@
+package ds
+
+import "ku-crud/internal/meta"
+
+type DriftReport struct {
+	Missing     []string `json:"missing"`     // defined but dropped from the live table
+	Added       []string `json:"added"`       // live but not defined
+	TypeChanged []string `json:"typeChanged"` // same name, different field type
+}
+
+func (r DriftReport) Empty() bool {
+	return len(r.Missing) == 0 && len(r.Added) == 0 && len(r.TypeChanged) == 0
+}
+
+func CompareDrift(defined []meta.ColumnDef, live []LiveColumn) DriftReport {
+	var rep DriftReport
+	liveByName := map[string]LiveColumn{}
+	for _, c := range live {
+		liveByName[c.Name] = c
+	}
+	defNames := map[string]bool{}
+	for _, d := range defined {
+		defNames[d.Name] = true
+		lc, ok := liveByName[d.Name]
+		if !ok {
+			rep.Missing = append(rep.Missing, d.Name)
+			continue
+		}
+		if lc.FieldType != d.FieldType {
+			rep.TypeChanged = append(rep.TypeChanged, d.Name)
+		}
+	}
+	for name := range liveByName {
+		if !defNames[name] {
+			rep.Added = append(rep.Added, name)
+		}
+	}
+	return rep
+}
