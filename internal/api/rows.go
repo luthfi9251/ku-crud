@@ -2,7 +2,10 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -157,4 +160,228 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, rowToMap(names, deref(scan)))
+}
+
+// editablePayload validates body against editable columns and returns
+// (cols, vals) in column-definition order. requireAll=true enforces required
+// columns for INSERT. Any non-editable/unknown key is rejected.
+func editablePayload(body map[string]any, cols []meta.ColumnDef, requireAll bool) ([]string, []any, error) {
+	editable := map[string]meta.ColumnDef{}
+	for _, c := range cols {
+		if c.Editable {
+			editable[c.Name] = c
+		}
+	}
+	for k := range body {
+		if _, ok := editable[k]; !ok {
+			return nil, nil, fmt.Errorf("column %q is not editable/known", k)
+		}
+	}
+	var names []string
+	var vals []any
+	for _, c := range cols {
+		if !c.Editable {
+			continue
+		}
+		v, present := body[c.Name]
+		if present {
+			if err := validateValue(c.FieldType, v, c.EnumOptions); err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", c.Name, err)
+			}
+			names = append(names, c.Name)
+			vals = append(vals, v)
+		} else if requireAll && c.Required {
+			return nil, nil, fmt.Errorf("%s is required", c.Name)
+		}
+	}
+	return names, vals, nil
+}
+
+func mustJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return []byte("null")
+	}
+	return b
+}
+
+// ponytail: best-effort audit — action succeeds even if this fails
+func (s *Server) auditBestEffort(u CtxUser, defID int64, action, rowPK string, oldV, newV any) {
+	var oldB, newB []byte
+	if oldV != nil {
+		oldB = mustJSON(oldV)
+	}
+	if newV != nil {
+		newB = mustJSON(newV)
+	}
+	if err := s.store.InsertAudit(&meta.AuditEntry{
+		UserID: u.ID, TableDefID: defID, Action: action, RowPK: rowPK,
+		OldValues: oldB, NewValues: newB,
+	}); err != nil {
+		log.Printf("audit write failed (def %d %s pk %s): %v", defID, action, rowPK, err)
+	}
+}
+
+func fetchRows(db *sql.DB, def *meta.TableDef, cols []meta.ColumnDef, pkVal any) ([]map[string]any, error) {
+	names := colNames(cols)
+	sqlText, err := ds.BuildFetchByPK(def.SchemaName, def.TableName, def.PKColumn, names)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(sqlText, pkVal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		scan := scanTargets(names)
+		if err := rows.Scan(scan...); err != nil {
+			return nil, err
+		}
+		out = append(out, rowToMap(names, deref(scan)))
+	}
+	return out, rows.Err()
+}
+
+func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
+	def, cols, err := s.tableCtx(r)
+	if err != nil {
+		s.writeDefErr(w, err)
+		return
+	}
+	var body map[string]any
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+	names, vals, err := editablePayload(body, cols, true)
+	if err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+	db, err := s.liveDB(def.DatasourceID)
+	if err != nil {
+		s.writeLiveErr(w, err)
+		return
+	}
+	defer db.Close()
+	sqlText, _, err := ds.BuildInsert(def.SchemaName, def.TableName, names)
+	if err != nil {
+		writeErr(w, 400, "VALIDATION", "bad columns", err.Error())
+		return
+	}
+	if _, err := db.Exec(sqlText, vals...); err != nil {
+		writeErr(w, 502, "CONN", "insert failed", err.Error())
+		return
+	}
+	s.auditBestEffort(u, def.ID, "INSERT", "", nil, body)
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
+	def, cols, err := s.tableCtx(r)
+	if err != nil {
+		s.writeDefErr(w, err)
+		return
+	}
+	var body map[string]any
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+	names, vals, err := editablePayload(body, cols, false)
+	if err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+	pkVal, err := coercePK(fieldTypeOf(cols, def.PKColumn), r.PathValue("pk"))
+	if err != nil {
+		writeErr(w, 400, "VALIDATION", "bad pk value", err.Error())
+		return
+	}
+	db, err := s.liveDB(def.DatasourceID)
+	if err != nil {
+		s.writeLiveErr(w, err)
+		return
+	}
+	defer db.Close()
+
+	oldRows, err := fetchRows(db, def, cols, pkVal)
+	if err != nil {
+		writeErr(w, 502, "CONN", "fetch old failed", err.Error())
+		return
+	}
+	if len(oldRows) == 0 {
+		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
+		return
+	}
+
+	sqlText, _, err := ds.BuildUpdateByPK(def.SchemaName, def.TableName, def.PKColumn, names)
+	if err != nil {
+		writeErr(w, 400, "VALIDATION", "bad columns", err.Error())
+		return
+	}
+	args := append(append([]any{}, vals...), pkVal)
+	if _, err := db.Exec(sqlText, args...); err != nil {
+		writeErr(w, 502, "CONN", "update failed", err.Error())
+		return
+	}
+	// ponytail: per-row new = old merged with payload (computed cols not re-read)
+	for _, old := range oldRows {
+		merged := map[string]any{}
+		for k, v := range old {
+			merged[k] = v
+		}
+		for k, v := range body {
+			merged[k] = v
+		}
+		s.auditBestEffort(u, def.ID, "UPDATE", fmt.Sprint(old[def.PKColumn]), old, merged)
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "affected": len(oldRows)})
+}
+
+func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
+	def, cols, err := s.tableCtx(r)
+	if err != nil {
+		s.writeDefErr(w, err)
+		return
+	}
+	pkVal, err := coercePK(fieldTypeOf(cols, def.PKColumn), r.PathValue("pk"))
+	if err != nil {
+		writeErr(w, 400, "VALIDATION", "bad pk value", err.Error())
+		return
+	}
+	db, err := s.liveDB(def.DatasourceID)
+	if err != nil {
+		s.writeLiveErr(w, err)
+		return
+	}
+	defer db.Close()
+
+	oldRows, err := fetchRows(db, def, cols, pkVal)
+	if err != nil {
+		writeErr(w, 502, "CONN", "fetch old failed", err.Error())
+		return
+	}
+	if len(oldRows) == 0 {
+		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
+		return
+	}
+	sqlText, err := ds.BuildDeleteByPK(def.SchemaName, def.TableName, def.PKColumn)
+	if err != nil {
+		writeErr(w, 400, "VALIDATION", "bad identifiers", err.Error())
+		return
+	}
+	if _, err := db.Exec(sqlText, pkVal); err != nil {
+		writeErr(w, 502, "CONN", "delete failed", err.Error())
+		return
+	}
+	for _, old := range oldRows {
+		s.auditBestEffort(u, def.ID, "DELETE", fmt.Sprint(old[def.PKColumn]), old, nil)
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "affected": len(oldRows)})
 }

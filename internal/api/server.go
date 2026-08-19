@@ -72,10 +72,10 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/tables/{id}/verify", s.RequireAuth(notImplemented))
 	mux.HandleFunc("POST /api/tables/{id}/resync", s.RequireAuth(notImplemented))
 	mux.HandleFunc("GET /api/tables/{id}/rows", s.RequireAuth(s.handleRowList))
-	mux.HandleFunc("POST /api/tables/{id}/rows", s.RequireAuth(notImplemented))
+	mux.HandleFunc("POST /api/tables/{id}/rows", s.RequireAuth(s.handleRowCreate))
 	mux.HandleFunc("GET /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowGet))
-	mux.HandleFunc("PUT /api/tables/{id}/rows/{pk}", s.RequireAuth(notImplemented))
-	mux.HandleFunc("DELETE /api/tables/{id}/rows/{pk}", s.RequireAuth(notImplemented))
-	mux.HandleFunc("GET /api/audit", s.RequireAuth(notImplemented))
+	mux.HandleFunc("PUT /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowUpdate))
+	mux.HandleFunc("DELETE /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowDelete))
+	mux.HandleFunc("GET /api/audit", s.RequireAuth(s.handleAuditList))
 	return mux
 }

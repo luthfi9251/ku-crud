@@ -97,6 +97,9 @@ func TestBuildInsert(t *testing.T) {
 	if _, _, err := BuildInsert("public", "t", []string{"na me"}); err == nil {
 		t.Fatal("bad identifier accepted")
 	}
+	if _, _, err := BuildInsert("public", "t", nil); err == nil {
+		t.Fatal("empty cols accepted")
+	}
 }
 
 func TestBuildUpdateByPK(t *testing.T) {
@@ -106,6 +109,9 @@ func TestBuildUpdateByPK(t *testing.T) {
 	}
 	if sql != `UPDATE "public"."customers" SET "name"=$1,"active"=$2 WHERE "id"=$3` || n != 2 {
 		t.Fatalf("got %s n=%d", sql, n)
+	}
+	if _, _, err := BuildUpdateByPK("public", "t", "id", nil); err == nil {
+		t.Fatal("empty set cols accepted")
 	}
 }
 

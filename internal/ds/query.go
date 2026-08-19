@@ -111,6 +111,9 @@ func BuildCount(p ListParams) (string, []any, error) {
 }
 
 func BuildInsert(schema, table string, cols []string) (string, int, error) {
+	if len(cols) == 0 {
+		return "", 0, fmt.Errorf("no columns to insert")
+	}
 	tbl, err := qualify(schema, table)
 	if err != nil {
 		return "", 0, err
@@ -128,6 +131,9 @@ func BuildInsert(schema, table string, cols []string) (string, int, error) {
 }
 
 func BuildUpdateByPK(schema, table, pk string, setCols []string) (string, int, error) {
+	if len(setCols) == 0 {
+		return "", 0, fmt.Errorf("no columns to update")
+	}
 	tbl, err := qualify(schema, table)
 	if err != nil {
 		return "", 0, err
