@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -226,7 +226,7 @@ func (s *Server) auditBestEffort(u CtxUser, defID int64, action, rowPK string, o
 		UserID: u.ID, TableDefID: defID, Action: action, RowPK: rowPK,
 		OldValues: oldB, NewValues: newB,
 	}); err != nil {
-		log.Printf("audit write failed (def %d %s pk %s): %v", defID, action, rowPK, err)
+		slog.Warn("audit write failed", "def", defID, "action", action, "rowPk", rowPK, "err", err.Error())
 	}
 }
 
