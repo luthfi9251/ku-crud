@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter, Route, Routes } from "react-router-dom";
 import App from "./App";
 import Login from "./pages/Login";
+import Tables from "./pages/Tables";
+import Datasources from "./pages/Datasources";
 import "./index.css";
 
 const qc = new QueryClient({
@@ -12,10 +14,10 @@ const qc = new QueryClient({
 
 // ponytail: plain stubs for pages landing in Tasks 14-16
 const LoginLazy = Login;
-const TablesLazy = () => <p>Not built yet</p>;
+const TablesLazy = Tables;
 // ponytail: plain table, TanStack Table when column resize/virtualization needed
 const DataLazy = () => <p>Not built yet</p>;
-const DatasourcesLazy = () => <p>Not built yet</p>;
+const DatasourcesLazy = Datasources;
 const AuditLazy = () => <p>Not built yet</p>;
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
