@@ -13,6 +13,7 @@ const qc = new QueryClient({
 // ponytail: plain stubs for pages landing in Tasks 14-16
 const LoginLazy = Login;
 const TablesLazy = () => <p>Not built yet</p>;
+// ponytail: plain table, TanStack Table when column resize/virtualization needed
 const DataLazy = () => <p>Not built yet</p>;
 const DatasourcesLazy = () => <p>Not built yet</p>;
 const AuditLazy = () => <p>Not built yet</p>;
