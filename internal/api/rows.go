@@ -126,7 +126,9 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "CONN", "count failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"rows": out, "total": total, "page": page, "pageSize": def.PageSize})
+	rels := s.buildRels(userFrom(r), cols, out)
+	writeJSON(w, 200, map[string]any{"rows": out, "total": total, "page": page,
+		"pageSize": def.PageSize, "rels": rels})
 }
 
 func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
@@ -167,7 +169,9 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "CONN", "query failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, rowToMap(names, deref(scan)))
+	row := rowToMap(names, deref(scan))
+	rels := s.buildRels(userFrom(r), cols, []map[string]any{row})
+	writeJSON(w, 200, map[string]any{"row": row, "rels": rels})
 }
 
 // editablePayload validates body against editable columns and returns
