@@ -59,3 +59,61 @@ func TestTableDefCRUD(t *testing.T) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
+
+func TestColumnDefFKRoundTrip(t *testing.T) {
+	s := openTest(t)
+	if err := s.CreateDatasource(&Datasource{Name: "d", Host: "h", Port: 1, DBName: "db",
+		Username: "u", Password: "p", SSLMode: "disable"}); err != nil {
+		t.Fatal(err)
+	}
+	parent := &TableDef{DatasourceID: 1, SchemaName: "public", TableName: "customers",
+		Label: "Customers", KeyColumns: []string{"id"}, PageSize: 20}
+	if err := s.SaveTableDef(parent, []ColumnDef{
+		{Name: "id", Label: "ID", FieldType: "number", Editable: false, Required: true,
+			Visible: true, Searchable: true, Sortable: true, Position: 0},
+		{Name: "name", Label: "Name", FieldType: "text", Editable: true, Required: true,
+			Visible: true, Searchable: true, Sortable: true, Position: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// orders.customer_id is an FK to customers.id (plain numeric target id)
+	orders := &TableDef{DatasourceID: 1, SchemaName: "public", TableName: "orders",
+		Label: "Orders", KeyColumns: []string{"id"}, PageSize: 20}
+	cols := []ColumnDef{
+		{Name: "id", Label: "ID", FieldType: "number", Editable: false, Required: true,
+			Visible: true, Position: 0},
+		{Name: "customer_id", Label: "Customer", FieldType: "fk", BaseType: "number",
+			FKTableDefID: parent.ID, FKRefColumn: "id", FKDisplayColumns: []string{"name"},
+			Editable: true, Visible: true, Searchable: true, Sortable: true, Position: 1},
+	}
+	if err := s.SaveTableDef(orders, cols); err != nil {
+		t.Fatal(err)
+	}
+	_, got, err := s.GetTableDef(orders.ID)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("get: %v %+v", err, got)
+	}
+	fk := got[1]
+	if fk.FieldType != "fk" || fk.BaseType != "number" || fk.FKTableDefID != parent.ID ||
+		fk.FKRefColumn != "id" || len(fk.FKDisplayColumns) != 1 || fk.FKDisplayColumns[0] != "name" {
+		t.Fatalf("fk round-trip lost: %+v", fk)
+	}
+
+	// self-reference: categories.parent_id → same def, sent as SelfRef
+	cats := &TableDef{DatasourceID: 1, SchemaName: "public", TableName: "categories",
+		Label: "Categories", KeyColumns: []string{"id"}, PageSize: 20}
+	if err := s.SaveTableDef(cats, []ColumnDef{
+		{Name: "id", Label: "ID", FieldType: "number", Editable: false, Required: true,
+			Visible: true, Position: 0},
+		{Name: "parent_id", Label: "Parent", FieldType: "fk", BaseType: "number",
+			FKTableDefID: SelfRef, FKRefColumn: "id", FKDisplayColumns: []string{"id"},
+			Editable: true, Visible: true, Position: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, got2, _ := s.GetTableDef(cats.ID)
+	if got2[1].FKTableDefID != cats.ID {
+		t.Fatalf("SelfRef not resolved: %+v", got2[1])
+	}
+}
