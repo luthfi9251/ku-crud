@@ -16,3 +16,28 @@ Ketika melakukan checking atas database, nanti akan get schema nya sehingga tau 
 Terdapat fitur login yang simple, dan user disimpan di sqlite, tidak ada hak akses, hanya untuk memproteksi saja.
 
 Jadi pada app ini, nantinya user akan dapat mendefiniskan beberapa datasource, dan kemudian menampilkan beberapa source table yang akan di CRUD kan. Pain poin nya adalah untuk orang yang malas mengedit dari database langsung, bisa pake app ini. TInggal definisikan connection/database kemudian table nya.
+
+
+Fitur v1.1 
+Versi ini fokus pada keamanan dan utility dari Ku-CRUD. Seluruh fungsi core nya akan dipertahankan. Berikut adalah daftar fitur yang akan include pada versi ini
+
+1. Multi user management beserta ROLE
+ROLE default yang akan pasti ada di aplikasi adalah Admin, termasuk setup first user yang akan otomatis menjadi ADMIN.
+ROLE lainya dapat didefinisikan oleh ADMIN beserta hak akses nya pada setiap Fitur. Pada project ini FItur nya akan dibagi menjadi 2 yakni Platform Management dan Table CRUD. 
+- Platform Management -> Artinya user bisa melihat menu untuk manage Datasource, Table & Schema, User Management, dan Audit Trail
+- Table CRUD -> Artinya user bisa melakukan CRUD pada table yang telah didefinisikan. Namun juga ada hak akses spesifik untuk table ini. Seperti Read saja, Read Write, Read Write Update Delete.
+
+User hanya dapat melakukan mempunyai 1 Role saja.
+
+Admin yang berhak mengatur ROLE dan USER yang ada pada aplikasi. First User tidak dapat diubah ataupun didelete. Admin juga dapat melakukan disable user.
+
+2. Support Table yang tidak memiliki PK atau punya Composite Key
+Pada create table & schema saat ini hanya menyediakan opsi untuk PK saja, hal tersebut tidak mengakomodir table yang mungkin punya composite key. Karena PK dalam app ini hanya akan digunakan untuk melakukan update dan delete sebagai syarat Where. Maka perlu ditambahkan fitur untuk memilih key lebih dari 1.
+
+3. Keamanan CRUD
+Halaman CRUD akan ditampilkan ke user non admin, dengan demikian perlu dipastikan bahwa seluruh endpoint yang ada pada Halaman CRUD aman dari SQL Injection. Hal tersebut dapat dilakukan dengan melakukan validasi setiap query seperti searchby, order by, dan lainnya yang menggunakan nama kolom untuk melakukan perbandingan atau validasi dengan schema yang telah disimpan di metadata. Hal tersebut untuk mencegah adanya karakter khusu yang dapat melakukan escape query sql dan menyebabkan sql Injection. Value dari edit row juga perlu di cek.
+
+Selain itu perlu dilakukannya masking atau encrypt ID yang digunakan oleh sqlite, karena masih berupa id angka auto increment. Hal tersebut tentunya jika mudah ditebak, akan dapat diubah ubah oleh user yang dapat menyebabkan security missconfiguration. Gunakan Encryption atau menggunkana base64 untuk menyembunyikan ID, yang terpenting adalah hasilnya tidak terlalu panjang.
+
+4. Enhancement Logging GOlang
+Implementasi logging yang proper, saat ini baik error ataupun success tidak ada log nya. Yang perlu ditampilkan adalah log middleware untuk memperlihatkan request masuk dan waktu eksekusinya. Apabila ada return selain 200, maka silahkan log error nya
