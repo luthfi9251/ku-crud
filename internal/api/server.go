@@ -56,11 +56,11 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/auth/me", s.RequireAuth(s.handleMe))
 
-	mux.HandleFunc("GET /api/datasources", s.RequireAuth(notImplemented))
-	mux.HandleFunc("POST /api/datasources", s.RequireAuth(notImplemented))
-	mux.HandleFunc("PUT /api/datasources/{id}", s.RequireAuth(notImplemented))
-	mux.HandleFunc("DELETE /api/datasources/{id}", s.RequireAuth(notImplemented))
-	mux.HandleFunc("POST /api/datasources/{id}/test", s.RequireAuth(notImplemented))
+	mux.HandleFunc("GET /api/datasources", s.RequireAuth(s.handleDSList))
+	mux.HandleFunc("POST /api/datasources", s.RequireAuth(s.handleDSCreate))
+	mux.HandleFunc("PUT /api/datasources/{id}", s.RequireAuth(s.handleDSUpdate))
+	mux.HandleFunc("DELETE /api/datasources/{id}", s.RequireAuth(s.handleDSDelete))
+	mux.HandleFunc("POST /api/datasources/{id}/test", s.RequireAuth(s.handleDSTest))
 	mux.HandleFunc("GET /api/datasources/{id}/tables", s.RequireAuth(notImplemented))
 	mux.HandleFunc("GET /api/datasources/{id}/tables/{schema}/{table}/columns", s.RequireAuth(notImplemented))
 

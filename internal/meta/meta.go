@@ -4,10 +4,13 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	_ "modernc.org/sqlite"
 )
+
+var ErrNotFound = errors.New("not found")
 
 type Store struct {
 	db   *sql.DB
