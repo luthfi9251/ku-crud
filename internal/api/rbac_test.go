@@ -154,12 +154,32 @@ func TestTableGrantMatrix(t *testing.T) {
 		t.Fatalf("editor rows = %d", w.Code)
 	}
 
-	// platform users see everything with full perms
+	// platform users see every definition (they manage them) but their
+	// permissions object reflects grants — row CRUD still 403s without one
 	plat := loginAs(t, s, "plat2", &meta.Role{Name: "Plat2", PlatformManage: true}, nil)
 	w = do(s, "GET", "/api/tables", "", plat)
 	json.Unmarshal(w.Body.Bytes(), &list)
-	if len(list) != 1 || list[0]["permissions"].(map[string]any)["delete"] != true {
-		t.Fatalf("platform list=%v", list)
+	if len(list) != 1 {
+		t.Fatalf("platform def visibility: got %d defs", len(list))
+	}
+	permsNoGrant := list[0]["permissions"].(map[string]any)
+	if permsNoGrant["read"] != false || permsNoGrant["delete"] != false {
+		t.Fatalf("platform without grants perms=%v", permsNoGrant)
+	}
+	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows", "", plat); w.Code != 403 {
+		t.Fatalf("platform rows without grant = %d", w.Code)
+	}
+	// platform role WITH a grant behaves per that grant
+	platRW := loginAs(t, s, "plat3", &meta.Role{Name: "Plat3", PlatformManage: true},
+		[]meta.TableGrant{{TableDefID: 1, CanRead: true, CanDelete: true}})
+	w = do(s, "GET", "/api/tables", "", platRW)
+	json.Unmarshal(w.Body.Bytes(), &list)
+	if len(list) != 1 {
+		t.Fatalf("platform+grant list=%d", len(list))
+	}
+	permsGrant := list[0]["permissions"].(map[string]any)
+	if permsGrant["read"] != true || permsGrant["delete"] != true || permsGrant["create"] != false {
+		t.Fatalf("platform+grant perms=%v", permsGrant)
 	}
 }
 

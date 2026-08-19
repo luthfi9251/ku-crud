@@ -151,7 +151,7 @@ export function Sidebar({ className }: SidebarProps) {
           {defs.isLoading && !collapsed && (
             <div className="px-3 py-2 text-xs text-sidebar-foreground/40 italic">Loading tables...</div>
           )}
-          {(defs.data ?? []).map((table) => {
+          {(defs.data ?? []).filter((t) => t.permissions?.read).map((table) => {
             const tablePath = `/data/${table.id}`;
             const isActive = location.pathname === tablePath;
             return (

@@ -88,10 +88,12 @@ func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDT
 	return dto
 }
 
-// tablePerms resolves the caller's grants for a table def. Admin and
-// platform managers get full access; custom roles use stored grants.
+// tablePerms resolves the caller's grants for a table def. Only Admin has
+// implicit full access; everyone else (including platform managers) needs
+// stored per-table grants — platform management and table CRUD are separate
+// permission dimensions.
 func (s *Server) tablePerms(u CtxUser, defID int64) permsDTO {
-	if u.IsAdmin || u.PlatformManage {
+	if u.IsAdmin {
 		return permsDTO{true, true, true, true}
 	}
 	g, err := s.store.GrantsFor(u.RoleID, defID)
@@ -103,7 +105,7 @@ func (s *Server) tablePerms(u CtxUser, defID int64) permsDTO {
 
 // hasTablePerm checks one row action ("read"|"create"|"update"|"delete").
 func (s *Server) hasTablePerm(u CtxUser, defID int64, action string) bool {
-	if u.IsAdmin || u.PlatformManage {
+	if u.IsAdmin {
 		return true
 	}
 	g, err := s.store.GrantsFor(u.RoleID, defID)
@@ -210,8 +212,11 @@ func (s *Server) handleTableList(w http.ResponseWriter, r *http.Request) {
 	out := []tableDefDTO{}
 	for i := range list {
 		p := s.tablePerms(u, list[i].ID)
-		if !p.Read {
-			continue // hidden: no read grant (platform/admin always pass)
+		// Platform users see every definition (they manage them); everyone
+		// else only sees tables they can read. The permissions object always
+		// reflects actual row-CRUD grants.
+		if !u.PlatformManage && !p.Read {
+			continue
 		}
 		out = append(out, s.toTableDTO(&list[i], nil, p))
 	}
@@ -251,7 +256,7 @@ func (s *Server) handleTableGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := s.tablePerms(u, def.ID)
-	if !p.Read {
+	if !u.PlatformManage && !p.Read {
 		writeErr(w, 403, "FORBIDDEN", "no access to this table", nil)
 		return
 	}
