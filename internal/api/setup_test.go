@@ -15,7 +15,11 @@ func newTestServerNoUser(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	return New(store)
+	srv, err := New(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return srv
 }
 
 func TestSetupStatusNeeded(t *testing.T) {

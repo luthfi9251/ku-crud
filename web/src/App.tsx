@@ -1,6 +1,6 @@
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./components/Sidebar";
-import { Table2, Server, ShieldCheck, Database, Layers } from "lucide-react";
+import { Table2, Server, ShieldCheck, Database, Layers, Users as UsersIcon, KeyRound } from "lucide-react";
 
 export default function App() {
   const location = useLocation();
@@ -18,6 +18,10 @@ export default function App() {
       return { title: "Datasources", subtitle: "Manage database connection pools", icon: Server };
     } else if (path === "/audit") {
       return { title: "Audit Trail", subtitle: "Track database mutation logs and diffs", icon: ShieldCheck };
+    } else if (path === "/users") {
+      return { title: "User Management", subtitle: "Manage login accounts and role assignment", icon: UsersIcon };
+    } else if (path === "/roles") {
+      return { title: "Roles & Access", subtitle: "Define platform and per-table permissions", icon: KeyRound };
     } else if (path.startsWith("/data/")) {
       return { title: "Data Explorer", subtitle: "Live table CRUD administration", icon: Layers };
     }

@@ -20,7 +20,7 @@ export default function Datasources() {
   const [editing, setEditing] = useState<Datasource | null>(null);
   const [form, setForm] = useState({ ...empty });
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [testingId, setTestingId] = useState<number | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
 
   const save = useMutation({
     mutationFn: () => {
@@ -38,7 +38,7 @@ export default function Datasources() {
   });
 
   const test = useMutation({
-    mutationFn: (id: number) => {
+    mutationFn: (id: string) => {
       setTestingId(id);
       return api(`/datasources/${id}/test`, { method: "POST" });
     },

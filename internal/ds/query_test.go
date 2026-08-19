@@ -33,7 +33,7 @@ func TestBuildList(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `SELECT "id","name","status" FROM "public"."customers" ` +
-		`WHERE ("name"::text ILIKE $1 OR "status"::text ILIKE $2) ` +
+		`WHERE ("name"::text ILIKE $1 ESCAPE '\' OR "status"::text ILIKE $2 ESCAPE '\') ` +
 		`ORDER BY "name" DESC LIMIT $3 OFFSET $4`
 	if sql != want {
 		t.Fatalf("\n got: %s\nwant: %s", sql, want)
@@ -80,7 +80,7 @@ func TestBuildCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sql != `SELECT COUNT(*) FROM "public"."t" WHERE ("id"::text ILIKE $1)` ||
+	if sql != `SELECT COUNT(*) FROM "public"."t" WHERE ("id"::text ILIKE $1 ESCAPE '\')` ||
 		!reflect.DeepEqual(args, []any{"%x%"}) {
 		t.Fatalf("got %s %v", sql, args)
 	}
@@ -103,34 +103,81 @@ func TestBuildInsert(t *testing.T) {
 }
 
 func TestBuildUpdateByPK(t *testing.T) {
-	sql, n, err := BuildUpdateByPK("public", "customers", "id", []string{"name", "active"})
+	sql, n, err := BuildUpdateByKey("public", "customers", []string{"name", "active"}, []string{"id"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sql != `UPDATE "public"."customers" SET "name"=$1,"active"=$2 WHERE "id"=$3` || n != 2 {
 		t.Fatalf("got %s n=%d", sql, n)
 	}
-	if _, _, err := BuildUpdateByPK("public", "t", "id", nil); err == nil {
+	if _, _, err := BuildUpdateByKey("public", "t", nil, []string{"id"}); err == nil {
 		t.Fatal("empty set cols accepted")
 	}
 }
 
+func TestBuildUpdateByCompositeKey(t *testing.T) {
+	sql, n, err := BuildUpdateByKey("public", "order_items", []string{"qty", "note"}, []string{"order_id", "item_id"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `UPDATE "public"."order_items" SET "qty"=$1,"note"=$2 WHERE "order_id"=$3 AND "item_id"=$4`
+	if sql != want || n != 2 {
+		t.Fatalf("\n got: %s n=%d\nwant: %s", sql, n, want)
+	}
+	// injection attempt in key column rejected
+	if _, _, err := BuildUpdateByKey("public", "t", []string{"a"}, []string{"id; DROP TABLE x"}); err == nil {
+		t.Fatal("key injection accepted")
+	}
+	if _, _, err := BuildUpdateByKey("public", "t", []string{"a"}, nil); err == nil {
+		t.Fatal("empty key accepted")
+	}
+}
+
 func TestBuildDeleteByPK(t *testing.T) {
-	sql, err := BuildDeleteByPK("public", "customers", "id")
+	sql, err := BuildDeleteByKey("public", "customers", []string{"id"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sql != `DELETE FROM "public"."customers" WHERE "id"=$1` {
 		t.Fatalf("got %s", sql)
 	}
+	sql, err = BuildDeleteByKey("public", "order_items", []string{"order_id", "item_id"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sql != `DELETE FROM "public"."order_items" WHERE "order_id"=$1 AND "item_id"=$2` {
+		t.Fatalf("got %s", sql)
+	}
 }
 
 func TestBuildFetchByPK(t *testing.T) {
-	sql, err := BuildFetchByPK("public", "customers", "id", []string{"id", "name"})
+	sql, err := BuildFetchByKey("public", "customers", []string{"id"}, []string{"id", "name"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sql != `SELECT "id","name" FROM "public"."customers" WHERE "id"=$1` {
 		t.Fatalf("got %s", sql)
+	}
+	sql, err = BuildFetchByKey("public", "order_items", []string{"a", "b"}, []string{"a", "b", "c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sql != `SELECT "a","b","c" FROM "public"."order_items" WHERE "a"=$1 AND "b"=$2` {
+		t.Fatalf("got %s", sql)
+	}
+}
+
+func TestSearchLikeEscaping(t *testing.T) {
+	p := ListParams{Schema: "public", Table: "t", Columns: []string{"id"},
+		Searchable: []string{"id"}, Search: `50%_off\`, SortCol: "id", SortDir: "ASC"}
+	sql, args, err := BuildList(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, `ILIKE $1 ESCAPE '\'`) {
+		t.Fatalf("missing ESCAPE clause: %s", sql)
+	}
+	if !reflect.DeepEqual(args[:1], []any{`%50\%\_off\\%`}) {
+		t.Fatalf("args=%q", args[0])
 	}
 }

@@ -3,8 +3,9 @@ package main
 import (
 	"flag"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 
 	"ku-crud/internal/api"
 	"ku-crud/internal/meta"
@@ -19,17 +20,29 @@ func main() {
 	data := flag.String("data", "ku-crud.db", "sqlite metadata path")
 	flag.Parse()
 
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
 	store, err := meta.Open(*data)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("metadata store failed", "err", err.Error())
+		os.Exit(1)
 	}
-	mux := api.New(store).Routes()
+	srv, err := api.New(store)
+	if err != nil {
+		slog.Error("server init failed", "err", err.Error())
+		os.Exit(1)
+	}
+	mux := srv.Routes()
 	static, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("embedded SPA missing", "err", err.Error())
+		os.Exit(1)
 	}
 	mux.Handle("/", http.FileServer(http.FS(static)))
 
-	log.Printf("ku-crud listening on %s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, mux))
+	slog.Info("ku-crud listening", "addr", *addr)
+	if err := http.ListenAndServe(*addr, srv.WithLogging(mux)); err != nil {
+		slog.Error("server stopped", "err", err.Error())
+		os.Exit(1)
+	}
 }

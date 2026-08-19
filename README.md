@@ -21,16 +21,24 @@ and CRUD away.
 
 1. **Datasources** — register Postgres databases (host/port/db/user/password/sslmode).
 2. **Table definitions** — a 3-step wizard introspects a live table (columns, types,
-   PK, enums) and lets you tune labels, editability, visibility, search/sort flags,
-   and the page size. Ku-CRUD never runs DDL — it only reads `information_schema`.
+   keys, enums) and lets you tune labels, editability, visibility, search/sort flags,
+   and the page size. Keys can be a single column or a **composite key** (they are
+   only used as the update/delete WHERE predicate, so they don't have to be the
+   real Postgres PK — but at least one key column is required). Ku-CRUD never runs
+   DDL — it only reads `information_schema`.
 3. **CRUD** — each definition gets a data grid with search, sort, pagination, and
    row create/edit/delete. All SQL is fully parameterized; identifiers are validated
-   against a strict allowlist (`^[A-Za-z_][A-Za-z0-9_]*$`) before quoting.
+   against a strict allowlist (`^[A-Za-z_][A-Za-z0-9_]*$`) before quoting, and row
+   keys travel in URLs as an opaque encoding.
 4. **Drift detection** — on page visit, the live schema is compared to the definition
    (`GET /api/tables/{id}/verify`). On drift the UI shows a red banner listing
    missing/added/type-changed columns with a one-click **Re-sync**.
 5. **Audit trail** — every insert/update/delete writes best-effort audit rows
-   (user, action, row PK, old/new values) viewable at `/audit`.
+   (user, action, row key, old/new values) viewable at `/audit`.
+6. **Roles & users** — the first user becomes the builtin **Admin**. Admins define
+   custom roles: a *Platform Management* bundle (datasources, table definitions,
+   audit trail) plus independent read/create/update/delete grants per table.
+   User & role management is admin-only; the first user is immutable.
 
 Supported column types: `boolean`, `number` (int/float/numeric), `text`,
 `datetime` (date/time/timestamp), and native Postgres `enum`. Arrays, JSON,
@@ -51,9 +59,9 @@ On a fresh instance the UI redirects to `/setup`, which calls two unauthenticate
 endpoints that only work while no user exists:
 
 - `GET /api/setup/status` → `{"needed":true|false}`
-- `POST /api/setup` `{username,password}` — atomically creates the first user;
-  permanently returns **403** once any user exists (no HTTP path to create a
-  second user).
+- `POST /api/setup` `{username,password}` — atomically creates the first user
+  (the immutable, all-powerful **Admin**); permanently returns **403** once any
+  user exists (no HTTP path to create a second user this way).
 
 The CLI alternative is `cmd/seed-admin` (also the recovery tool if you ever
 lock yourself out):
@@ -68,18 +76,46 @@ Sessions: HMAC-SHA256 signed cookie `ku_session`, 24h expiry, HttpOnly +
 SameSite=Lax. The signing secret is generated once and stored in the SQLite
 metadata file.
 
+## Upgrading from v1.0
+
+Replace the binary and restart — schema migrations run automatically on
+startup. The v1.1 migration assigns every pre-existing user the builtin
+**Admin** role and flags the earliest user as the immutable first user;
+single-PK definitions are migrated to the new `keyColumns` form (no change
+in behavior).
+
 ## Security notes
 
 - Datasource passwords are stored PLAINTEXT in the SQLite metadata file. Anyone who
   can read ku-crud.db can read those passwords — protect the file (file permissions).
-- Auth is single-tier: every logged-in user can do everything. There are no roles.
+- **RBAC**: users hold exactly one role. The builtin Admin role implicitly has
+  every permission (full platform access and full CRUD on all tables). Custom
+  roles combine the Platform Management bundle (datasources + table definitions
+  + audit trail) with independent read/create/update/delete grants per table.
+  User and role management is Admin-only. Disabled users are rejected at login
+  and on every request.
+- **Masked ids**: every entity id crossing the API boundary (datasources, table
+  definitions, users, roles, audit entries) is an opaque 11-char token — a
+  keyed Feistel permutation of the numeric id (HMAC-SHA256 round function,
+  secret stored in the metadata file). Tokens are deterministic, unforgeable,
+  and not decodable into a chosen id; raw numeric ids simply 404.
 - Ku-CRUD never runs DDL. All changes go through parameterized SQL with strict
-  identifier validation.
+  identifier validation. Search input has LIKE wildcards escaped; sort columns
+  are checked against the stored definition.
+- The first user cannot be modified or deleted through the API.
+  `cmd/seed-admin` remains the CLI recovery path.
 - Bind to localhost or a private interface if the app is not behind an
   authenticated proxy (see Deployment).
-- The session cookie is not marked `Secure` (v1 targets plain HTTP on a trusted
+- The session cookie is not marked `Secure` (targets plain HTTP on a trusted
   network). If you terminate TLS in front of Ku-CRUD, add the `Secure` attribute
   in `internal/api/auth.go` before exposing it publicly.
+
+## Logging
+
+The server logs JSON lines (Go `log/slog`) to stdout: one access line per
+request with method, path, status and duration; 4xx responses are logged at
+WARN and 5xx at ERROR including the application error code and message.
+Under systemd, follow with `journalctl -u ku-crud -f`.
 
 ## Development
 
@@ -93,13 +129,15 @@ metadata file.
 
     cmd/main.go            server entry: flags, serves the API + embedded SPA
                            (go run ./cmd/main.go)
-    cmd/seed-admin/        create a login user in the metadata store
-    internal/meta/         SQLite metadata store: migrations, users, datasources,
-                           table defs, audit
+    cmd/seed-admin/        create an admin login user in the metadata store
+    internal/meta/         SQLite metadata store: migrations, users, roles,
+                           datasources, table defs, audit
     internal/ds/           Postgres: DSN/connect, introspection, drift compare,
                            query builders (QuoteIdent + fully parameterized SQL)
-    internal/api/          HTTP handlers: auth, datasources, table defs, rows,
-                           drift, audit
+    internal/tokenid/      masked id codec (Feistel-HMAC, 11-char tokens)
+    internal/api/          HTTP handlers: auth, RBAC gates, datasources,
+                           table defs, rows, users, roles, audit, logging
+                           middleware
     web/                   React + Vite + TypeScript + Tailwind v3 + shadcn/ui
     web/embed.go           go:embed of web/dist (lives next to the embedded dir —
                            embed cannot reach parent directories)
@@ -248,7 +286,8 @@ Security notes).
 - **Upgrades** — replace the binary and restart. Schema migrations run
   automatically and idempotently on startup. Keep a copy of the old binary and
   a metadata backup before upgrading.
-- **Logs** — stdout/stderr via journald (`journalctl -u ku-crud -f`). Audit
-  write failures are logged here and never block a CRUD action.
+- **Logs** — JSON via stdout and journald (`journalctl -u ku-crud -f`): request
+  access lines with durations, errors for non-2xx responses. Audit write
+  failures are logged here and never block a CRUD action.
 - **Firewall** — allow the app outbound access to your Postgres ports; restrict
   inbound access to the proxy / trusted networks only.

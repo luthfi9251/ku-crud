@@ -22,7 +22,7 @@ func TestVerifyAndResync(t *testing.T) {
 	seedLive(t, s)
 
 	// no drift → ok
-	w := do(s, "GET", "/api/tables/1/verify", "", c)
+	w := do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/verify", "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"ok":true`) {
 		t.Fatalf("verify = %d %s", w.Code, w.Body)
 	}
@@ -34,18 +34,18 @@ func TestVerifyAndResync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	w = do(s, "GET", "/api/tables/1/verify", "", c)
+	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/verify", "", c)
 	if w.Code != 409 || !strings.Contains(w.Body.String(), `"DRIFT"`) ||
 		!strings.Contains(w.Body.String(), "born") {
 		t.Fatalf("verify drift = %d %s", w.Code, w.Body)
 	}
 
 	// resync fixes it
-	w = do(s, "POST", "/api/tables/1/resync", "", c)
+	w = do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/resync", "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "born2") {
 		t.Fatalf("resync = %d %s", w.Code, w.Body)
 	}
-	w = do(s, "GET", "/api/tables/1/verify", "", c)
+	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/verify", "", c)
 	if w.Code != 200 {
 		t.Fatalf("verify after resync = %d %s", w.Code, w.Body)
 	}

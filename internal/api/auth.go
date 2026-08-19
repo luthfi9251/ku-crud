@@ -59,14 +59,41 @@ func (s *Server) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, 401, "AUTH", "invalid or expired session", nil)
 			return
 		}
-		uid, ok, err := s.store.UserID(username)
-		if err != nil || !ok {
-			writeErr(w, 401, "AUTH", "unknown user", nil)
+		u, ok, err := s.store.GetUserContext(username)
+		if err != nil {
+			writeErr(w, 500, "INTERNAL", "server error", nil)
 			return
 		}
-		ctx := context.WithValue(r.Context(), ctxUserKey, CtxUser{ID: uid, Username: username})
+		if !ok {
+			writeErr(w, 401, "AUTH", "unknown or disabled user", nil)
+			return
+		}
+		ctx := context.WithValue(r.Context(), ctxUserKey, u)
 		next(w, r.WithContext(ctx))
 	}
+}
+
+// RequirePlatform gates Platform Management (datasources, table definitions,
+// audit). Admin passes implicitly (Admin role has platform_manage=1).
+func (s *Server) RequirePlatform(next http.HandlerFunc) http.HandlerFunc {
+	return s.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		if !userFrom(r).PlatformManage {
+			writeErr(w, 403, "FORBIDDEN", "platform management requires a role with platform access", nil)
+			return
+		}
+		next(w, r)
+	})
+}
+
+// RequireAdmin gates user & role management (builtin Admin only).
+func (s *Server) RequireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return s.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		if !userFrom(r).IsAdmin {
+			writeErr(w, 403, "FORBIDDEN", "admin role required", nil)
+			return
+		}
+		next(w, r)
+	})
 }
 
 func userFrom(r *http.Request) CtxUser {
@@ -109,5 +136,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
-	writeJSON(w, 200, map[string]string{"username": u.Username})
+	writeJSON(w, 200, map[string]any{
+		"username": u.Username, "isAdmin": u.IsAdmin, "platformManage": u.PlatformManage,
+	})
 }

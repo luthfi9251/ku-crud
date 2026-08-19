@@ -37,7 +37,7 @@ export default function TableForm() {
   const [tableName, setTableName] = useState("");
   const [label, setLabel] = useState("");
   const [pageSize, setPageSize] = useState(20);
-  const [pk, setPk] = useState("");
+  const [keys, setKeys] = useState<string[]>([]);
   const [cols, setCols] = useState<FormCol[]>([]);
 
   // Existing definition query for Edit mode
@@ -76,7 +76,7 @@ export default function TableForm() {
       setTableName(d.tableName);
       setLabel(d.label);
       setPageSize(d.pageSize);
-      setPk(d.pkColumn);
+      setKeys(d.keyColumns ?? []);
       setCols(d.columns);
     }
   }, [isEditing, existingDef.data]);
@@ -85,7 +85,7 @@ export default function TableForm() {
   useEffect(() => {
     if (!isEditing && liveCols.data && liveCols.data.length > 0) {
       setLabel((prev) => prev || tableName.charAt(0).toUpperCase() + tableName.slice(1));
-      setPk((prev) => prev || liveCols.data.find((c) => c.isPk)?.name || "");
+      setKeys((prev) => (prev.length ? prev : liveCols.data.filter((c) => c.isPk).map((c) => c.name)));
       setCols(
         liveCols.data.map((c, i) => ({
           name: c.name,
@@ -110,11 +110,11 @@ export default function TableForm() {
   const save = useMutation({
     mutationFn: () => {
       const body = JSON.stringify({
-        datasourceId: Number(dsId),
+        datasourceId: dsId,
         schemaName: schema,
         tableName: tableName,
         label,
-        pkColumn: pk,
+        keyColumns: keys,
         pageSize,
         columns: cols.map(({ livePk: _lp, ...c }) => c),
       });
@@ -130,7 +130,9 @@ export default function TableForm() {
 
   const step1Complete = !!dsId;
   const step2Complete = step1Complete && !!schema && !!tableName;
-  const pkValid = pk && cols.some((c) => c.name === pk);
+  const keysValid = keys.length > 0 && keys.every((k) => cols.some((c) => c.name === k));
+  const toggleKey = (name: string) =>
+    setKeys((prev) => (prev.includes(name) ? prev.filter((k) => k !== name) : [...prev, name]));
 
   if (isEditing && existingDef.isLoading) {
     return (
@@ -169,7 +171,7 @@ export default function TableForm() {
             </Button>
           </Link>
           <Button
-            disabled={!step2Complete || !pkValid || save.isPending}
+            disabled={!step2Complete || !keysValid || save.isPending}
             onClick={() => save.mutate()}
             className="h-9 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1.5 text-xs"
           >
@@ -293,12 +295,12 @@ export default function TableForm() {
         <CardHeader className="pb-3 border-b">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${pkValid ? "bg-emerald-500/10 text-emerald-500" : "bg-blue-500/10 text-blue-500"}`}>
+              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${keysValid ? "bg-emerald-500/10 text-emerald-500" : "bg-blue-500/10 text-blue-500"}`}>
                 <Layers className="h-4 w-4" />
               </div>
               <div>
                 <CardTitle className="text-sm font-semibold">Step 3: Configure Columns & Display Parameters</CardTitle>
-                <CardDescription className="text-xs">Set display label, primary key, and column property switches</CardDescription>
+                <CardDescription className="text-xs">Set display label, key column(s), and column property switches</CardDescription>
               </div>
             </div>
             {!step2Complete && (
@@ -338,7 +340,7 @@ export default function TableForm() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
-                      <TableHead className="w-12 text-center">PK</TableHead>
+                      <TableHead className="w-12 text-center" title="Composite key for update/delete WHERE">Key</TableHead>
                       <TableHead>Column Name</TableHead>
                       <TableHead className="w-48">Display Label</TableHead>
                       <TableHead className="w-36">Field Type</TableHead>
@@ -361,11 +363,11 @@ export default function TableForm() {
                         <TableRow key={c.name} className="hover:bg-muted/20">
                           <TableCell className="text-center">
                             <input
-                              type="radio"
-                              name="pk"
+                              type="checkbox"
                               className="h-4 w-4 accent-blue-600 cursor-pointer"
-                              checked={pk === c.name}
-                              onChange={() => setPk(c.name)}
+                              checked={keys.includes(c.name)}
+                              onChange={() => toggleKey(c.name)}
+                              title="Use as key column (update/delete WHERE)"
                             />
                           </TableCell>
                           <TableCell className="font-mono text-xs font-medium">{c.name}</TableCell>
@@ -456,12 +458,12 @@ export default function TableForm() {
                 <Button variant="outline">Cancel</Button>
               </Link>
               <Button
-                disabled={!step2Complete || !pkValid || save.isPending}
+                disabled={!step2Complete || !keysValid || save.isPending}
                 onClick={() => save.mutate()}
                 className="bg-blue-600 text-white hover:bg-blue-700 gap-1.5"
               >
                 <Save className="h-4 w-4" />
-                {save.isPending ? "Saving..." : isEditing ? "Save Changes" : pkValid ? "Create Table Definition" : "Select Primary Key"}
+                {save.isPending ? "Saving..." : isEditing ? "Save Changes" : keysValid ? "Create Table Definition" : "Select at Least One Key Column"}
               </Button>
             </div>
           </fieldset>

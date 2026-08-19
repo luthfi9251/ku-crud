@@ -56,6 +56,32 @@ CREATE TABLE audit(
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);
 `,
 	`ALTER TABLE datasources ADD COLUMN raw TEXT NOT NULL DEFAULT '';`,
+	// v1.1: roles & per-table grants, user flags, composite key columns.
+	// Every pre-existing user becomes Admin (id 1); pk_column migrates into
+	// a key_columns JSON array. No FK on users.role_id: SQLite cannot ADD
+	// COLUMN with REFERENCES and a non-NULL default; integrity is app-managed.
+	`CREATE TABLE roles(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  is_admin INTEGER NOT NULL DEFAULT 0,
+  platform_manage INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);
+INSERT INTO roles(id,name,is_admin,platform_manage) VALUES(1,'Admin',1,1);
+ALTER TABLE users ADD COLUMN role_id INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN is_first INTEGER NOT NULL DEFAULT 0;
+UPDATE users SET is_first=1 WHERE id=(SELECT MIN(id) FROM users);
+CREATE TABLE role_table_grants(
+  role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  table_def_id INTEGER NOT NULL REFERENCES table_defs(id) ON DELETE CASCADE,
+  can_read INTEGER NOT NULL DEFAULT 0,
+  can_create INTEGER NOT NULL DEFAULT 0,
+  can_update INTEGER NOT NULL DEFAULT 0,
+  can_delete INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(role_id,table_def_id));
+ALTER TABLE table_defs ADD COLUMN key_columns TEXT NOT NULL DEFAULT '[]';
+UPDATE table_defs SET key_columns=json_array(pk_column);
+ALTER TABLE table_defs DROP COLUMN pk_column;`,
 }
 
 func Open(path string) (*Store, error) {
@@ -136,7 +162,16 @@ func (s *Store) SetSetting(key, value string) error {
 
 // SessionSecret returns the HMAC secret, generating a random one on first call.
 func (s *Store) SessionSecret() ([]byte, error) {
-	if v, ok, err := s.Setting("session_secret"); err != nil {
+	return s.secretSetting("session_secret")
+}
+
+// IDSecret returns the id-token secret, generating a random one on first call.
+func (s *Store) IDSecret() ([]byte, error) {
+	return s.secretSetting("id_secret")
+}
+
+func (s *Store) secretSetting(key string) ([]byte, error) {
+	if v, ok, err := s.Setting(key); err != nil {
 		return nil, err
 	} else if ok {
 		return []byte(v), nil
@@ -146,7 +181,7 @@ func (s *Store) SessionSecret() ([]byte, error) {
 		return nil, err
 	}
 	hx := hex.EncodeToString(b)
-	if err := s.SetSetting("session_secret", hx); err != nil {
+	if err := s.SetSetting(key, hx); err != nil {
 		return nil, err
 	}
 	return []byte(hx), nil

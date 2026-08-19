@@ -51,5 +51,5 @@ func main() {
 	if err := store.CreateUser(*username, string(pw)); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("user created")
+	fmt.Println("admin user created")
 }

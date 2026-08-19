@@ -50,7 +50,17 @@ type ListParams struct {
 	Limit, Offset    int
 }
 
-// searchWhere builds " WHERE (col::text ILIKE $n OR ...)" plus its args.
+// escapeLike neutralizes LIKE wildcards in user search input so "%"/"_" in a
+// search term match literally (values are already parameterized; this fixes
+// match semantics, not injection).
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
+// searchWhere builds " WHERE (col::text ILIKE $n ESCAPE '\' OR ...)" plus its args.
 // One placeholder per searchable column (Postgres allows re-using $n, but
 // distinct numbering keeps arg order trivially aligned).
 func searchWhere(searchable []string, search string, start int) (string, []any, int) {
@@ -64,8 +74,8 @@ func searchWhere(searchable []string, search string, start int) (string, []any, 
 	likes := make([]string, len(qs))
 	args := make([]any, len(qs))
 	for i, q := range qs {
-		likes[i] = fmt.Sprintf("%s::text ILIKE $%d", q, start+i)
-		args[i] = "%" + search + "%"
+		likes[i] = fmt.Sprintf("%s::text ILIKE $%d ESCAPE '\\'", q, start+i)
+		args[i] = "%" + escapeLike(search) + "%"
 	}
 	return " WHERE (" + strings.Join(likes, " OR ") + ")", args, start + len(qs)
 }
@@ -130,15 +140,30 @@ func BuildInsert(schema, table string, cols []string) (string, int, error) {
 		strings.Join(ph, ",") + ")", len(cols), nil
 }
 
-func BuildUpdateByPK(schema, table, pk string, setCols []string) (string, int, error) {
+// keyWhere builds the WHERE clause for one or more key columns:
+// ` WHERE "a"=$n AND "b"=$n+1`. Key columns can be a composite key — the key
+// set is chosen at definition time and used purely as the update/delete
+// predicate, so it does not have to be the real Postgres PK.
+func keyWhere(keyCols []string, start int) (string, error) {
+	if len(keyCols) == 0 {
+		return "", fmt.Errorf("no key columns")
+	}
+	qs, err := quoteAll(keyCols)
+	if err != nil {
+		return "", err
+	}
+	parts := make([]string, len(qs))
+	for i, q := range qs {
+		parts[i] = fmt.Sprintf("%s=$%d", q, start+i)
+	}
+	return " WHERE " + strings.Join(parts, " AND "), nil
+}
+
+func BuildUpdateByKey(schema, table string, setCols []string, keyCols []string) (string, int, error) {
 	if len(setCols) == 0 {
 		return "", 0, fmt.Errorf("no columns to update")
 	}
 	tbl, err := qualify(schema, table)
-	if err != nil {
-		return "", 0, err
-	}
-	qpk, err := QuoteIdent(pk)
 	if err != nil {
 		return "", 0, err
 	}
@@ -150,28 +175,27 @@ func BuildUpdateByPK(schema, table, pk string, setCols []string) (string, int, e
 	for i, q := range qs {
 		sets[i] = fmt.Sprintf("%s=$%d", q, i+1)
 	}
-	return "UPDATE " + tbl + " SET " + strings.Join(sets, ",") +
-		fmt.Sprintf(" WHERE %s=$%d", qpk, len(setCols)+1), len(setCols), nil
+	kw, err := keyWhere(keyCols, len(setCols)+1)
+	if err != nil {
+		return "", 0, err
+	}
+	return "UPDATE " + tbl + " SET " + strings.Join(sets, ",") + kw, len(setCols), nil
 }
 
-func BuildDeleteByPK(schema, table, pk string) (string, error) {
+func BuildDeleteByKey(schema, table string, keyCols []string) (string, error) {
 	tbl, err := qualify(schema, table)
 	if err != nil {
 		return "", err
 	}
-	qpk, err := QuoteIdent(pk)
+	kw, err := keyWhere(keyCols, 1)
 	if err != nil {
 		return "", err
 	}
-	return "DELETE FROM " + tbl + fmt.Sprintf(" WHERE %s=$1", qpk), nil
+	return "DELETE FROM " + tbl + kw, nil
 }
 
-func BuildFetchByPK(schema, table, pk string, columns []string) (string, error) {
+func BuildFetchByKey(schema, table string, keyCols []string, columns []string) (string, error) {
 	tbl, err := qualify(schema, table)
-	if err != nil {
-		return "", err
-	}
-	qpk, err := QuoteIdent(pk)
 	if err != nil {
 		return "", err
 	}
@@ -179,6 +203,9 @@ func BuildFetchByPK(schema, table, pk string, columns []string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	return "SELECT " + strings.Join(qs, ",") + " FROM " + tbl +
-		fmt.Sprintf(" WHERE %s=$1", qpk), nil
+	kw, err := keyWhere(keyCols, 1)
+	if err != nil {
+		return "", err
+	}
+	return "SELECT " + strings.Join(qs, ",") + " FROM " + tbl + kw, nil
 }

@@ -12,7 +12,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { api } from "../lib/api";
-import type { Datasource, TableDef } from "../lib/types";
+import type { Datasource, Me, TableDef } from "../lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +22,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 export default function Tables() {
   const qc = useQueryClient();
   const defs = useQuery({ queryKey: ["defs"], queryFn: () => api<TableDef[]>("/tables") });
-  const dsList = useQuery({ queryKey: ["ds"], queryFn: () => api<Datasource[]>("/datasources") });
+  const me = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/auth/me") });
+  const canPlatform = !!me.data?.platformManage;
+  const dsList = useQuery({ queryKey: ["ds"], queryFn: () => api<Datasource[]>("/datasources"), enabled: canPlatform });
   const [search, setSearch] = useState("");
 
   const filteredDefs = (defs.data ?? []).filter(
@@ -92,11 +94,13 @@ export default function Tables() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <Link to="/tables/new">
-              <Button className="bg-blue-600 text-white hover:bg-blue-700 shadow-xs">
-                <Plus className="h-4 w-4 mr-1.5" /> Add Table
-              </Button>
-            </Link>
+            {canPlatform && (
+              <Link to="/tables/new">
+                <Button className="bg-blue-600 text-white hover:bg-blue-700 shadow-xs">
+                  <Plus className="h-4 w-4 mr-1.5" /> Add Table
+                </Button>
+              </Link>
+            )}
           </div>
         </CardHeader>
 
@@ -106,7 +110,7 @@ export default function Tables() {
               <TableRow className="bg-muted/40 hover:bg-muted/40">
                 <TableHead className="w-[30%]">Display Label</TableHead>
                 <TableHead className="w-[30%]">Database Table</TableHead>
-                <TableHead className="w-[20%]">Primary Key</TableHead>
+                <TableHead className="w-[20%]">Key</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -148,7 +152,7 @@ export default function Tables() {
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary" className="font-mono text-[11px] font-normal">
-                        {d.pkColumn}
+                        {d.keyColumns.join(" + ")}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
@@ -158,23 +162,27 @@ export default function Tables() {
                             <ExternalLink className="h-3.5 w-3.5" /> View Data
                           </Button>
                         </Link>
-                        <Link to={`/tables/${d.id}/edit`}>
-                          <Button variant="outline" size="sm" className="h-8 gap-1 text-xs">
-                            <Edit className="h-3.5 w-3.5" /> Edit
-                          </Button>
-                        </Link>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          onClick={async () => {
-                            if (!confirm(`Delete definition "${d.label}"? (Data table itself remains intact)`)) return;
-                            await api(`/tables/${d.id}`, { method: "DELETE" });
-                            qc.invalidateQueries({ queryKey: ["defs"] });
-                          }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {canPlatform && (
+                          <>
+                            <Link to={`/tables/${d.id}/edit`}>
+                              <Button variant="outline" size="sm" className="h-8 gap-1 text-xs">
+                                <Edit className="h-3.5 w-3.5" /> Edit
+                              </Button>
+                            </Link>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              onClick={async () => {
+                                if (!confirm(`Delete definition "${d.label}"? (Data table itself remains intact)`)) return;
+                                await api(`/tables/${d.id}`, { method: "DELETE" });
+                                qc.invalidateQueries({ queryKey: ["defs"] });
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

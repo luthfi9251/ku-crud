@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -56,6 +56,10 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
+	if !s.hasTablePerm(userFrom(r), def.ID, "read") {
+		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
+		return
+	}
 	db, err := s.liveDB(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
@@ -75,7 +79,7 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	sortCol, sortDir := q.Get("sort"), q.Get("dir")
 	if !byName[sortCol].Sortable { // includes empty sortCol
-		sortCol, sortDir = def.PKColumn, "ASC"
+		sortCol, sortDir = def.KeyColumns[0], "ASC"
 	}
 	if sortDir != "ASC" && sortDir != "DESC" {
 		sortDir = "ASC"
@@ -131,6 +135,10 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
+	if !s.hasTablePerm(userFrom(r), def.ID, "read") {
+		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
+		return
+	}
 	db, err := s.liveDB(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
@@ -139,18 +147,18 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 	defer db.Close()
 
 	names := colNames(cols)
-	pkVal, err := coercePK(fieldTypeOf(cols, def.PKColumn), r.PathValue("pk"))
+	keyVals, err := rowKeyVals(def, cols, r.PathValue("pk"))
 	if err != nil {
-		writeErr(w, 400, "VALIDATION", "bad pk value", err.Error())
+		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return
 	}
-	sqlText, err := ds.BuildFetchByPK(def.SchemaName, def.TableName, def.PKColumn, names)
+	sqlText, err := ds.BuildFetchByKey(def.SchemaName, def.TableName, def.KeyColumns, names)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", "bad identifiers", err.Error())
 		return
 	}
 	scan := scanTargets(names)
-	err = db.QueryRow(sqlText, pkVal).Scan(scan...)
+	err = db.QueryRow(sqlText, keyVals...).Scan(scan...)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
 		return
@@ -218,17 +226,17 @@ func (s *Server) auditBestEffort(u CtxUser, defID int64, action, rowPK string, o
 		UserID: u.ID, TableDefID: defID, Action: action, RowPK: rowPK,
 		OldValues: oldB, NewValues: newB,
 	}); err != nil {
-		log.Printf("audit write failed (def %d %s pk %s): %v", defID, action, rowPK, err)
+		slog.Warn("audit write failed", "def", defID, "action", action, "rowPk", rowPK, "err", err.Error())
 	}
 }
 
-func fetchRows(db *sql.DB, def *meta.TableDef, cols []meta.ColumnDef, pkVal any) ([]map[string]any, error) {
+func fetchRows(db *sql.DB, def *meta.TableDef, cols []meta.ColumnDef, keyVals []any) ([]map[string]any, error) {
 	names := colNames(cols)
-	sqlText, err := ds.BuildFetchByPK(def.SchemaName, def.TableName, def.PKColumn, names)
+	sqlText, err := ds.BuildFetchByKey(def.SchemaName, def.TableName, def.KeyColumns, names)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(sqlText, pkVal)
+	rows, err := db.Query(sqlText, keyVals...)
 	if err != nil {
 		return nil, err
 	}
@@ -249,6 +257,10 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 	def, cols, err := s.tableCtx(r)
 	if err != nil {
 		s.writeDefErr(w, err)
+		return
+	}
+	if !s.hasTablePerm(u, def.ID, "create") {
+		writeErr(w, 403, "FORBIDDEN", "no create access to this table", nil)
 		return
 	}
 	var body map[string]any
@@ -287,6 +299,10 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
+	if !s.hasTablePerm(u, def.ID, "update") {
+		writeErr(w, 403, "FORBIDDEN", "no update access to this table", nil)
+		return
+	}
 	var body map[string]any
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
@@ -297,9 +313,9 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
-	pkVal, err := coercePK(fieldTypeOf(cols, def.PKColumn), r.PathValue("pk"))
+	pkVals, err := rowKeyVals(def, cols, r.PathValue("pk"))
 	if err != nil {
-		writeErr(w, 400, "VALIDATION", "bad pk value", err.Error())
+		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return
 	}
 	db, err := s.liveDB(def.DatasourceID)
@@ -309,7 +325,7 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	oldRows, err := fetchRows(db, def, cols, pkVal)
+	oldRows, err := fetchRows(db, def, cols, pkVals)
 	if err != nil {
 		writeErr(w, 502, "CONN", "fetch old failed", err.Error())
 		return
@@ -319,12 +335,12 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sqlText, _, err := ds.BuildUpdateByPK(def.SchemaName, def.TableName, def.PKColumn, names)
+	sqlText, _, err := ds.BuildUpdateByKey(def.SchemaName, def.TableName, names, def.KeyColumns)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", "bad columns", err.Error())
 		return
 	}
-	args := append(append([]any{}, vals...), pkVal)
+	args := append(append([]any{}, vals...), pkVals...)
 	if _, err := db.Exec(sqlText, args...); err != nil {
 		writeErr(w, 502, "CONN", "update failed", err.Error())
 		return
@@ -338,7 +354,7 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		for k, v := range body {
 			merged[k] = v
 		}
-		s.auditBestEffort(u, def.ID, "UPDATE", fmt.Sprint(old[def.PKColumn]), old, merged)
+		s.auditBestEffort(u, def.ID, "UPDATE", rowKeyString(def, old), old, merged)
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "affected": len(oldRows)})
 }
@@ -350,9 +366,13 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
-	pkVal, err := coercePK(fieldTypeOf(cols, def.PKColumn), r.PathValue("pk"))
+	if !s.hasTablePerm(u, def.ID, "delete") {
+		writeErr(w, 403, "FORBIDDEN", "no delete access to this table", nil)
+		return
+	}
+	pkVals, err := rowKeyVals(def, cols, r.PathValue("pk"))
 	if err != nil {
-		writeErr(w, 400, "VALIDATION", "bad pk value", err.Error())
+		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return
 	}
 	db, err := s.liveDB(def.DatasourceID)
@@ -362,7 +382,7 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	oldRows, err := fetchRows(db, def, cols, pkVal)
+	oldRows, err := fetchRows(db, def, cols, pkVals)
 	if err != nil {
 		writeErr(w, 502, "CONN", "fetch old failed", err.Error())
 		return
@@ -371,17 +391,17 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
 		return
 	}
-	sqlText, err := ds.BuildDeleteByPK(def.SchemaName, def.TableName, def.PKColumn)
+	sqlText, err := ds.BuildDeleteByKey(def.SchemaName, def.TableName, def.KeyColumns)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", "bad identifiers", err.Error())
 		return
 	}
-	if _, err := db.Exec(sqlText, pkVal); err != nil {
+	if _, err := db.Exec(sqlText, pkVals...); err != nil {
 		writeErr(w, 502, "CONN", "delete failed", err.Error())
 		return
 	}
 	for _, old := range oldRows {
-		s.auditBestEffort(u, def.ID, "DELETE", fmt.Sprint(old[def.PKColumn]), old, nil)
+		s.auditBestEffort(u, def.ID, "DELETE", rowKeyString(def, old), old, nil)
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "affected": len(oldRows)})
 }

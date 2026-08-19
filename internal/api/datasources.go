@@ -3,14 +3,13 @@ package api
 import (
 	"errors"
 	"net/http"
-	"strconv"
 
 	"ku-crud/internal/ds"
 	"ku-crud/internal/meta"
 )
 
 type dsDTO struct {
-	ID       int64  `json:"id"`
+	ID       string `json:"id"`
 	Name     string `json:"name"`
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
@@ -35,8 +34,21 @@ func (in dsInput) toDS() meta.Datasource {
 		DBName: in.DBName, Username: in.Username, Password: in.Password, SSLMode: in.SSLMode}
 }
 
-func toDTO(d meta.Datasource) dsDTO {
-	return dsDTO{d.ID, d.Name, d.Host, d.Port, d.DBName, d.Username, d.SSLMode}
+func (s *Server) toDTO(d meta.Datasource) dsDTO {
+	return dsDTO{s.ids.Encode("ds", d.ID), d.Name, d.Host, d.Port, d.DBName, d.Username, d.SSLMode}
+}
+
+// dsCtx decodes the {id} path token into a datasource id. Bad or unknown
+// tokens surface as ErrNotFound (404) — never a raw id.
+func (s *Server) dsCtx(r *http.Request) (int64, error) {
+	id, err := s.ids.Decode("ds", r.PathValue("id"))
+	if err != nil {
+		return 0, meta.ErrNotFound
+	}
+	if _, err := s.store.GetDatasource(id); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 func validDS(d *meta.Datasource) string {
@@ -70,7 +82,7 @@ func (s *Server) handleDSCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", "could not create datasource (duplicate name?)", err.Error())
 		return
 	}
-	writeJSON(w, 200, toDTO(d))
+	writeJSON(w, 200, s.toDTO(d))
 }
 
 func (s *Server) handleDSList(w http.ResponseWriter, r *http.Request) {
@@ -79,11 +91,19 @@ func (s *Server) handleDSList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "INTERNAL", "server error", nil)
 		return
 	}
-	writeJSON(w, 200, list) // Password is json:"-", safe to marshal
+	out := make([]dsDTO, len(list))
+	for i, d := range list {
+		out[i] = s.toDTO(d)
+	}
+	writeJSON(w, 200, out)
 }
 
 func (s *Server) handleDSUpdate(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	id, err := s.dsCtx(r)
+	if err != nil {
+		s.writeDSErr(w, err)
+		return
+	}
 	old, err := s.store.GetDatasource(id)
 	if errors.Is(err, meta.ErrNotFound) {
 		writeErr(w, 404, "NOT_FOUND", "datasource not found", nil)
@@ -112,31 +132,43 @@ func (s *Server) handleDSUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", "update failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, toDTO(d))
+	writeJSON(w, 200, s.toDTO(d))
 }
 
 func (s *Server) handleDSDelete(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	err := s.store.DeleteDatasource(id)
-	switch {
-	case errors.Is(err, meta.ErrNotFound):
-		writeErr(w, 404, "NOT_FOUND", "datasource not found", nil)
-	case err != nil:
-		writeErr(w, 500, "INTERNAL", "server error", nil)
-	default:
-		writeJSON(w, 200, map[string]bool{"ok": true})
+	id, err := s.dsCtx(r)
+	if err != nil {
+		s.writeDSErr(w, err)
+		return
 	}
+	if err := s.store.DeleteDatasource(id); err != nil {
+		if errors.Is(err, meta.ErrNotFound) {
+			writeErr(w, 404, "NOT_FOUND", "datasource not found", nil)
+			return
+		}
+		writeErr(w, 500, "INTERNAL", "server error", nil)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
-func (s *Server) handleDSTest(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	d, err := s.store.GetDatasource(id)
+func (s *Server) writeDSErr(w http.ResponseWriter, err error) {
 	if errors.Is(err, meta.ErrNotFound) {
 		writeErr(w, 404, "NOT_FOUND", "datasource not found", nil)
 		return
 	}
+	writeErr(w, 500, "INTERNAL", "server error", nil)
+}
+
+func (s *Server) handleDSTest(w http.ResponseWriter, r *http.Request) {
+	id, err := s.dsCtx(r)
 	if err != nil {
-		writeErr(w, 500, "INTERNAL", "server error", nil)
+		s.writeDSErr(w, err)
+		return
+	}
+	d, err := s.store.GetDatasource(id)
+	if err != nil {
+		s.writeDSErr(w, err)
 		return
 	}
 	db, err := ds.Connect(dsToDSN(d))

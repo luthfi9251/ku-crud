@@ -19,7 +19,11 @@ func newTestServer(t *testing.T) *Server {
 	if err := s.CreateUser("alice", "secret"); err != nil {
 		t.Fatal(err)
 	}
-	return New(s)
+	srv, err := New(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return srv
 }
 
 // do runs a request; when cookie ptr is non-nil it captures/sends the session cookie.
