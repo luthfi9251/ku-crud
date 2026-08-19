@@ -32,6 +32,11 @@ func validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 	if def.PageSize <= 0 || def.PageSize > 200 {
 		return "pageSize must be 1..200"
 	}
+	for _, name := range []string{def.SchemaName, def.TableName, def.PKColumn} {
+		if _, err := ds.QuoteIdent(name); err != nil {
+			return "invalid identifier: " + name
+		}
+	}
 	pkSeen := false
 	for i, c := range cols {
 		if !validFieldTypes[c.FieldType] {
@@ -42,6 +47,9 @@ func validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 		}
 		if c.Name == "" || c.Label == "" {
 			return "column name and label are required"
+		}
+		if _, err := ds.QuoteIdent(c.Name); err != nil {
+			return "invalid identifier: " + c.Name
 		}
 		if c.Name == def.PKColumn {
 			pkSeen = true
@@ -128,6 +136,10 @@ func (s *Server) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	p.ID = id
 	if err := s.store.UpdateTableDef(&p.TableDef, p.Columns); err != nil {
+		if errors.Is(err, meta.ErrNotFound) {
+			writeErr(w, 404, "NOT_FOUND", "table def not found", nil)
+			return
+		}
 		writeErr(w, 400, "VALIDATION", "update failed", err.Error())
 		return
 	}
@@ -142,6 +154,8 @@ func (s *Server) handleTableDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "NOT_FOUND", "table def not found", nil)
 	case err != nil:
 		writeErr(w, 500, "INTERNAL", "server error", nil)
+	default:
+		writeJSON(w, 200, map[string]bool{"ok": true})
 	}
 }
 

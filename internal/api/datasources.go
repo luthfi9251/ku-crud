@@ -123,6 +123,8 @@ func (s *Server) handleDSDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "NOT_FOUND", "datasource not found", nil)
 	case err != nil:
 		writeErr(w, 500, "INTERNAL", "server error", nil)
+	default:
+		writeJSON(w, 200, map[string]bool{"ok": true})
 	}
 }
 

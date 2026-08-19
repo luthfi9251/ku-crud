@@ -52,6 +52,18 @@ func TestTableDefEndpoints(t *testing.T) {
 		t.Fatalf("bad fieldType = %d %s", w.Code, w.Body)
 	}
 
+	// unquotable table name → VALIDATION
+	w = do(s, "POST", "/api/tables", strings.Replace(defBody, `"tableName":"customers"`, `"tableName":"bad table"`, 1), c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "invalid identifier") {
+		t.Fatalf("bad table name = %d %s", w.Code, w.Body)
+	}
+
+	// unquotable column name → VALIDATION
+	w = do(s, "POST", "/api/tables", strings.Replace(defBody, `"name":"id"`, `"name":"i d"`, 1), c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "invalid identifier") {
+		t.Fatalf("bad column name = %d %s", w.Code, w.Body)
+	}
+
 	w = do(s, "GET", "/api/tables", "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Customers") {
 		t.Fatalf("list = %d %s", w.Code, w.Body)
@@ -64,6 +76,9 @@ func TestTableDefEndpoints(t *testing.T) {
 		`"label":"Customers"`, `"label":"Cust2"`, 1), c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Cust2") {
 		t.Fatalf("put = %d %s", w.Code, w.Body)
+	}
+	if w = do(s, "PUT", "/api/tables/999", defBody, c); w.Code != 404 {
+		t.Fatalf("put missing = %d", w.Code)
 	}
 	w = do(s, "DELETE", "/api/tables/1", "", c)
 	if w.Code != 200 {
