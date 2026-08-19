@@ -10,11 +10,12 @@ local SQLite file; your data never leaves your Postgres databases.
 ## Quick start
 
     go build -o ku-crud ./cmd
-    go run ./cmd/seed-admin -username admin   # prompts for a password (min 4 chars)
     ./ku-crud                                 # serves on :8080, metadata in ./ku-crud.db
 
-Open http://localhost:8080, log in, add a datasource (Postgres host/port/db/user/password),
-pick tables, and CRUD away.
+Open http://localhost:8080 — a fresh instance (no users yet) automatically
+redirects to the **first-run setup page** to create the admin user. After that,
+log in, add a datasource (Postgres host/port/db/user/password), pick tables,
+and CRUD away.
 
 ## How it works
 
@@ -44,12 +45,24 @@ The server has two flags and no config file:
 | `-addr` | `:8080`      | Listen address (`host:port` or `:port`)  |
 | `-data` | `ku-crud.db` | Path to the SQLite metadata file         |
 
-User seeding is a separate tool (`cmd/seed-admin`), not a server flag:
+## First user
+
+On a fresh instance the UI redirects to `/setup`, which calls two unauthenticated
+endpoints that only work while no user exists:
+
+- `GET /api/setup/status` → `{"needed":true|false}`
+- `POST /api/setup` `{username,password}` — atomically creates the first user;
+  permanently returns **403** once any user exists (no HTTP path to create a
+  second user).
+
+The CLI alternative is `cmd/seed-admin` (also the recovery tool if you ever
+lock yourself out):
 
     go run ./cmd/seed-admin -data ku-crud.db -username admin
 
 It prompts for the password on a TTY and reads stdin when piped, so it is
-scriptable (`echo 'secret' | go run ./cmd/seed-admin ...`).
+scriptable (`echo 'secret' | go run ./cmd/seed-admin ...`). An instance seeded
+via CLI never offers the setup page.
 
 Sessions: HMAC-SHA256 signed cookie `ku_session`, 24h expiry, HttpOnly +
 SameSite=Lax. The signing secret is generated once and stored in the SQLite
@@ -165,12 +178,17 @@ On a machine with Go and Node (or build once in CI and copy the artifacts):
     make build
     scp ku-crud seed-admin user@server:/opt/ku-crud/
 
-### 2. Create the first user
+### 2. First user
 
-Run once on the server (prompts for a password, min 4 chars, needs a TTY):
+Either use the built-in setup page — open the app in a browser and it redirects
+to `/setup` on first run — or seed from the shell (prompts for a password,
+min 4 chars, needs a TTY):
 
     cd /opt/ku-crud
     ./seed-admin -data /opt/ku-crud/ku-crud.db -username admin
+
+If the server is exposed to untrusted networks, prefer the CLI (run it before
+starting the service) so the setup page is never reachable.
 
 ### 3. Run under systemd
 
