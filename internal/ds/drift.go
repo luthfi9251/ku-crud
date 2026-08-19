@@ -12,6 +12,15 @@ func (r DriftReport) Empty() bool {
 	return len(r.Missing) == 0 && len(r.Added) == 0 && len(r.TypeChanged) == 0
 }
 
+// EffectiveType is what drift comparison uses: an fk column tracks its
+// underlying introspected type in BaseType.
+func EffectiveType(c meta.ColumnDef) string {
+	if c.FieldType == "fk" && c.BaseType != "" {
+		return c.BaseType
+	}
+	return c.FieldType
+}
+
 func CompareDrift(defined []meta.ColumnDef, live []LiveColumn) DriftReport {
 	var rep DriftReport
 	liveByName := map[string]LiveColumn{}
@@ -26,7 +35,7 @@ func CompareDrift(defined []meta.ColumnDef, live []LiveColumn) DriftReport {
 			rep.Missing = append(rep.Missing, d.Name)
 			continue
 		}
-		if lc.FieldType != d.FieldType {
+		if lc.FieldType != EffectiveType(d) {
 			rep.TypeChanged = append(rep.TypeChanged, d.Name)
 		}
 	}

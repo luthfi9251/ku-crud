@@ -167,6 +167,38 @@ func TestBuildFetchByPK(t *testing.T) {
 	}
 }
 
+func TestBuildFetchByRefValues(t *testing.T) {
+	sql, err := BuildFetchByRefValues("public", "customers", "id", []string{"name", "city"}, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `SELECT "id","name","city" FROM "public"."customers" WHERE "id" IN ($1,$2,$3)`
+	if sql != want {
+		t.Fatalf("got %s want %s", sql, want)
+	}
+	// display list containing the ref column is deduped
+	sql, _ = BuildFetchByRefValues("public", "customers", "id", []string{"id"}, 1)
+	if sql != `SELECT "id" FROM "public"."customers" WHERE "id" IN ($1)` {
+		t.Fatalf("dedup: %s", sql)
+	}
+	if _, err := BuildFetchByRefValues("public", "customers", "bad col", nil, 1); err == nil {
+		t.Fatal("want identifier error")
+	}
+	if _, err := BuildFetchByRefValues("public", "customers", "id", nil, 0); err == nil {
+		t.Fatal("zero values must be rejected (empty IN () is invalid SQL)")
+	}
+}
+
+func TestBuildCountByRefEq(t *testing.T) {
+	sql, err := BuildCountByRefEq("public", "orders", "customer_id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sql != `SELECT COUNT(*) FROM "public"."orders" WHERE "customer_id"=$1` {
+		t.Fatalf("got %s", sql)
+	}
+}
+
 func TestSearchLikeEscaping(t *testing.T) {
 	p := ListParams{Schema: "public", Table: "t", Columns: []string{"id"},
 		Searchable: []string{"id"}, Search: `50%_off\`, SortCol: "id", SortDir: "ASC"}
