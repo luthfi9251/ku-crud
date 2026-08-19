@@ -181,6 +181,27 @@ func TestTableDefFKValidation(t *testing.T) {
 		t.Fatalf("unknown target = %d %s", w.Code, w.Body)
 	}
 
+	// undecodable fk token → 400, not silently treated as self-ref
+	w = do(s, "POST", "/api/tables", strings.Replace(fkDefBody(s),
+		s.ids.Encode("td", 1), "zzz", 1), c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "fk needs fkTableDefId") {
+		t.Fatalf("garbage token = %d %s", w.Code, w.Body)
+	}
+
+	// missing fkTableDefId entirely → 400
+	w = do(s, "POST", "/api/tables", strings.Replace(fkDefBody(s),
+		`"fkTableDefId":"`+s.ids.Encode("td", 1)+`",`, ``, 1), c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "fk needs fkTableDefId") {
+		t.Fatalf("missing fkTableDefId = %d %s", w.Code, w.Body)
+	}
+
+	// duplicate fkDisplayColumns → 400
+	w = do(s, "POST", "/api/tables", strings.Replace(fkDefBody(s),
+		`"fkDisplayColumns":["id","name"]`, `"fkDisplayColumns":["id","id"]`, 1), c)
+	if w.Code != 400 {
+		t.Fatalf("dup display col = %d %s", w.Code, w.Body)
+	}
+
 	// fkRefColumn not on target → 400
 	w = do(s, "POST", "/api/tables", strings.Replace(fkDefBody(s),
 		`"fkRefColumn":"id"`, `"fkRefColumn":"nope"`, 1), c)

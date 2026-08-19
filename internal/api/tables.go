@@ -252,9 +252,11 @@ func (s *Server) validateFK(def *meta.TableDef, cols []meta.ColumnDef, c meta.Co
 		return "column " + c.Name + ": fk needs fkRefColumn"
 	}
 	var targetCols []meta.ColumnDef
-	switch c.FKTableDefID {
-	case meta.SelfRef, def.ID:
+	switch {
+	case c.FKTableDefID == meta.SelfRef, def.ID != 0 && c.FKTableDefID == def.ID:
 		targetCols = cols // this definition's own incoming columns
+	case c.FKTableDefID == 0:
+		return "column " + c.Name + ": fk needs fkTableDefId"
 	default:
 		_, tc, err := s.store.GetTableDef(c.FKTableDefID)
 		if err != nil {
@@ -380,11 +382,11 @@ func (s *Server) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cols := s.toCols(in.Columns)
+	def.ID = id
 	if msg := s.validateDef(def, cols); msg != "" {
 		writeErr(w, 400, "VALIDATION", msg, nil)
 		return
 	}
-	def.ID = id
 	if err := s.store.UpdateTableDef(def, cols); err != nil {
 		if errors.Is(err, meta.ErrNotFound) {
 			writeErr(w, 404, "NOT_FOUND", "table def not found", nil)
