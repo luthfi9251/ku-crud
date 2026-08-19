@@ -12,52 +12,52 @@ func TestRowWriteAndAudit(t *testing.T) {
 	seedLive(t, s)
 
 	// CREATE
-	w := do(s, "POST", "/api/tables/1/rows",
+	w := do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows",
 		`{"name":"nia","active":false,"balance":7.25,"born":"1990-01-02","status":"rainy"}`, c)
 	if w.Code != 200 {
 		t.Fatalf("create = %d %s", w.Code, w.Body)
 	}
 
 	// CREATE with unknown column → VALIDATION
-	if w = do(s, "POST", "/api/tables/1/rows", `{"name":"x","hax":1}`, c); w.Code != 400 {
+	if w = do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"name":"x","hax":1}`, c); w.Code != 400 {
 		t.Fatalf("unknown col = %d %s", w.Code, w.Body)
 	}
 	// CREATE missing required (name) → VALIDATION
-	if w = do(s, "POST", "/api/tables/1/rows", `{"active":true}`, c); w.Code != 400 {
+	if w = do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"active":true}`, c); w.Code != 400 {
 		t.Fatalf("missing required = %d %s", w.Code, w.Body)
 	}
 	// bad enum → VALIDATION
-	if w = do(s, "POST", "/api/tables/1/rows", `{"name":"y","status":"snowy"}`, c); w.Code != 400 {
+	if w = do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"name":"y","status":"snowy"}`, c); w.Code != 400 {
 		t.Fatalf("bad enum = %d %s", w.Code, w.Body)
 	}
 	// bad datetime → VALIDATION
-	if w = do(s, "POST", "/api/tables/1/rows", `{"name":"y","born":"02/01/1990"}`, c); w.Code != 400 {
+	if w = do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"name":"y","born":"02/01/1990"}`, c); w.Code != 400 {
 		t.Fatalf("bad datetime = %d %s", w.Code, w.Body)
 	}
 	// non-editable column (id) in payload → VALIDATION
-	if w = do(s, "POST", "/api/tables/1/rows", `{"name":"y","id":9}`, c); w.Code != 400 {
+	if w = do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"name":"y","id":9}`, c); w.Code != 400 {
 		t.Fatalf("non-editable col = %d %s", w.Code, w.Body)
 	}
 
 	// UPDATE row 1
-	w = do(s, "PUT", "/api/tables/1/rows/"+encodeRowKey([]string{"1"}), `{"name":"jo!"}`, c)
+	w = do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"1"}), `{"name":"jo!"}`, c)
 	if w.Code != 200 {
 		t.Fatalf("update = %d %s", w.Code, w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/1/rows/"+encodeRowKey([]string{"1"}), "", c); !strings.Contains(w.Body.String(), `"name":"jo!"`) {
+	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"1"}), "", c); !strings.Contains(w.Body.String(), `"name":"jo!"`) {
 		t.Fatalf("row after update = %s", w.Body)
 	}
 
 	// DELETE row 4 (nia)
-	if w = do(s, "DELETE", "/api/tables/1/rows/"+encodeRowKey([]string{"4"}), "", c); w.Code != 200 {
+	if w = do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"4"}), "", c); w.Code != 200 {
 		t.Fatalf("delete = %d %s", w.Code, w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/1/rows/"+encodeRowKey([]string{"4"}), "", c); w.Code != 404 {
+	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"4"}), "", c); w.Code != 404 {
 		t.Fatalf("deleted row still there = %d", w.Code)
 	}
 
 	// audit: 1 INSERT + 1 UPDATE + 1 DELETE
-	w = do(s, "GET", "/api/audit?tableDefId=1", "", c)
+	w = do(s, "GET", "/api/audit?tableDefId="+tdTok(s, 1), "", c)
 	if w.Code != 200 {
 		t.Fatalf("audit = %d %s", w.Code, w.Body)
 	}

@@ -23,7 +23,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	mux := api.New(store).Routes()
+	srv, err := api.New(store)
+	if err != nil {
+		log.Fatal(err)
+	}
+	mux := srv.Routes()
 	static, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		log.Fatal(err)

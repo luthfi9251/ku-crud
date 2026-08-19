@@ -17,49 +17,52 @@ func seedDS(t *testing.T, s *Server) {
 	}
 }
 
-const defBody = `{"datasourceId":1,"schemaName":"public","tableName":"customers",
+// defBody returns a valid create payload; datasourceId is a masked token.
+func defBody(s *Server) string {
+	return `{"datasourceId":"` + s.ids.Encode("ds", 1) + `","schemaName":"public","tableName":"customers",
 "label":"Customers","keyColumns":["id"],"pageSize":20,"columns":[
  {"name":"id","label":"ID","fieldType":"number","editable":true,"required":true,
   "visible":true,"searchable":true,"sortable":true,"position":0},
  {"name":"status","label":"Status","fieldType":"enum","enumOptions":["a","b"],
   "editable":true,"required":false,"visible":true,"searchable":false,"sortable":false,"position":1}]}`
+}
 
 func TestTableDefEndpoints(t *testing.T) {
 	s := newTestServer(t)
 	c := login(s)
 	seedDS(t, s)
 
-	w := do(s, "POST", "/api/tables", defBody, c)
+	w := do(s, "POST", "/api/tables", defBody(s), c)
 	if w.Code != 200 {
 		t.Fatalf("create = %d %s", w.Code, w.Body)
 	}
 
 	// PK not among columns → VALIDATION
-	w = do(s, "POST", "/api/tables", strings.Replace(defBody, `"keyColumns":["id"]`, `"keyColumns":["nope"]`, 1), c)
+	w = do(s, "POST", "/api/tables", strings.Replace(defBody(s), `"keyColumns":["id"]`, `"keyColumns":["nope"]`, 1), c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "key column") {
 		t.Fatalf("bad pk = %d %s", w.Code, w.Body)
 	}
 
 	// enum without options → VALIDATION
-	w = do(s, "POST", "/api/tables", strings.Replace(defBody, `"enumOptions":["a","b"],`, ``, 1), c)
+	w = do(s, "POST", "/api/tables", strings.Replace(defBody(s), `"enumOptions":["a","b"],`, ``, 1), c)
 	if w.Code != 400 {
 		t.Fatalf("enum no options = %d %s", w.Code, w.Body)
 	}
 
 	// unknown fieldType → VALIDATION
-	w = do(s, "POST", "/api/tables", strings.Replace(defBody, `"fieldType":"enum"`, `"fieldType":"jsonb"`, 1), c)
+	w = do(s, "POST", "/api/tables", strings.Replace(defBody(s), `"fieldType":"enum"`, `"fieldType":"jsonb"`, 1), c)
 	if w.Code != 400 {
 		t.Fatalf("bad fieldType = %d %s", w.Code, w.Body)
 	}
 
 	// unquotable table name → VALIDATION
-	w = do(s, "POST", "/api/tables", strings.Replace(defBody, `"tableName":"customers"`, `"tableName":"bad table"`, 1), c)
+	w = do(s, "POST", "/api/tables", strings.Replace(defBody(s), `"tableName":"customers"`, `"tableName":"bad table"`, 1), c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "invalid identifier") {
 		t.Fatalf("bad table name = %d %s", w.Code, w.Body)
 	}
 
 	// unquotable column name → VALIDATION
-	w = do(s, "POST", "/api/tables", strings.Replace(defBody, `"name":"id"`, `"name":"i d"`, 1), c)
+	w = do(s, "POST", "/api/tables", strings.Replace(defBody(s), `"name":"id"`, `"name":"i d"`, 1), c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "invalid identifier") {
 		t.Fatalf("bad column name = %d %s", w.Code, w.Body)
 	}
@@ -68,23 +71,23 @@ func TestTableDefEndpoints(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Customers") {
 		t.Fatalf("list = %d %s", w.Code, w.Body)
 	}
-	w = do(s, "GET", "/api/tables/1", "", c)
+	w = do(s, "GET", "/api/tables/"+s.ids.Encode("td", 1), "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"fieldType":"enum"`) {
 		t.Fatalf("get = %d %s", w.Code, w.Body)
 	}
-	w = do(s, "PUT", "/api/tables/1", strings.Replace(defBody,
+	w = do(s, "PUT", "/api/tables/"+s.ids.Encode("td", 1), strings.Replace(defBody(s),
 		`"label":"Customers"`, `"label":"Cust2"`, 1), c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Cust2") {
 		t.Fatalf("put = %d %s", w.Code, w.Body)
 	}
-	if w = do(s, "PUT", "/api/tables/999", defBody, c); w.Code != 404 {
+	if w = do(s, "PUT", "/api/tables/999", defBody(s), c); w.Code != 404 {
 		t.Fatalf("put missing = %d", w.Code)
 	}
-	w = do(s, "DELETE", "/api/tables/1", "", c)
+	w = do(s, "DELETE", "/api/tables/"+s.ids.Encode("td", 1), "", c)
 	if w.Code != 200 {
 		t.Fatalf("delete = %d", w.Code)
 	}
-	if w = do(s, "GET", "/api/tables/1", "", c); w.Code != 404 {
+	if w = do(s, "GET", "/api/tables/"+s.ids.Encode("td", 1), "", c); w.Code != 404 {
 		t.Fatalf("get deleted = %d", w.Code)
 	}
 }
@@ -119,11 +122,11 @@ func TestIntrospectionEndpoints(t *testing.T) {
 		Raw: os.Getenv("KUCRUD_TEST_PG")}); err != nil {
 		t.Fatal(err)
 	}
-	w := do(s, "GET", "/api/datasources/1/tables", "", c)
+	w := do(s, "GET", "/api/datasources/"+s.ids.Encode("ds", 1)+"/tables", "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "customers") {
 		t.Fatalf("tables = %d %s", w.Code, w.Body)
 	}
-	w = do(s, "GET", "/api/datasources/1/tables/public/customers/columns", "", c)
+	w = do(s, "GET", "/api/datasources/"+s.ids.Encode("ds", 1)+"/tables/public/customers/columns", "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"fieldType":"enum"`) {
 		t.Fatalf("columns = %d %s", w.Code, w.Body)
 	}

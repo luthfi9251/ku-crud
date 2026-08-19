@@ -8,6 +8,7 @@ import (
 type AuditEntry struct {
 	ID         int64  `json:"id"`
 	UserID     int64  `json:"userId"`
+	Username   string `json:"username"`
 	TableDefID int64  `json:"tableDefId"`
 	Action     string `json:"action"`
 	RowPK      string `json:"rowPk"`
@@ -56,8 +57,8 @@ func (s *Store) ListAudit(f AuditFilter) ([]AuditEntry, int, error) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM audit `+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	q := `SELECT id,user_id,table_def_id,action,row_pk,old_values,new_values,created_at
-		FROM audit ` + where + ` ORDER BY id DESC LIMIT ? OFFSET ?`
+	q := `SELECT a.id,a.user_id,u.username,a.table_def_id,a.action,a.row_pk,a.old_values,a.new_values,a.created_at
+		FROM audit a LEFT JOIN users u ON u.id=a.user_id ` + where + ` ORDER BY a.id DESC LIMIT ? OFFSET ?`
 	args = append(args, f.Limit, f.Offset)
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
@@ -68,10 +69,12 @@ func (s *Store) ListAudit(f AuditFilter) ([]AuditEntry, int, error) {
 	for rows.Next() {
 		var e AuditEntry
 		var oldV, newV sql.NullString
-		if err := rows.Scan(&e.ID, &e.UserID, &e.TableDefID, &e.Action, &e.RowPK,
+		var un sql.NullString
+		if err := rows.Scan(&e.ID, &e.UserID, &un, &e.TableDefID, &e.Action, &e.RowPK,
 			&oldV, &newV, &e.CreatedAt); err != nil {
 			return nil, 0, err
 		}
+		e.Username = un.String
 		if oldV.Valid {
 			e.OldValues = []byte(oldV.String)
 		}

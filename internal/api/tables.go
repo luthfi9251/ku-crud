@@ -4,15 +4,123 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
-	"strconv"
 
 	"ku-crud/internal/ds"
 	"ku-crud/internal/meta"
 )
 
-type tableDefPayload struct {
-	meta.TableDef
-	Columns []meta.ColumnDef `json:"columns"`
+// tableDefInput accepts masked datasource ids from the client.
+type tableDefInput struct {
+	DatasourceID string           `json:"datasourceId"`
+	SchemaName   string           `json:"schemaName"`
+	TableName    string           `json:"tableName"`
+	Label        string           `json:"label"`
+	KeyColumns   []string         `json:"keyColumns"`
+	PageSize     int              `json:"pageSize"`
+	Columns      []meta.ColumnDef `json:"columns"`
+}
+
+func (s *Server) toDef(in tableDefInput) (*meta.TableDef, error) {
+	dsID, err := s.ids.Decode("ds", in.DatasourceID)
+	if err != nil {
+		return nil, errors.New("invalid datasourceId")
+	}
+	return &meta.TableDef{DatasourceID: dsID, SchemaName: in.SchemaName,
+		TableName: in.TableName, Label: in.Label, KeyColumns: in.KeyColumns,
+		PageSize: in.PageSize}, nil
+}
+
+type permsDTO struct {
+	Read   bool `json:"read"`
+	Create bool `json:"create"`
+	Update bool `json:"update"`
+	Delete bool `json:"delete"`
+}
+
+type columnDTO struct {
+	Name        string   `json:"name"`
+	Label       string   `json:"label"`
+	FieldType   string   `json:"fieldType"`
+	EnumOptions []string `json:"enumOptions"`
+	Editable    bool     `json:"editable"`
+	Required    bool     `json:"required"`
+	Visible     bool     `json:"visible"`
+	Searchable  bool     `json:"searchable"`
+	Sortable    bool     `json:"sortable"`
+	Position    int      `json:"position"`
+}
+
+func colToDTO(c meta.ColumnDef) columnDTO {
+	return columnDTO{c.Name, c.Label, c.FieldType, c.EnumOptions,
+		c.Editable, c.Required, c.Visible, c.Searchable, c.Sortable, c.Position}
+}
+
+// tableDefDTO masks ids and carries the caller's grants.
+type tableDefDTO struct {
+	ID           string      `json:"id"`
+	DatasourceID string      `json:"datasourceId"`
+	SchemaName   string      `json:"schemaName"`
+	TableName    string      `json:"tableName"`
+	Label        string      `json:"label"`
+	KeyColumns   []string    `json:"keyColumns"`
+	PageSize     int         `json:"pageSize"`
+	Columns      []columnDTO `json:"columns,omitempty"`
+	Permissions  permsDTO    `json:"permissions"`
+}
+
+func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDTO) tableDefDTO {
+	dto := tableDefDTO{
+		ID:           s.ids.Encode("td", def.ID),
+		DatasourceID: s.ids.Encode("ds", def.DatasourceID),
+		SchemaName:   def.SchemaName,
+		TableName:    def.TableName,
+		Label:        def.Label,
+		KeyColumns:   def.KeyColumns,
+		PageSize:     def.PageSize,
+		Permissions:  p,
+	}
+	if dto.KeyColumns == nil {
+		dto.KeyColumns = []string{}
+	}
+	for _, c := range cols {
+		dto.Columns = append(dto.Columns, colToDTO(c))
+	}
+	return dto
+}
+
+// tablePerms resolves the caller's grants for a table def. Admin and
+// platform managers get full access; custom roles use stored grants.
+func (s *Server) tablePerms(u CtxUser, defID int64) permsDTO {
+	if u.IsAdmin || u.PlatformManage {
+		return permsDTO{true, true, true, true}
+	}
+	g, err := s.store.GrantsFor(u.RoleID, defID)
+	if err != nil {
+		return permsDTO{}
+	}
+	return permsDTO{g.CanRead, g.CanCreate, g.CanUpdate, g.CanDelete}
+}
+
+// hasTablePerm checks one row action ("read"|"create"|"update"|"delete").
+func (s *Server) hasTablePerm(u CtxUser, defID int64, action string) bool {
+	if u.IsAdmin || u.PlatformManage {
+		return true
+	}
+	g, err := s.store.GrantsFor(u.RoleID, defID)
+	if err != nil {
+		return false
+	}
+	switch action {
+	case "read":
+		return g.CanRead
+	case "create":
+		return g.CanCreate
+	case "update":
+		return g.CanUpdate
+	case "delete":
+		return g.CanDelete
+	}
+	return false
 }
 
 var validFieldTypes = map[string]bool{
@@ -71,33 +179,50 @@ func validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 }
 
 func (s *Server) handleTableCreate(w http.ResponseWriter, r *http.Request) {
-	var p tableDefPayload
-	if err := readJSON(r, &p); err != nil {
+	var in tableDefInput
+	if err := readJSON(r, &in); err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
-	if msg := validateDef(&p.TableDef, p.Columns); msg != "" {
+	def, err := s.toDef(in)
+	if err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+	if msg := validateDef(def, in.Columns); msg != "" {
 		writeErr(w, 400, "VALIDATION", msg, nil)
 		return
 	}
-	if err := s.store.SaveTableDef(&p.TableDef, p.Columns); err != nil {
+	if err := s.store.SaveTableDef(def, in.Columns); err != nil {
 		writeErr(w, 400, "VALIDATION", "save failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, tableDefPayload{p.TableDef, p.Columns})
+	writeJSON(w, 200, s.toTableDTO(def, in.Columns, permsDTO{true, true, true, true}))
 }
 
 func (s *Server) handleTableList(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
 	list, err := s.store.ListTableDefs()
 	if err != nil {
 		writeErr(w, 500, "INTERNAL", "server error", nil)
 		return
 	}
-	writeJSON(w, 200, list)
+	out := []tableDefDTO{}
+	for i := range list {
+		p := s.tablePerms(u, list[i].ID)
+		if !p.Read {
+			continue // hidden: no read grant (platform/admin always pass)
+		}
+		out = append(out, s.toTableDTO(&list[i], nil, p))
+	}
+	writeJSON(w, 200, out)
 }
 
 func (s *Server) tableCtx(r *http.Request) (*meta.TableDef, []meta.ColumnDef, error) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	id, err := s.ids.Decode("td", r.PathValue("id"))
+	if err != nil {
+		return nil, nil, meta.ErrNotFound
+	}
 	return s.store.GetTableDef(id)
 }
 
@@ -119,27 +244,42 @@ func fieldTypeOf(cols []meta.ColumnDef, name string) string {
 }
 
 func (s *Server) handleTableGet(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
 	def, cols, err := s.tableCtx(r)
 	if err != nil {
 		s.writeDefErr(w, err)
 		return
 	}
-	writeJSON(w, 200, tableDefPayload{*def, cols})
+	p := s.tablePerms(u, def.ID)
+	if !p.Read {
+		writeErr(w, 403, "FORBIDDEN", "no access to this table", nil)
+		return
+	}
+	writeJSON(w, 200, s.toTableDTO(def, cols, p))
 }
 
 func (s *Server) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	var p tableDefPayload
-	if err := readJSON(r, &p); err != nil {
+	id, err := s.ids.Decode("td", r.PathValue("id"))
+	if err != nil {
+		writeErr(w, 404, "NOT_FOUND", "table def not found", nil)
+		return
+	}
+	var in tableDefInput
+	if err := readJSON(r, &in); err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
-	if msg := validateDef(&p.TableDef, p.Columns); msg != "" {
+	def, err := s.toDef(in)
+	if err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+	if msg := validateDef(def, in.Columns); msg != "" {
 		writeErr(w, 400, "VALIDATION", msg, nil)
 		return
 	}
-	p.ID = id
-	if err := s.store.UpdateTableDef(&p.TableDef, p.Columns); err != nil {
+	def.ID = id
+	if err := s.store.UpdateTableDef(def, in.Columns); err != nil {
 		if errors.Is(err, meta.ErrNotFound) {
 			writeErr(w, 404, "NOT_FOUND", "table def not found", nil)
 			return
@@ -147,12 +287,16 @@ func (s *Server) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", "update failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, tableDefPayload{p.TableDef, p.Columns})
+	writeJSON(w, 200, s.toTableDTO(def, in.Columns, permsDTO{true, true, true, true}))
 }
 
 func (s *Server) handleTableDelete(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	err := s.store.DeleteTableDef(id)
+	id, err := s.ids.Decode("td", r.PathValue("id"))
+	if err != nil {
+		writeErr(w, 404, "NOT_FOUND", "table def not found", nil)
+		return
+	}
+	err = s.store.DeleteTableDef(id)
 	switch {
 	case errors.Is(err, meta.ErrNotFound):
 		writeErr(w, 404, "NOT_FOUND", "table def not found", nil)
@@ -192,7 +336,11 @@ func (s *Server) writeLiveErr(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) handleDSTables(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	id, err := s.dsCtx(r)
+	if err != nil {
+		s.writeDSErr(w, err)
+		return
+	}
 	db, err := s.liveDB(id)
 	if err != nil {
 		s.writeLiveErr(w, err)
@@ -307,11 +455,15 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, fresh, _ := s.store.GetTableDef(def.ID)
-	writeJSON(w, 200, tableDefPayload{*def, fresh})
+	writeJSON(w, 200, s.toTableDTO(def, fresh, permsDTO{true, true, true, true}))
 }
 
 func (s *Server) handleDSColumns(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	id, err := s.dsCtx(r)
+	if err != nil {
+		s.writeDSErr(w, err)
+		return
+	}
 	db, err := s.liveDB(id)
 	if err != nil {
 		s.writeLiveErr(w, err)

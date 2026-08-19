@@ -56,6 +56,10 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
+	if !s.hasTablePerm(userFrom(r), def.ID, "read") {
+		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
+		return
+	}
 	db, err := s.liveDB(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
@@ -129,6 +133,10 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 	def, cols, err := s.tableCtx(r)
 	if err != nil {
 		s.writeDefErr(w, err)
+		return
+	}
+	if !s.hasTablePerm(userFrom(r), def.ID, "read") {
+		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
 		return
 	}
 	db, err := s.liveDB(def.DatasourceID)
@@ -251,6 +259,10 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
+	if !s.hasTablePerm(u, def.ID, "create") {
+		writeErr(w, 403, "FORBIDDEN", "no create access to this table", nil)
+		return
+	}
 	var body map[string]any
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
@@ -285,6 +297,10 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 	def, cols, err := s.tableCtx(r)
 	if err != nil {
 		s.writeDefErr(w, err)
+		return
+	}
+	if !s.hasTablePerm(u, def.ID, "update") {
+		writeErr(w, 403, "FORBIDDEN", "no update access to this table", nil)
 		return
 	}
 	var body map[string]any
@@ -348,6 +364,10 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 	def, cols, err := s.tableCtx(r)
 	if err != nil {
 		s.writeDefErr(w, err)
+		return
+	}
+	if !s.hasTablePerm(u, def.ID, "delete") {
+		writeErr(w, 403, "FORBIDDEN", "no delete access to this table", nil)
 		return
 	}
 	pkVals, err := rowKeyVals(def, cols, r.PathValue("pk"))

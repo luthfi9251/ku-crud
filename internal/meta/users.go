@@ -33,9 +33,20 @@ func hash(password string) (string, error) {
 	return string(h), err
 }
 
-// CreateUser creates an Admin user (CLI seeding / recovery path).
+// CreateUser creates an Admin user (CLI seeding / recovery path). The first
+// user it creates on a fresh store is flagged is_first (setup-equivalent).
 func (s *Store) CreateUser(username, password string) error {
-	return s.CreateUserWithRole(username, password, 1)
+	h, err := hash(password)
+	if err != nil {
+		return err
+	}
+	first := 0
+	if n, err := s.CountUsers(); err == nil && n == 0 {
+		first = 1
+	}
+	_, err = s.db.Exec(`INSERT INTO users(username,password_hash,role_id,is_first) VALUES(?,?,1,?)`,
+		username, h, first)
+	return err
 }
 
 func (s *Store) CreateUserWithRole(username, password string, roleID int64) error {
@@ -183,4 +194,15 @@ func (s *Store) DeleteUserByUsername(username string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (s *Store) UserByID(id int64) (UserWithRole, error) {
+	var u UserWithRole
+	err := s.db.QueryRow(`SELECT u.id,u.username,u.role_id,r.name,u.disabled,u.is_first
+		FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?`, id).
+		Scan(&u.ID, &u.Username, &u.RoleID, &u.RoleName, &u.Disabled, &u.IsFirst)
+	if errors.Is(err, sql.ErrNoRows) {
+		return u, ErrNotFound
+	}
+	return u, err
 }

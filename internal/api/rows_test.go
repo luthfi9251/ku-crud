@@ -63,7 +63,7 @@ func TestRowListAndGet(t *testing.T) {
 	c := login(s)
 	seedLive(t, s)
 
-	w := do(s, "GET", "/api/tables/1/rows", "", c)
+	w := do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows", "", c)
 	if w.Code != 200 {
 		t.Fatalf("list = %d %s", w.Code, w.Body)
 	}
@@ -72,12 +72,12 @@ func TestRowListAndGet(t *testing.T) {
 		t.Fatalf("page1 = %s", w.Body)
 	}
 
-	w = do(s, "GET", "/api/tables/1/rows?search=jo", "", c)
+	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows?search=jo", "", c)
 	if !strings.Contains(w.Body.String(), `"total":2`) {
 		t.Fatalf("search = %s", w.Body)
 	}
 
-	w = do(s, "GET", "/api/tables/1/rows?sort=name&dir=DESC", "", c)
+	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows?sort=name&dir=DESC", "", c)
 	body := w.Body.String()
 	// DESC: "joe" sorts before "jo" (prefix compares less); brief's original
 	// `<` was inverted — it fired on correct DESC output.
@@ -86,23 +86,23 @@ func TestRowListAndGet(t *testing.T) {
 	}
 
 	// sort on non-sortable column (born) silently falls back to pk ASC
-	w = do(s, "GET", "/api/tables/1/rows?sort=born&dir=DESC", "", c)
+	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows?sort=born&dir=DESC", "", c)
 	if !strings.Contains(w.Body.String(), `"total":3`) {
 		t.Fatalf("fallback sort = %s", w.Body)
 	}
 
 	// page 2 with pageSize 2 → last row only
-	w = do(s, "GET", "/api/tables/1/rows?page=2", "", c)
+	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows?page=2", "", c)
 	if !strings.Contains(w.Body.String(), `"total":3`) ||
 		strings.Count(w.Body.String(), `"name":`) != 1 {
 		t.Fatalf("page2 = %s", w.Body)
 	}
 
-	w = do(s, "GET", "/api/tables/1/rows/"+encodeRowKey([]string{"2"}), "", c)
+	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"2"}), "", c)
 	if !strings.Contains(w.Body.String(), `"name":"joe"`) {
 		t.Fatalf("get row = %s", w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/1/rows/"+encodeRowKey([]string{"999"}), "", c); w.Code != 404 {
+	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"999"}), "", c); w.Code != 404 {
 		t.Fatalf("missing row = %d", w.Code)
 	}
 }
