@@ -10,6 +10,10 @@ export default function App() {
     const path = location.pathname;
     if (path === "/") {
       return { title: "Tables & Schema", subtitle: "Configure dynamic database definitions", icon: Table2 };
+    } else if (path === "/tables/new") {
+      return { title: "New Table Definition", subtitle: "Register and map a database table into Ku-CRUD", icon: Table2 };
+    } else if (path.includes("/tables/") && path.includes("/edit")) {
+      return { title: "Edit Table Definition", subtitle: "Modify column mappings and display rules", icon: Table2 };
     } else if (path === "/datasources") {
       return { title: "Datasources", subtitle: "Manage database connection pools", icon: Server };
     } else if (path === "/audit") {

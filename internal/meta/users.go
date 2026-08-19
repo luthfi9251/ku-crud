@@ -15,6 +15,22 @@ func (s *Store) CreateUser(username, password string) error {
 	return err
 }
 
+// CreateFirstUser inserts a user only when the users table is empty.
+// Returns false when a user already exists. Single statement — no race window.
+func (s *Store) CreateFirstUser(username, password string) (bool, error) {
+	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return false, err
+	}
+	res, err := s.db.Exec(`INSERT INTO users(username,password_hash)
+		SELECT ?,? WHERE NOT EXISTS(SELECT 1 FROM users)`, username, string(h))
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 func (s *Store) CountUsers() (int, error) {
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)

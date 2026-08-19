@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Database, User, Lock, ArrowRight, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { api, ApiError } from "../lib/api";
@@ -14,6 +14,13 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // First run with no users yet → send to the setup page.
+  useEffect(() => {
+    api<{ needed: boolean }>("/setup/status")
+      .then((s) => { if (s.needed) nav("/setup"); })
+      .catch(() => { /* stay on login */ });
+  }, [nav]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
