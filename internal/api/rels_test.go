@@ -171,6 +171,12 @@ func TestFKWriteAndDeleteProtection(t *testing.T) {
 		t.Fatalf("bad fk type = %d %s", w.Code, w.Body)
 	}
 
+	// dangling fk message preserved after error-mapping fix
+	w = do(s, "POST", "/api/tables/"+tdTok(s, 2)+"/rows", `{"note":"x","customer_id":999}`, c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "referenced row not found") {
+		t.Fatalf("post-fix dangling fk = %d %s", w.Code, w.Body)
+	}
+
 	// delete referenced customer (id 1, referenced by order 1) → 409 with detail
 	w = do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"1"}), "", c)
 	if w.Code != 409 || !strings.Contains(w.Body.String(), "Orders") ||

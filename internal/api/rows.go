@@ -290,7 +290,11 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 	if err := s.checkFKValues(cols, names, vals); err != nil {
-		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		if errors.Is(err, errFKRefNotFound) {
+			writeErr(w, 400, "VALIDATION", err.Error(), nil)
+			return
+		}
+		writeErr(w, 502, "CONN", "reference check failed", err.Error())
 		return
 	}
 	sqlText, _, err := ds.BuildInsert(def.SchemaName, def.TableName, names)
@@ -344,7 +348,11 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 	defer db.Close()
 
 	if err := s.checkFKValues(cols, names, vals); err != nil {
-		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		if errors.Is(err, errFKRefNotFound) {
+			writeErr(w, 400, "VALIDATION", err.Error(), nil)
+			return
+		}
+		writeErr(w, 502, "CONN", "reference check failed", err.Error())
 		return
 	}
 
@@ -446,6 +454,9 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true, "affected": len(oldRows)})
 }
 
+// errFKRefNotFound marks an fk payload value that has no matching target row.
+var errFKRefNotFound = errors.New("referenced row not found")
+
 // checkFKValues verifies each non-null fk payload value exists on the target
 // table (batched per fk column via the ref-value IN query).
 func (s *Server) checkFKValues(cols []meta.ColumnDef, names []string, vals []any) error {
@@ -478,7 +489,7 @@ func (s *Server) checkFKValues(cols []meta.ColumnDef, names []string, vals []any
 		err = db.QueryRow(sqlText, vals[i]).Scan(&one)
 		db.Close()
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("%s: referenced row not found", name)
+			return fmt.Errorf("%s: %w", name, errFKRefNotFound)
 		}
 		if err != nil {
 			return err
