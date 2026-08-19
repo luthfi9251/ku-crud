@@ -1,0 +1,18 @@
+Project Ku-CRUD
+
+Secara singkat ini adalah sebuah aplikasi CRUD yang seluruh aksi nya dapat dilakukan ketika Runtime. Seperti definisi database, table, field mana yang dapat diedit, validation dan lainnya. Terinspirasi dari GroceryCrud, namun saya ingin membawanya ke Runtime. Stack nya GOlang dan React.
+
+Fitur v1 (RUNTIME atau Setelah di build dan deploy)
+1. Menu untuk mendefinisikan datasource ke level database
+2. Dapat mendefinsikan Tabel mana yang akan di CRUD kan
+3. Type field akan dibatasi pada boolean, text, number, datetime dan enum.
+4. Halaman untuk melakukan CRUD sesuai table yang telah didefinisikan.
+5. Audit Trail, untuk mengetahui seluruh AKsi yang dilakukan user.
+6. Pada halaman READ table nya, support searching, sorting dan pagination. Semua ini di definisikan ketika melakukan definisi source table pada poin 2.
+
+Secara teknis nanti akan ada sqlite sebagai penyimpanan lokal untuk menyimpan data connection dan lainnya. App ini tidak bertanggung jawab untuk melakukan DDL atau Alter table pada database milik user. jadi user bertanggung jawab penuh.
+Ketika melakukan checking atas database, nanti akan get schema nya sehingga tau table nya ada apa saja. dan setelah milih tabel, akan otomatis tau column apa saja yang ada dan tipe nya apa. Saat ini implementasi dibatasi untuk driver postgresdb saja.
+
+Terdapat fitur login yang simple, dan user disimpan di sqlite, tidak ada hak akses, hanya untuk memproteksi saja.
+
+Jadi pada app ini, nantinya user akan dapat mendefiniskan beberapa datasource, dan kemudian menampilkan beberapa source table yang akan di CRUD kan. Pain poin nya adalah untuk orang yang malas mengedit dari database langsung, bisa pake app ini. TInggal definisikan connection/database kemudian table nya.
