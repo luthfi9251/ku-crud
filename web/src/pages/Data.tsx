@@ -89,7 +89,13 @@ export default function Data() {
 
   const save = useMutation({
     mutationFn: async () => {
-      const body = JSON.stringify(form!.row);
+      // strip non-editable keys (incl. PK) — backend rejects any non-editable key in the payload
+      const payload: Row = {};
+      for (const c of editable) {
+        const v = form!.row[c.name];
+        if (v !== undefined) payload[c.name] = v;
+      }
+      const body = JSON.stringify(payload);
       if (form!.mode === "new") await api(`/tables/${id}/rows`, { method: "POST", body });
       else await api(`/tables/${id}/rows/${encodeURIComponent(String(form!.row[pkCol]))}`, { method: "PUT", body });
     },
