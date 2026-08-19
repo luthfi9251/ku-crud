@@ -15,8 +15,8 @@ type Datasource struct {
 }
 
 func (s *Store) CreateDatasource(d *Datasource) error {
-	res, err := s.db.Exec(`INSERT INTO datasources(name,host,port,dbname,username,password,sslmode)
-		VALUES(?,?,?,?,?,?,?)`, d.Name, d.Host, d.Port, d.DBName, d.Username, d.Password, d.SSLMode)
+	res, err := s.db.Exec(`INSERT INTO datasources(name,host,port,dbname,username,password,sslmode,raw)
+		VALUES(?,?,?,?,?,?,?,?)`, d.Name, d.Host, d.Port, d.DBName, d.Username, d.Password, d.SSLMode, d.Raw)
 	if err != nil {
 		return err
 	}
@@ -26,9 +26,9 @@ func (s *Store) CreateDatasource(d *Datasource) error {
 
 func (s *Store) GetDatasource(id int64) (*Datasource, error) {
 	d := &Datasource{}
-	err := s.db.QueryRow(`SELECT id,name,host,port,dbname,username,password,sslmode
+	err := s.db.QueryRow(`SELECT id,name,host,port,dbname,username,password,sslmode,raw
 		FROM datasources WHERE id=?`, id).
-		Scan(&d.ID, &d.Name, &d.Host, &d.Port, &d.DBName, &d.Username, &d.Password, &d.SSLMode)
+		Scan(&d.ID, &d.Name, &d.Host, &d.Port, &d.DBName, &d.Username, &d.Password, &d.SSLMode, &d.Raw)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -36,7 +36,7 @@ func (s *Store) GetDatasource(id int64) (*Datasource, error) {
 }
 
 func (s *Store) ListDatasources() ([]Datasource, error) {
-	rows, err := s.db.Query(`SELECT id,name,host,port,dbname,username,password,sslmode
+	rows, err := s.db.Query(`SELECT id,name,host,port,dbname,username,password,sslmode,raw
 		FROM datasources ORDER BY name`)
 	if err != nil {
 		return nil, err
@@ -45,7 +45,7 @@ func (s *Store) ListDatasources() ([]Datasource, error) {
 	var out []Datasource
 	for rows.Next() {
 		var d Datasource
-		if err := rows.Scan(&d.ID, &d.Name, &d.Host, &d.Port, &d.DBName, &d.Username, &d.Password, &d.SSLMode); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Host, &d.Port, &d.DBName, &d.Username, &d.Password, &d.SSLMode, &d.Raw); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -54,8 +54,8 @@ func (s *Store) ListDatasources() ([]Datasource, error) {
 }
 
 func (s *Store) UpdateDatasource(d *Datasource) error {
-	res, err := s.db.Exec(`UPDATE datasources SET name=?,host=?,port=?,dbname=?,username=?,password=?,sslmode=?
-		WHERE id=?`, d.Name, d.Host, d.Port, d.DBName, d.Username, d.Password, d.SSLMode, d.ID)
+	res, err := s.db.Exec(`UPDATE datasources SET name=?,host=?,port=?,dbname=?,username=?,password=?,sslmode=?,raw=?
+		WHERE id=?`, d.Name, d.Host, d.Port, d.DBName, d.Username, d.Password, d.SSLMode, d.Raw, d.ID)
 	if err != nil {
 		return err
 	}

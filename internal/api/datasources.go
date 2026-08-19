@@ -102,6 +102,7 @@ func (s *Server) handleDSUpdate(w http.ResponseWriter, r *http.Request) {
 	if d.Password == "" {
 		d.Password = old.Password
 	}
+	d.Raw = old.Raw // conn-string passthrough is never submitted via API
 	if msg := validDS(&d); msg != "" {
 		writeErr(w, 400, "VALIDATION", msg, nil)
 		return

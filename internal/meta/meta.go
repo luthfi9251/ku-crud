@@ -54,7 +54,9 @@ CREATE TABLE audit(
   action TEXT NOT NULL, row_pk TEXT NOT NULL,
   old_values TEXT, new_values TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);
-`}
+`,
+	`ALTER TABLE datasources ADD COLUMN raw TEXT NOT NULL DEFAULT '';`,
+}
 
 func Open(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", path)
