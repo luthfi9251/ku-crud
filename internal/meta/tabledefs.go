@@ -220,3 +220,30 @@ func (s *Store) DeleteTableDef(id int64) error {
 	}
 	return nil
 }
+
+// FKSource describes one defined FK column pointing at defID.
+type FKSource struct {
+	DefID     int64
+	DefLabel  string
+	Column    string
+	RefColumn string
+}
+
+func (s *Store) FKRefSources(defID int64) ([]FKSource, error) {
+	rows, err := s.db.Query(`SELECT td.id, td.label, c.name, c.fk_ref_column
+		FROM columns c JOIN table_defs td ON td.id = c.table_def_id
+		WHERE c.fk_table_def_id = ? AND c.field_type = 'fk'`, defID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FKSource
+	for rows.Next() {
+		var f FKSource
+		if err := rows.Scan(&f.DefID, &f.DefLabel, &f.Column, &f.RefColumn); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}

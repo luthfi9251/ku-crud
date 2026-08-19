@@ -117,3 +117,51 @@ func TestColumnDefFKRoundTrip(t *testing.T) {
 		t.Fatalf("SelfRef not resolved: %+v", got2[1])
 	}
 }
+
+func TestFKRefSources(t *testing.T) {
+	s := openTest(t)
+	if err := s.CreateDatasource(&Datasource{Name: "d", Host: "h", Port: 1, DBName: "db",
+		Username: "u", Password: "p", SSLMode: "disable"}); err != nil {
+		t.Fatal(err)
+	}
+	parent := &TableDef{DatasourceID: 1, SchemaName: "public", TableName: "customers",
+		Label: "Customers", KeyColumns: []string{"id"}, PageSize: 20}
+	if err := s.SaveTableDef(parent, []ColumnDef{
+		{Name: "id", Label: "ID", FieldType: "number", Editable: false, Required: true,
+			Visible: true, Position: 0}}); err != nil {
+		t.Fatal(err)
+	}
+	child := &TableDef{DatasourceID: 1, SchemaName: "public", TableName: "orders",
+		Label: "Orders", KeyColumns: []string{"id"}, PageSize: 20}
+	if err := s.SaveTableDef(child, []ColumnDef{
+		{Name: "id", Label: "ID", FieldType: "number", Editable: false, Required: true,
+			Visible: true, Position: 0},
+		{Name: "customer_id", Label: "Customer", FieldType: "fk", BaseType: "number",
+			FKTableDefID: parent.ID, FKRefColumn: "id", FKDisplayColumns: []string{"id"},
+			Editable: true, Visible: true, Position: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	// a table that references the child (no reference to parent)
+	other := &TableDef{DatasourceID: 1, SchemaName: "public", TableName: "notes",
+		Label: "Notes", KeyColumns: []string{"id"}, PageSize: 20}
+	if err := s.SaveTableDef(other, []ColumnDef{
+		{Name: "id", Label: "ID", FieldType: "number", Editable: false, Required: true,
+			Visible: true, Position: 0},
+		{Name: "order_id", Label: "Order", FieldType: "fk", BaseType: "number",
+			FKTableDefID: child.ID, FKRefColumn: "id", FKDisplayColumns: []string{"id"},
+			Editable: true, Visible: true, Position: 1}}); err != nil {
+		t.Fatal(err)
+	}
+
+	srcs, err := s.FKRefSources(parent.ID)
+	if err != nil || len(srcs) != 1 {
+		t.Fatalf("parent sources: %v %+v", err, srcs)
+	}
+	if srcs[0].DefID != child.ID || srcs[0].DefLabel != "Orders" ||
+		srcs[0].Column != "customer_id" || srcs[0].RefColumn != "id" {
+		t.Fatalf("source: %+v", srcs[0])
+	}
+	if srcs, _ := s.FKRefSources(other.ID); len(srcs) != 0 {
+		t.Fatalf("leaf table should have no sources: %+v", srcs)
+	}
+}
