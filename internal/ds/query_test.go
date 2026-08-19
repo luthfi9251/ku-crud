@@ -85,3 +85,46 @@ func TestBuildCount(t *testing.T) {
 		t.Fatalf("got %s %v", sql, args)
 	}
 }
+
+func TestBuildInsert(t *testing.T) {
+	sql, n, err := BuildInsert("public", "customers", []string{"name", "status"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sql != `INSERT INTO "public"."customers" ("name","status") VALUES ($1,$2)` || n != 2 {
+		t.Fatalf("got %s n=%d", sql, n)
+	}
+	if _, _, err := BuildInsert("public", "t", []string{"na me"}); err == nil {
+		t.Fatal("bad identifier accepted")
+	}
+}
+
+func TestBuildUpdateByPK(t *testing.T) {
+	sql, n, err := BuildUpdateByPK("public", "customers", "id", []string{"name", "active"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sql != `UPDATE "public"."customers" SET "name"=$1,"active"=$2 WHERE "id"=$3` || n != 2 {
+		t.Fatalf("got %s n=%d", sql, n)
+	}
+}
+
+func TestBuildDeleteByPK(t *testing.T) {
+	sql, err := BuildDeleteByPK("public", "customers", "id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sql != `DELETE FROM "public"."customers" WHERE "id"=$1` {
+		t.Fatalf("got %s", sql)
+	}
+}
+
+func TestBuildFetchByPK(t *testing.T) {
+	sql, err := BuildFetchByPK("public", "customers", "id", []string{"id", "name"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sql != `SELECT "id","name" FROM "public"."customers" WHERE "id"=$1` {
+		t.Fatalf("got %s", sql)
+	}
+}

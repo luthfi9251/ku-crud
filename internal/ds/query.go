@@ -109,3 +109,70 @@ func BuildCount(p ListParams) (string, []any, error) {
 	where, args, _ := searchWhere(p.Searchable, p.Search, 1)
 	return "SELECT COUNT(*) FROM " + tbl + where, args, nil
 }
+
+func BuildInsert(schema, table string, cols []string) (string, int, error) {
+	tbl, err := qualify(schema, table)
+	if err != nil {
+		return "", 0, err
+	}
+	qs, err := quoteAll(cols)
+	if err != nil {
+		return "", 0, err
+	}
+	ph := make([]string, len(cols))
+	for i := range cols {
+		ph[i] = fmt.Sprintf("$%d", i+1)
+	}
+	return "INSERT INTO " + tbl + " (" + strings.Join(qs, ",") + ") VALUES (" +
+		strings.Join(ph, ",") + ")", len(cols), nil
+}
+
+func BuildUpdateByPK(schema, table, pk string, setCols []string) (string, int, error) {
+	tbl, err := qualify(schema, table)
+	if err != nil {
+		return "", 0, err
+	}
+	qpk, err := QuoteIdent(pk)
+	if err != nil {
+		return "", 0, err
+	}
+	qs, err := quoteAll(setCols)
+	if err != nil {
+		return "", 0, err
+	}
+	sets := make([]string, len(qs))
+	for i, q := range qs {
+		sets[i] = fmt.Sprintf("%s=$%d", q, i+1)
+	}
+	return "UPDATE " + tbl + " SET " + strings.Join(sets, ",") +
+		fmt.Sprintf(" WHERE %s=$%d", qpk, len(setCols)+1), len(setCols), nil
+}
+
+func BuildDeleteByPK(schema, table, pk string) (string, error) {
+	tbl, err := qualify(schema, table)
+	if err != nil {
+		return "", err
+	}
+	qpk, err := QuoteIdent(pk)
+	if err != nil {
+		return "", err
+	}
+	return "DELETE FROM " + tbl + fmt.Sprintf(" WHERE %s=$1", qpk), nil
+}
+
+func BuildFetchByPK(schema, table, pk string, columns []string) (string, error) {
+	tbl, err := qualify(schema, table)
+	if err != nil {
+		return "", err
+	}
+	qpk, err := QuoteIdent(pk)
+	if err != nil {
+		return "", err
+	}
+	qs, err := quoteAll(columns)
+	if err != nil {
+		return "", err
+	}
+	return "SELECT " + strings.Join(qs, ",") + " FROM " + tbl +
+		fmt.Sprintf(" WHERE %s=$1", qpk), nil
+}
