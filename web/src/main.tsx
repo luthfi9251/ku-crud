@@ -5,6 +5,7 @@ import { HashRouter, Route, Routes } from "react-router-dom";
 import App from "./App";
 import Login from "./pages/Login";
 import Tables from "./pages/Tables";
+import Data from "./pages/Data";
 import Datasources from "./pages/Datasources";
 import "./index.css";
 
@@ -15,8 +16,8 @@ const qc = new QueryClient({
 // ponytail: plain stubs for pages landing in Tasks 14-16
 const LoginLazy = Login;
 const TablesLazy = Tables;
-// ponytail: plain table, TanStack Table when column resize/virtualization needed
-const DataLazy = () => <p>Not built yet</p>;
+// ponytail: plain table grid lives in Data.tsx
+const DataLazy = Data;
 const DatasourcesLazy = Datasources;
 const AuditLazy = () => <p>Not built yet</p>;
 
