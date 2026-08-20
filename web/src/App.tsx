@@ -22,6 +22,8 @@ export default function App() {
       return { title: "User Management", subtitle: "Manage login accounts and role assignment", icon: UsersIcon };
     } else if (path === "/roles") {
       return { title: "Roles & Access", subtitle: "Define platform and per-table permissions", icon: KeyRound };
+    } else if (path.includes("/import")) {
+      return { title: "Import CSV", subtitle: "Upload, map and validate rows before insert", icon: Layers };
     } else if (path.startsWith("/data/")) {
       return { title: "Data Explorer", subtitle: "Live table CRUD administration", icon: Layers };
     }
