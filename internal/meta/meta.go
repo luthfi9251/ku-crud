@@ -111,6 +111,9 @@ func Open(path string) (*Store, error) {
 	if err := s.migrate(); err != nil {
 		return nil, err
 	}
+	if err := s.encryptLegacyPasswords(); err != nil {
+		return nil, fmt.Errorf("password encryption migration: %w", err)
+	}
 	return s, nil
 }
 

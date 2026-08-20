@@ -16,8 +16,12 @@ type Datasource struct {
 }
 
 func (s *Store) CreateDatasource(d *Datasource) error {
+	enc, err := encryptPassword(s, d.Password)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.Exec(`INSERT INTO datasources(name,host,port,dbname,username,password,sslmode,driver,raw)
-		VALUES(?,?,?,?,?,?,?,?,?)`, d.Name, d.Host, d.Port, d.DBName, d.Username, d.Password, d.SSLMode, d.Driver, d.Raw)
+		VALUES(?,?,?,?,?,?,?,?,?)`, d.Name, d.Host, d.Port, d.DBName, d.Username, enc, d.SSLMode, d.Driver, d.Raw)
 	if err != nil {
 		return err
 	}
@@ -33,7 +37,14 @@ func (s *Store) GetDatasource(id int64) (*Datasource, error) {
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
-	return d, err
+	if err != nil {
+		return nil, err
+	}
+	d.Password, err = decryptPassword(s, d.Password)
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
 }
 
 func (s *Store) ListDatasources() ([]Datasource, error) {
@@ -42,21 +53,36 @@ func (s *Store) ListDatasources() ([]Datasource, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []Datasource
 	for rows.Next() {
 		var d Datasource
 		if err := rows.Scan(&d.ID, &d.Name, &d.Host, &d.Port, &d.DBName, &d.Username, &d.Password, &d.SSLMode, &d.Driver, &d.Raw); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		out = append(out, d)
 	}
-	return out, rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// decrypt after the cursor is closed: the key lookup needs the same
+	// single connection (MaxOpenConns=1)
+	for i := range out {
+		if out[i].Password, err = decryptPassword(s, out[i].Password); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func (s *Store) UpdateDatasource(d *Datasource) error {
+	enc, err := encryptPassword(s, d.Password)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.Exec(`UPDATE datasources SET name=?,host=?,port=?,dbname=?,username=?,password=?,sslmode=?,driver=?,raw=?
-		WHERE id=?`, d.Name, d.Host, d.Port, d.DBName, d.Username, d.Password, d.SSLMode, d.Driver, d.Raw, d.ID)
+		WHERE id=?`, d.Name, d.Host, d.Port, d.DBName, d.Username, enc, d.SSLMode, d.Driver, d.Raw, d.ID)
 	if err != nil {
 		return err
 	}

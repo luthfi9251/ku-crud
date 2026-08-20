@@ -90,12 +90,18 @@ Replace the binary and restart — schema migrations run automatically on
 startup. The v1.1 migration assigns every pre-existing user the builtin
 **Admin** role and flags the earliest user as the immutable first user;
 single-PK definitions are migrated to the new `keyColumns` form (no change
-in behavior).
+in behavior). From v1.2 the datasource driver defaults to `postgres`.
+v1.3 adds default-sort + relation columns and encrypts stored datasource
+passwords in place (one-way: the metadata file then requires v1.3+).
 
 ## Security notes
 
-- Datasource passwords are stored PLAINTEXT in the SQLite metadata file. Anyone who
-  can read ku-crud.db can read those passwords — protect the file (file permissions).
+- Datasource passwords are stored **encrypted at rest** (AES-256-GCM, key kept in
+  the metadata file's settings table). This removes plaintext credentials from
+  casual reads or dumps of `ku-crud.db`; note the key lives in the same file,
+  so this is hardening rather than a security boundary — still protect the file
+  (file permissions). Upgrading from ≤ v1.2 encrypts existing passwords
+  automatically on first start, and the DB then requires v1.3+ to read.
 - **RBAC**: users hold exactly one role. The builtin Admin role implicitly has
   every permission (full platform access and full CRUD on all tables). Custom
   roles combine the Platform Management bundle (datasources + table definitions
