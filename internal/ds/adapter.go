@@ -52,8 +52,19 @@ type Adapter interface {
 	FetchByRefValues(schema, table, refCol string, displayCols []string, vals []any) (map[string]map[string]any, error)
 	CountByRefEq(schema, table, col string, val any) (int, error)
 
+	// Pair is one junction row expressed as (source ref value, target ref
+	// value) — the building block of many-to-many relations.
+	FetchPairsByRef(schema, table, col, retCol string, vals []any) ([]Pair, error)
+	DeletePairs(schema, table, col1 string, val1 any, col2 string, val2 any) (int64, error)
+
 	IsFKViolation(err error) bool
 	Close() error
+}
+
+// Pair is one junction link (col value → ret value).
+type Pair struct {
+	Col any `json:"col"`
+	Ret any `json:"ret"`
 }
 
 // Open creates the adapter for a stored datasource. Connections are lazy:

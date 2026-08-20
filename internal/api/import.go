@@ -85,8 +85,9 @@ func (s *Server) validateImportRows(def *meta.TableDef, cols []meta.ColumnDef,
 		if colName == "" {
 			continue // explicitly ignored header
 		}
-		if _, ok := byName[colName]; !ok {
-			continue // unknown target: treated as ignored
+		c, ok := byName[colName]
+		if !ok || c.FieldType == "m2m" {
+			continue // unknown target or virtual relation: treated as ignored
 		}
 		sanitized[h] = colName
 	}
@@ -131,6 +132,9 @@ func (s *Server) validateImportRows(def *meta.TableDef, cols []meta.ColumnDef,
 			payload[colName] = v
 		}
 		for _, c := range cols {
+			if c.FieldType == "m2m" {
+				continue // virtual relation columns are not importable
+			}
 			if c.Required && !isKey[c.Name] && !mappedTargets[c.Name] {
 				row.Valid = false
 				row.Errors = append(row.Errors, importRowError{Column: c.Name, Message: "required column is not mapped"})

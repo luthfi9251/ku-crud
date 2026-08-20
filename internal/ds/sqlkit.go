@@ -286,6 +286,52 @@ func (dt sqlDialect) buildCountByRefEq(schema, table, col string, val any) (stri
 	return "SELECT COUNT(*) FROM " + tbl + " WHERE " + q + "=" + dt.placeholder(1), []any{val}, nil
 }
 
+// buildFetchPairs selects col + retCol where col IN (...vals) — the junction
+// link lookup for many-to-many relations.
+func (dt sqlDialect) buildFetchPairs(schema, table, col, retCol string, vals []any) (string, []any, error) {
+	if len(vals) == 0 {
+		return "", nil, fmt.Errorf("no pair values to look up")
+	}
+	tbl, err := dt.qualify(schema, table)
+	if err != nil {
+		return "", nil, err
+	}
+	qc, err := dt.quoteIdent(col)
+	if err != nil {
+		return "", nil, err
+	}
+	qr, err := dt.quoteIdent(retCol)
+	if err != nil {
+		return "", nil, err
+	}
+	ph := make([]string, len(vals))
+	args := make([]any, len(vals))
+	for i, v := range vals {
+		ph[i] = dt.placeholder(i + 1)
+		args[i] = v
+	}
+	return "SELECT " + qc + "," + qr + " FROM " + tbl +
+		" WHERE " + qc + " IN (" + strings.Join(ph, ",") + ")", args, nil
+}
+
+// buildDeletePairs deletes junction rows matching one (col1, col2) pair.
+func (dt sqlDialect) buildDeletePairs(schema, table, col1, col2 string) (string, []any, error) {
+	tbl, err := dt.qualify(schema, table)
+	if err != nil {
+		return "", nil, err
+	}
+	q1, err := dt.quoteIdent(col1)
+	if err != nil {
+		return "", nil, err
+	}
+	q2, err := dt.quoteIdent(col2)
+	if err != nil {
+		return "", nil, err
+	}
+	return "DELETE FROM " + tbl + " WHERE " + q1 + "=" + dt.placeholder(1) +
+		" AND " + q2 + "=" + dt.placeholder(2), nil, nil
+}
+
 // scanTargets/deref/rowToMap: generic database/sql scanning for adapters.
 func scanTargets(n int) []any {
 	out := make([]any, n)

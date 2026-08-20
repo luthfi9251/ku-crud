@@ -63,7 +63,7 @@ func (s *Server) handleRowBulkDelete(w http.ResponseWriter, r *http.Request) {
 			failures = append(failures, bulkFailure{Key: key, Code: "VALIDATION", Message: "bad row key"})
 			continue
 		}
-		oldRows, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals, colNames(cols))
+		oldRows, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals, realColNames(cols))
 		if err != nil {
 			failures = append(failures, bulkFailure{Key: key, Code: "CONN", Message: "fetch failed"})
 			continue
