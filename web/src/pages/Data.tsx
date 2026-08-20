@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search,
@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Edit,
   Trash2,
+  Copy,
   AlertTriangle,
   ArrowUpDown,
   ArrowUp,
@@ -20,6 +21,7 @@ import {
 import { api, ApiError } from "../lib/api";
 import { encodeRowKey } from "../lib/rowkey";
 import type { ColumnDef, FkOptionsRes, Row, RowsRes, TableDefPayload } from "../lib/types";
+import { HelpPopover } from "../components/ColumnListEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,16 +34,30 @@ import { Card, CardContent } from "@/components/ui/card";
 
 export default function Data() {
   const { id } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const autoEditParam = searchParams.get("autoEdit");
+  const searchParam = searchParams.get("search") || "";
+
   const qc = useQueryClient();
   const def = useQuery({ queryKey: ["def", id], queryFn: () => api<TableDefPayload>(`/tables/${id}`) });
-  const [search, setSearch] = useState("");
-  const [debounced, setDebounced] = useState("");
+  const [search, setSearch] = useState(searchParam);
+  const [debounced, setDebounced] = useState(searchParam);
   const [sort, setSort] = useState("");
   const [dir, setDir] = useState<"ASC" | "DESC">("ASC");
   const [page, setPage] = useState(1);
   const [drift, setDrift] = useState<{ missing: string[]; added: string[]; typeChanged: string[] } | null>(null);
   const [connErr, setConnErr] = useState("");
-  const [form, setForm] = useState<{ mode: "new" | "edit"; row: Row } | null>(null);
+  const [form, setForm] = useState<{ mode: "new" | "edit"; row: Row; initialKey?: string[] | null } | null>(null);
+
+  // Sync search & table state when table id or URL search changes
+  useEffect(() => {
+    setSearch(searchParam);
+    setDebounced(searchParam);
+    setPage(1);
+    setSort("");
+    setDir("ASC");
+    setForm(null);
+  }, [id, searchParam]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -96,20 +112,57 @@ export default function Data() {
     return vals as string[];
   };
 
+  const handleCopy = (row: Row) => {
+    const copiedRow: Row = { ...row };
+    for (const k of keyCols) {
+      delete copiedRow[k];
+    }
+    setForm({ mode: "new", row: copiedRow });
+  };
+
+  // Auto-open edit modal if navigated here with autoEdit parameter once fresh rows for current id have loaded
+  useEffect(() => {
+    if (!autoEditParam || !rows.data?.rows || rows.isFetching || form) return;
+    if (def.data?.id !== id) return;
+    const target = rows.data.rows.find((r) => {
+      return Object.values(r).some((v) => v !== null && v !== undefined && String(v) === autoEditParam);
+    });
+    if (target) {
+      const k = rowKey(target);
+      setForm({ mode: "edit", row: { ...target }, initialKey: k });
+      const next = new URLSearchParams(searchParams);
+      next.delete("autoEdit");
+      setSearchParams(next, { replace: true });
+    }
+  }, [autoEditParam, rows.data, rows.isFetching, def.data, id, form, searchParams, setSearchParams, keyCols]);
+
+
+  const modalFields = useMemo(() => {
+    const allCols = def.data?.columns ?? [];
+    return allCols.filter((c) => c.editable || keyCols.includes(c.name));
+  }, [def.data?.columns, keyCols]);
+
   const save = useMutation({
     mutationFn: async () => {
-      // strip non-editable keys (incl. PK) — backend rejects any non-editable key in the payload
       const payload: Row = {};
-      for (const c of editable) {
-        const v = form!.row[c.name];
-        if (v !== undefined) payload[c.name] = v;
-      }
-      const body = JSON.stringify(payload);
-      if (form!.mode === "new") await api(`/tables/${id}/rows`, { method: "POST", body });
-      else {
-        const key = rowKey(form!.row);
+      if (form!.mode === "new") {
+        // Send all fields filled in the insert modal (including PK if provided)
+        for (const c of modalFields) {
+          const v = form!.row[c.name];
+          if (v !== undefined && v !== null && v !== "") {
+            payload[c.name] = v;
+          }
+        }
+        await api(`/tables/${id}/rows`, { method: "POST", body: JSON.stringify(payload) });
+      } else {
+        // In edit mode, strip PKs and non-editable fields from PUT payload
+        for (const c of editable.filter((c) => !keyCols.includes(c.name))) {
+          const v = form!.row[c.name];
+          if (v !== undefined) payload[c.name] = v;
+        }
+        const key = form!.initialKey || rowKey(form!.row);
         if (!key) throw new Error("row has a null key value");
-        await api(`/tables/${id}/rows/${encodeRowKey(key)}`, { method: "PUT", body });
+        await api(`/tables/${id}/rows/${encodeRowKey(key)}`, { method: "PUT", body: JSON.stringify(payload) });
       }
     },
     onSuccess: () => {
@@ -361,12 +414,23 @@ export default function Data() {
                       })}
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {perms.create && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-blue-600"
+                              onClick={() => handleCopy(row)}
+                              title="Copy / Duplicate record"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                           {rowKey(row) && perms.update && (
                             <Button
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                              onClick={() => setForm({ mode: "edit", row: { ...row } })}
+                              onClick={() => setForm({ mode: "edit", row: { ...row }, initialKey: rowKey(row) })}
                               title="Edit row"
                             >
                               <Edit className="h-3.5 w-3.5" />
@@ -428,7 +492,32 @@ export default function Data() {
       <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
         <DialogContent className="max-w-3xl w-[90vw] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{form?.mode === "new" ? "Insert New Record" : "Edit Record"}</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>{form?.mode === "new" ? "Insert New Record" : "Edit Record"}</DialogTitle>
+              {form && (
+                <HelpPopover placement="bottom-start" title={form.mode === "new" ? "Insert Record Guide" : "Edit Record Guide"}>
+                  {form.mode === "new" ? (
+                    <div className="space-y-1">
+                      <p>
+                        Provide values for new record fields.
+                      </p>
+                      <p className="pt-1 text-[10px]">
+                        💡 <strong>Primary Key Policy:</strong> PK fields accept manual values or can be left blank if your database auto-generates IDs via sequence / SERIAL defaults.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <p>
+                        Modify attribute values for existing record <strong>{keyCols.join(" + ")}</strong>.
+                      </p>
+                      <p className="pt-1 text-[10px]">
+                        💡 <strong>Primary Key Policy:</strong> Primary Key fields are displayed as <strong>Read-Only</strong> on Edit Mode to protect record identity.
+                      </p>
+                    </div>
+                  )}
+                </HelpPopover>
+              )}
+            </div>
             <DialogDescription className="text-xs">
               {form?.mode === "new" ? "Provide values for editable table fields" : `Editing record ${keyCols.join(" + ")}`}
             </DialogDescription>
@@ -436,8 +525,9 @@ export default function Data() {
 
           {form && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
-              {editable.map((c) =>
-                c.fieldType === "fk" ? (
+              {modalFields.map((c) => {
+                const isPkLockedInEdit = form.mode === "edit" && keyCols.includes(c.name);
+                return c.fieldType === "fk" ? (
                   <FkField
                     key={c.name}
                     col={c}
@@ -451,16 +541,24 @@ export default function Data() {
                     key={c.name}
                     col={c}
                     row={form.row}
+                    disabled={isPkLockedInEdit}
                     onChange={(v) => setForm({ ...form, row: { ...form.row, [c.name]: v } })}
                   />
-                )
-              )}
+                );
+              })}
             </div>
           )}
 
           {save.isError && (
-            <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive">
-              {(save.error as Error).message}: {String((save.error as ApiError).detail ?? "")}
+            <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive space-y-1">
+              <p className="font-semibold">
+                {(save.error as Error).message}: {String((save.error as ApiError).detail ?? "")}
+              </p>
+              {String((save.error as ApiError).detail ?? "").includes("violates not-null constraint") && (
+                <p className="text-[11px] opacity-90 border-t pt-1 border-destructive/20 font-sans">
+                  💡 <strong>Solution Tip:</strong> This column is defined as <code>NOT NULL</code> in the database without an auto-increment sequence default. Go to <strong>Table Definitions</strong> (Step 3) and enable the <strong>Edit</strong> switch for this column so it appears on the form, or add a <code>DEFAULT nextval(...)</code> / <code>SERIAL</code> sequence in your database.
+                </p>
+              )}
             </div>
           )}
 
@@ -470,8 +568,8 @@ export default function Data() {
             </Button>
             <Button
               onClick={() => {
-                const missing = editable.filter(
-                  (c) => c.required && (form!.row[c.name] === undefined || form!.row[c.name] === null || form!.row[c.name] === "")
+                const missing = modalFields.filter(
+                  (c) => c.required && !keyCols.includes(c.name) && (form!.row[c.name] === undefined || form!.row[c.name] === null || form!.row[c.name] === "")
                 );
                 if (missing.length) {
                   return alert(`Required fields missing: ${missing.map((c) => c.label).join(", ")}`);
@@ -507,7 +605,11 @@ function renderValue(v: unknown, type: ColumnDef["fieldType"]): React.ReactNode 
   return String(v);
 }
 
-function FieldInput({ col, row, onChange }: { col: ColumnDef; row: Row; onChange: (v: unknown) => void }) {
+function FieldInput({
+  col, row, disabled = false, onChange,
+}: {
+  col: ColumnDef; row: Row; disabled?: boolean; onChange: (v: unknown) => void;
+}) {
   const raw = row[col.name];
   const val = raw === null || raw === undefined ? "" : String(raw);
 
@@ -516,17 +618,18 @@ function FieldInput({ col, row, onChange }: { col: ColumnDef; row: Row; onChange
       <div className="flex items-center justify-between">
         <Label className="text-xs font-medium">
           {col.label} {col.required && <span className="text-destructive">*</span>}
+          {disabled && <span className="text-[10px] text-muted-foreground font-mono ml-1.5">(Read Only)</span>}
         </Label>
         <span className="text-[10px] text-muted-foreground font-mono">{col.fieldType}</span>
       </div>
 
       {col.fieldType === "boolean" ? (
         <div className="flex items-center gap-2 pt-1">
-          <Switch checked={raw === true} onCheckedChange={onChange} />
+          <Switch checked={raw === true} disabled={disabled} onCheckedChange={onChange} />
           <span className="text-xs font-mono">{raw === true ? "TRUE" : "FALSE"}</span>
         </div>
       ) : col.fieldType === "enum" ? (
-        <Select value={val || undefined} onValueChange={onChange}>
+        <Select value={val || undefined} disabled={disabled} onValueChange={onChange}>
           <SelectTrigger className="h-9 text-xs">
             <SelectValue placeholder="Select option..." />
           </SelectTrigger>
@@ -541,6 +644,7 @@ function FieldInput({ col, row, onChange }: { col: ColumnDef; row: Row; onChange
       ) : col.fieldType === "datetime" ? (
         <Input
           type="datetime-local"
+          disabled={disabled}
           className="h-9 text-xs"
           value={val.slice(0, 16)}
           onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
@@ -548,12 +652,13 @@ function FieldInput({ col, row, onChange }: { col: ColumnDef; row: Row; onChange
       ) : col.fieldType === "number" ? (
         <Input
           type="number"
+          disabled={disabled}
           className="h-9 text-xs"
           value={val}
           onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
         />
       ) : (
-        <Input className="h-9 text-xs" value={val} onChange={(e) => onChange(e.target.value)} />
+        <Input disabled={disabled} className="h-9 text-xs" value={val} onChange={(e) => onChange(e.target.value)} />
       )}
     </div>
   );
@@ -569,6 +674,7 @@ function FkField({
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedRel, setSelectedRel] = useState<Row | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -587,44 +693,100 @@ function FkField({
   });
 
   const rel = rels?.[col.name]?.[String(row[col.name])];
-  const preview = rel
-    ? (col.fkDisplayColumns ?? []).map((f) => (rel[f] === null || rel[f] === undefined ? null : String(rel[f]))).filter(Boolean).join(" — ")
-    : row[col.name] === null || row[col.name] === undefined
-      ? ""
-      : String(row[col.name]);
+  const activeRel = selectedRel || rel;
+  const displayCols = col.fkDisplayColumns && col.fkDisplayColumns.length > 0
+    ? col.fkDisplayColumns
+    : col.fkRefColumn ? [col.fkRefColumn] : [];
+
   const pages = opts.data ? Math.max(1, Math.ceil(opts.data.total / opts.data.pageSize)) : 1;
 
+  const handleEditRelated = () => {
+    if (!col.fkTableDefId || col.fkTableDefId === "self") return;
+    const refVal = row[col.name] !== null && row[col.name] !== undefined ? String(row[col.name]) : "";
+    if (refVal) {
+      navigate(`/data/${col.fkTableDefId}?search=${encodeURIComponent(refVal)}&autoEdit=${encodeURIComponent(refVal)}`);
+    } else {
+      navigate(`/data/${col.fkTableDefId}`);
+    }
+  };
+
   return (
-    <div className="space-y-1 md:col-span-2">
-      <div className="flex items-center justify-between">
-        <Label className="text-xs font-medium">
-          {col.label} {col.required && <span className="text-destructive">*</span>}
-        </Label>
-        <span className="text-[10px] text-muted-foreground font-mono">fk</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="flex h-9 flex-1 items-center rounded-md border bg-background px-3 text-xs">
-          {preview || <span className="text-muted-foreground italic">— not set —</span>}
+    <div className="space-y-2 md:col-span-2 rounded-lg border border-border/80 bg-muted/20 p-3.5">
+      {/* FK Header & Action Buttons */}
+      <div className="flex items-center justify-between pb-1 border-b border-border/40">
+        <div className="flex items-center gap-2">
+          <Label className="text-xs font-semibold text-foreground">
+            {col.label} {col.required && <span className="text-destructive">*</span>}
+          </Label>
+          <Badge variant="outline" className="text-[10px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
+            FK ({col.name})
+          </Badge>
         </div>
-        {row[col.name] !== null && row[col.name] !== undefined && (
+        <div className="flex items-center gap-1.5">
+          {row[col.name] !== null && row[col.name] !== undefined && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-[11px] gap-1 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
+              onClick={handleEditRelated}
+              title="Edit record relasi di halaman tabelnya"
+            >
+              <ExternalLink className="h-3.5 w-3.5" /> Edit di table terkait
+            </Button>
+          )}
           <Button
-            type="button" variant="outline" size="sm" className="h-9 gap-1 text-xs"
-            onClick={() => col.fkTableDefId && col.fkTableDefId !== "self" && navigate(`/data/${col.fkTableDefId}`)}
-            title="Edit this record on its own table page"
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-[11px] gap-1"
+            onClick={() => setOpen(true)}
           >
-            <ExternalLink className="h-3.5 w-3.5" /> Edit di table terkait
+            <Search className="h-3.5 w-3.5" /> Pilih…
           </Button>
-        )}
-        <Button type="button" variant="outline" size="sm" className="h-9 gap-1 text-xs" onClick={() => setOpen(true)}>
-          <Search className="h-3.5 w-3.5" /> Pilih…
-        </Button>
-        {row[col.name] !== null && row[col.name] !== undefined && (
-          <Button type="button" variant="ghost" size="sm" className="h-9 text-xs" onClick={() => onChange(null)}>
-            Clear
-          </Button>
-        )}
+          {row[col.name] !== null && row[col.name] !== undefined && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-[11px] text-muted-foreground hover:text-destructive"
+              onClick={() => { setSelectedRel(null); onChange(null); }}
+            >
+              Clear
+            </Button>
+          )}
+        </div>
       </div>
 
+      {/* Individual Read-Only Display Fields */}
+      {row[col.name] === null || row[col.name] === undefined ? (
+        <div className="text-xs text-muted-foreground italic py-2 px-1">
+          Belum ada relasi dipilih (Kosong)
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+          {displayCols.map((fieldName) => {
+            const val = activeRel?.[fieldName];
+            const displayVal = val === null || val === undefined ? "" : String(val);
+            return (
+              <div key={fieldName} className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground font-medium">
+                  {fieldName}
+                </Label>
+                <Input
+                  readOnly
+                  disabled
+                  value={displayVal}
+                  placeholder="— not set —"
+                  className="h-8 text-xs font-mono bg-muted/50 cursor-not-allowed opacity-90 text-foreground"
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* FK Picker Modal */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -643,8 +805,12 @@ function FkField({
                 <button
                   key={i}
                   type="button"
-                  className="flex w-full items-center justify-between border-b px-3 py-2 text-left text-xs hover:bg-muted/50"
-                  onClick={() => { onChange(r[col.fkRefColumn ?? ""]); setOpen(false); }}
+                  className="flex w-full items-center justify-between border-b px-3 py-2 text-left text-xs hover:bg-muted/50 transition-colors"
+                  onClick={() => {
+                    setSelectedRel(r);
+                    onChange(r[col.fkRefColumn ?? ""]);
+                    setOpen(false);
+                  }}
                 >
                   <span className="font-mono">
                     {(col.fkDisplayColumns ?? []).map((f) => String(r[f] ?? "—")).join(" — ")}

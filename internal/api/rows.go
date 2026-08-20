@@ -122,11 +122,16 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 
 // editablePayload validates body against editable columns and returns
 // (cols, vals) in column-definition order. requireAll=true enforces required
-// columns for INSERT. Any non-editable/unknown key is rejected.
-func editablePayload(body map[string]any, cols []meta.ColumnDef, requireAll bool) ([]string, []any, error) {
+// columns for INSERT / UPDATE. Any non-editable/unknown key is rejected unless it is a primary key during insert.
+func editablePayload(body map[string]any, cols []meta.ColumnDef, keyCols []string, isInsert bool) ([]string, []any, error) {
 	editable := map[string]meta.ColumnDef{}
+	isKey := map[string]bool{}
+	for _, k := range keyCols {
+		isKey[k] = true
+	}
+
 	for _, c := range cols {
-		if c.Editable {
+		if c.Editable || (isInsert && isKey[c.Name]) {
 			editable[c.Name] = c
 		}
 	}
@@ -138,7 +143,7 @@ func editablePayload(body map[string]any, cols []meta.ColumnDef, requireAll bool
 	var names []string
 	var vals []any
 	for _, c := range cols {
-		if !c.Editable {
+		if !c.Editable && !(isInsert && isKey[c.Name]) {
 			continue
 		}
 		v, present := body[c.Name]
@@ -152,7 +157,7 @@ func editablePayload(body map[string]any, cols []meta.ColumnDef, requireAll bool
 			}
 			names = append(names, c.Name)
 			vals = append(vals, v)
-		} else if requireAll && c.Required {
+		} else if isInsert && c.Required && !isKey[c.Name] {
 			return nil, nil, fmt.Errorf("%s is required", c.Name)
 		}
 	}
@@ -200,7 +205,7 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
-	names, vals, err := editablePayload(body, cols, true)
+	names, vals, err := editablePayload(body, cols, def.KeyColumns, true)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
@@ -247,7 +252,7 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
-	names, vals, err := editablePayload(body, cols, false)
+	names, vals, err := editablePayload(body, cols, def.KeyColumns, false)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
