@@ -390,14 +390,19 @@ export default function Data() {
 
         <div className="flex items-center gap-2">
           {cols.some((c) => c.searchable) && (
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search rows..."
-                className="h-9 w-48 pl-8 text-xs md:w-64"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+            <div className="flex items-center gap-1">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search rows..."
+                  className="h-9 w-48 pl-8 text-xs md:w-64"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <HelpPopover title="Search Guide" placement="bottom">
+                <p>Filters rows across all searchable columns using parameterized SQL <code>LIKE</code> wildcard matching.</p>
+              </HelpPopover>
             </div>
           )}
           <Button
@@ -409,28 +414,40 @@ export default function Data() {
           >
             <RefreshCw className={`h-3.5 w-3.5 ${rows.isFetching ? "animate-spin" : ""}`} />
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 gap-1 text-xs"
-            onClick={() => exportCSV()}
-            disabled={exporting}
-            title="Export the current result (search & sort applied) as CSV"
-          >
-            <Download className="h-3.5 w-3.5" />
-            {exporting ? "Exporting..." : "Export CSV"}
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1 text-xs"
+              onClick={() => exportCSV()}
+              disabled={exporting}
+              title="Export the current result (search & sort applied) as CSV"
+            >
+              <Download className="h-3.5 w-3.5" />
+              {exporting ? "Exporting..." : "Export CSV"}
+            </Button>
+            <HelpPopover title="Export CSV Guide" placement="bottom">
+              <p>Downloads all matching records (up to 100,000 rows) with active search and sort filters applied as a UTF-8 BOM CSV file.</p>
+              <p className="pt-1 text-[10px]">💡 FK and Many-to-Many relations are resolved into human-readable display titles.</p>
+            </HelpPopover>
+          </div>
           {perms.create && (
             <>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 gap-1 text-xs"
-                onClick={() => navigate(`/data/${id}/import`)}
-                title="Import rows from a CSV file"
-              >
-                <Upload className="h-3.5 w-3.5" /> Import CSV
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 gap-1 text-xs"
+                  onClick={() => navigate(`/data/${id}/import`)}
+                  title="Import rows from a CSV file"
+                >
+                  <Upload className="h-3.5 w-3.5" /> Import CSV
+                </Button>
+                <HelpPopover title="Import CSV Guide" placement="bottom">
+                  <p>Bulk upload records from a CSV file (up to 5MB / 10,000 rows).</p>
+                  <p className="pt-1 text-[10px]">💡 Includes delimiter sniffing (comma/semicolon/tab), header mapping, and per-row validation preview.</p>
+                </HelpPopover>
+              </div>
               <Button
                 onClick={() => setForm({ mode: "new", row: {} })}
                 className="h-9 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1 text-xs"
