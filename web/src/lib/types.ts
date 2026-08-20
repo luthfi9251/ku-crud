@@ -5,7 +5,7 @@ export type BaseFieldType = Exclude<FieldType, "fk">;
 export type Id = string;
 
 export interface Datasource {
-  id: Id; name: string; host: string; port: number;
+  id: Id; name: string; driver: string; host: string; port: number;
   dbname: string; username: string; sslmode: string;
 }
 

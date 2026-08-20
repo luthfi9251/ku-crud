@@ -11,7 +11,9 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogD
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
-const empty = { name: "", host: "localhost", port: 5432, dbname: "", username: "postgres", password: "", sslmode: "disable" };
+const empty = { name: "", driver: "postgres", host: "localhost", port: 5432, dbname: "", username: "postgres", password: "", sslmode: "disable" };
+const defaultPorts: Record<string, number> = { postgres: 5432, mysql: 3306 };
+const driverLabels: Record<string, string> = { postgres: "PostgreSQL", mysql: "MySQL" };
 
 export default function Datasources() {
   const qc = useQueryClient();
@@ -61,7 +63,7 @@ export default function Datasources() {
         <div>
           <h2 className="text-xl font-bold tracking-tight">Datasource Connections</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Manage PostgreSQL connections and credentials for dynamic CRUD generation
+            Manage database connections and credentials for dynamic CRUD generation
           </p>
         </div>
         <Button
@@ -101,7 +103,7 @@ export default function Datasources() {
             <div>
               <p className="text-base font-semibold">No datasources connected</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Add a PostgreSQL database connection to generate dynamic CRUD tables.
+                Add a database connection to generate dynamic CRUD tables.
               </p>
             </div>
             <Button
@@ -132,9 +134,14 @@ export default function Datasources() {
                       <CardDescription className="text-[11px] font-mono mt-0.5">{d.dbname}</CardDescription>
                     </div>
                   </div>
-                  <Badge variant="outline" className="text-[10px] font-normal gap-1 bg-muted/50">
-                    <ShieldCheck className="h-3 w-3 text-emerald-500" /> SSL: {d.sslmode}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant="outline" className="text-[10px] font-normal bg-muted/50">
+                      {driverLabels[d.driver] ?? d.driver}
+                    </Badge>
+                    <Badge variant="outline" className="text-[10px] font-normal gap-1 bg-muted/50">
+                      <ShieldCheck className="h-3 w-3 text-emerald-500" /> SSL: {d.sslmode}
+                    </Badge>
+                  </div>
                 </div>
               </CardHeader>
 
@@ -171,6 +178,7 @@ export default function Datasources() {
                         setEditing(d);
                         setForm({
                           name: d.name,
+                          driver: d.driver ?? "postgres",
                           host: d.host,
                           port: d.port,
                           dbname: d.dbname,
@@ -215,7 +223,7 @@ export default function Datasources() {
               {editing ? "Edit Datasource Connection" : "New Datasource Connection"}
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Provide connection string details for PostgreSQL database
+              Provide connection details for {driverLabels[form.driver] ?? form.driver} database
             </DialogDescription>
           </DialogHeader>
 
@@ -228,6 +236,21 @@ export default function Datasources() {
                 onChange={(e) => set("name", e.target.value)}
                 className="h-9 text-xs"
               />
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs">Driver</Label>
+              <Select
+                value={form.driver}
+                onValueChange={(v) => setForm((f) => ({ ...f, driver: v, port: defaultPorts[v] ?? f.port }))}
+              >
+                <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(driverLabels).map(([v, label]) => (
+                    <SelectItem key={v} value={v} className="text-xs">{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="grid grid-cols-3 gap-2">
