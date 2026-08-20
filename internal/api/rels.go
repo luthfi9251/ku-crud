@@ -165,5 +165,8 @@ func (s *Server) handleFKOptions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "CONN", "count failed", err.Error())
 		return
 	}
+	if rows == nil {
+		rows = []map[string]any{}
+	}
 	writeJSON(w, 200, map[string]any{"rows": rows, "total": total, "page": page, "pageSize": target.PageSize})
 }

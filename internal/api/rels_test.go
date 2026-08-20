@@ -104,6 +104,15 @@ func TestRowListRels(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"pageSize":2`) {
 		t.Fatalf("fkoptions pageSize = %s", w.Body)
 	}
+	// empty pages must serialize rows as [] (not null)
+	w = do(s, "GET", "/api/tables/"+tdTok(s, 2)+"/rows?search=zzzznomatch", "", c)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"rows":[]`) {
+		t.Fatalf("empty row list shape = %d %s", w.Code, w.Body)
+	}
+	w = do(s, "GET", "/api/tables/"+tdTok(s, 2)+"/fkoptions/customer_id?search=zzzznomatch", "", c)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"rows":[]`) {
+		t.Fatalf("empty fkoptions shape = %d %s", w.Code, w.Body)
+	}
 	// non-fk column → 404
 	if w = do(s, "GET", "/api/tables/"+tdTok(s, 2)+"/fkoptions/note", "", c); w.Code != 404 {
 		t.Fatalf("non-fk fkoptions = %d", w.Code)

@@ -76,6 +76,9 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rels := s.buildRels(userFrom(r), cols, rows)
+	if rows == nil {
+		rows = []map[string]any{}
+	}
 	writeJSON(w, 200, map[string]any{"rows": rows, "total": total, "page": page,
 		"pageSize": def.PageSize, "rels": rels})
 }

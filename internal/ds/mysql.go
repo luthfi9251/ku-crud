@@ -163,12 +163,48 @@ func (a *mysqlAdapter) InspectTable(schema, table string) ([]LiveColumn, error) 
 
 // ---- data access: identical shape to postgres.go but on mysqlDialect ----
 
+// boolCols returns the set of tinyint(1) column names for a table (empty on error).
+func (a *mysqlAdapter) boolCols(schema, table string) map[string]bool {
+	cols, err := a.InspectTable(schema, table)
+	if err != nil {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, c := range cols {
+		if c.FieldType == "boolean" {
+			set[c.Name] = true
+		}
+	}
+	return set
+}
+
+// coerceBools converts int64 0/1 to bool for the given boolean columns.
+func coerceBools(rows []map[string]any, bools map[string]bool) {
+	if len(bools) == 0 {
+		return
+	}
+	for _, m := range rows {
+		for name := range bools {
+			if v, ok := m[name]; ok {
+				if i, ok := v.(int64); ok && (i == 0 || i == 1) {
+					m[name] = i == 1
+				}
+			}
+		}
+	}
+}
+
 func (a *mysqlAdapter) ListRows(p ListParams) ([]map[string]any, error) {
 	sqlText, args, err := mysqlDialect.buildList(p)
 	if err != nil {
 		return nil, err
 	}
-	return a.queryMaps(sqlText, args...)
+	rows, err := a.queryMaps(sqlText, args...)
+	if err != nil {
+		return nil, err
+	}
+	coerceBools(rows, a.boolCols(p.Schema, p.Table))
+	return rows, nil
 }
 
 func (a *mysqlAdapter) CountRows(p ListParams) (int, error) {
@@ -188,7 +224,12 @@ func (a *mysqlAdapter) FetchByKey(schema, table string, keyCols []string, keyVal
 	if err != nil {
 		return nil, err
 	}
-	return a.queryMaps(sqlText, args...)
+	rows, err := a.queryMaps(sqlText, args...)
+	if err != nil {
+		return nil, err
+	}
+	coerceBools(rows, a.boolCols(schema, table))
+	return rows, nil
 }
 
 func (a *mysqlAdapter) Insert(schema, table string, cols []string, vals []any) error {
@@ -233,6 +274,7 @@ func (a *mysqlAdapter) FetchByRefValues(schema, table, refCol string, displayCol
 	if err != nil {
 		return nil, err
 	}
+	coerceBools(maps, a.boolCols(schema, table))
 	out := map[string]map[string]any{}
 	for _, m := range maps {
 		out[rowValKeyOf(m[refCol])] = m
