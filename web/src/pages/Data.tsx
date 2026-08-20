@@ -18,6 +18,7 @@ import {
   Layers,
   Database,
   Download,
+  Upload,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { encodeRowKey } from "../lib/rowkey";
@@ -36,6 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 export default function Data() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const autoEditParam = searchParams.get("autoEdit");
   const searchParam = searchParams.get("search") || "";
@@ -351,12 +353,23 @@ export default function Data() {
             {exporting ? "Exporting..." : "Export CSV"}
           </Button>
           {perms.create && (
-            <Button
-              onClick={() => setForm({ mode: "new", row: {} })}
-              className="h-9 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1 text-xs"
-            >
-              <Plus className="h-4 w-4" /> New Row
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1 text-xs"
+                onClick={() => navigate(`/data/${id}/import`)}
+                title="Import rows from a CSV file"
+              >
+                <Upload className="h-3.5 w-3.5" /> Import CSV
+              </Button>
+              <Button
+                onClick={() => setForm({ mode: "new", row: {} })}
+                className="h-9 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1 text-xs"
+              >
+                <Plus className="h-4 w-4" /> New Row
+              </Button>
+            </>
           )}
         </div>
       </div>

@@ -9,10 +9,11 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
-  const r = await fetch(`/api${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...opts,
-  });
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (opts.body instanceof FormData) {
+    delete headers["Content-Type"]; // let the browser set the multipart boundary
+  }
+  const r = await fetch(`/api${path}`, { ...opts, headers: { ...headers, ...opts.headers } });
   if (r.status === 401 && !path.startsWith("/auth/")) {
     location.hash = "#/login";
     throw new ApiError("AUTH", "session expired", null);
