@@ -41,3 +41,21 @@ Selain itu perlu dilakukannya masking atau encrypt ID yang digunakan oleh sqlite
 
 4. Enhancement Logging GOlang
 Implementasi logging yang proper, saat ini baik error ataupun success tidak ada log nya. Yang perlu ditampilkan adalah log middleware untuk memperlihatkan request masuk dan waktu eksekusinya. Apabila ada return selain 200, maka silahkan log error nya
+
+Fitur V1.2
+Versi ini fokus untuk deliver fitur yang berkaitan dengan core functionality Ku-CRUD, yakni connection multi database dengan multi adapter, dan koneksi tabel dengan relasi join. Berikut adalah fitur yang akan diddeliver:
+
+1. Support Multiple Adapter DB
+Saat ini ku crud hanya support postgres, melalui fitur ini Ku CRUD akan support koneksi dengan database mysql dan mongodb dengan konsep yang sama. Untuk melakukan optimasi, setiap koneksi DB tidak akan Open secara terus menerus. hanya saat
+ingin digunakan saja, baru dia akan konek.
+
+2. Support for Relational Table
+Kondisi saat ini, ku crud hanya menampilkan Id referensi dari tabel lain. Pada fitur ini nantinya Ku-CRUD juga akan dapat menampilkan data dari tabel yang berelasi dengan skema berikut
+
+Relasi one-to-one, one-to-many, many-to-one:
+Pada halaman table definition, akan ada 1 field tambahan yakni Foreign Key. Ketika type itu dipilih, maka akan muncul dropdown yang akan membuat user memilih relasi tabel nya dimulai dari datasource (default datasource sama), nama table tujuan, dan field yang dijadikan referensi.
+Setelah itu, user juga dapat memilih field apa saja yang akan ditampilkan pada tabel, dan form edit.
+Pada saat create row, pada field FK, maka akan ada tombol untuk mentrigger sebuah modal. pada modal itu nanti user dapat mencari data mana yang akan direlasikan. begitu juga ketika edit. Saat user tidak menemukan yang mau di edit, maka dia bisa menekan tombol tambah. Tombol ini akan redirect user ke halaman table nya, dan melakukan create dari situ.
+Ketika Delete Row, Jangan otomatis delete cascade apabila row itu mereferensikan ke row lain.
+Saat tampil form edit, pastikan field relasi nya juga tampil, namun non-editable dari situ. Berikan tombol atau tulisan edit, yang ketika di klik akan redirect ke halaman tabel yang direferensikan.
+Jadi pastikan operasi Create, Update dan Delete itu berjalan dari halaman table yang direferensikan (single source)
