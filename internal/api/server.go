@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"ku-crud/internal/meta"
 	"ku-crud/internal/tokenid"
@@ -12,6 +13,9 @@ import (
 type Server struct {
 	store *meta.Store
 	ids   *tokenid.Codec
+	// loginLimit throttles credential endpoints (brute-force protection);
+	// in-memory, per instance.
+	loginLimit *loginLimiter
 }
 
 func New(store *meta.Store) (*Server, error) {
@@ -19,7 +23,8 @@ func New(store *meta.Store) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{store: store, ids: tokenid.New(secret)}, nil
+	return &Server{store: store, ids: tokenid.New(secret),
+		loginLimit: newLoginLimiter(5, 15*time.Minute)}, nil
 }
 
 // CtxUser is the per-request auth context (role included).

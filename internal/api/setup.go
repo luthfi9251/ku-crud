@@ -22,7 +22,13 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
+	key := limitKey("setup:"+body.Username, r)
+	if !s.loginLimit.allow(key) {
+		writeErr(w, 429, "RATE_LIMITED", "too many attempts; try again later", nil)
+		return
+	}
 	if body.Username == "" || len(body.Password) < 4 {
+		s.loginLimit.fail(key)
 		writeErr(w, 400, "VALIDATION", "username is required and password must be at least 4 characters", nil)
 		return
 	}
@@ -35,5 +41,6 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "AUTH", "setup already completed", nil)
 		return
 	}
+	s.loginLimit.reset(key)
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
