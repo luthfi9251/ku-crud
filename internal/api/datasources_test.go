@@ -102,4 +102,11 @@ func TestDatasourceDriverField(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"driver":"mysql"`) {
 		t.Fatalf("update = %d %s", w.Code, w.Body)
 	}
+
+	// legacy PUT without driver keeps stored mysql driver
+	w = do(s, "PUT", "/api/datasources/"+created.ID,
+		`{"name":"my3","host":"h","port":3306,"dbname":"db","username":"u","password":"p","sslmode":"disable"}`, c)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"driver":"mysql"`) {
+		t.Fatalf("legacy update driver = %d %s", w.Code, w.Body)
+	}
 }
