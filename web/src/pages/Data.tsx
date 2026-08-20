@@ -32,6 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -254,6 +255,54 @@ export default function Data() {
     },
   });
 
+  // multi-select bulk delete (chunked requests, per-row results)
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [bulkMsg, setBulkMsg] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const toggleSel = (key: string) => {
+    setSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const pageKeys = (rows.data?.rows ?? [])
+    .map((row) => ({ key: rowKey(row) ? encodeRowKey(rowKey(row) as string[]) : "", row }))
+    .filter((x) => x.key !== "");
+  const allPageSelected = pageKeys.length > 0 && pageKeys.every((x) => sel.has(x.key));
+  const runBulkDelete = async () => {
+    if (!confirm(`Delete ${sel.size} selected rows? This cannot be undone.`)) return;
+    setBulkBusy(true);
+    setBulkMsg("");
+    try {
+      const keys = [...sel];
+      let deleted = 0;
+      const failed: { key: string; code: string; message: string }[] = [];
+      for (let i = 0; i < keys.length; i += 500) {
+        const res = await api<{ deleted: number; failures: { key: string; code: string; message: string }[] }>(
+          `/tables/${id}/rows/bulk-delete`,
+          { method: "POST", body: JSON.stringify({ keys: keys.slice(i, i + 500) }) }
+        );
+        deleted += res.deleted;
+        failed.push(...res.failures);
+      }
+      setBulkMsg(
+        failed.length
+          ? `${deleted} deleted, ${failed.length} failed: ` +
+              failed.slice(0, 5).map((f) => `[${f.code}] ${f.message}`).join("; ") +
+              (failed.length > 5 ? ` … (+${failed.length - 5} more)` : "")
+          : `${deleted} rows deleted.`
+      );
+      setSel(new Set());
+      rows.refetch();
+    } catch (e) {
+      setBulkMsg(e instanceof Error ? e.message : "bulk delete failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const resync = useMutation({
     mutationFn: () => api(`/tables/${id}/resync`, { method: "POST" }),
     onSuccess: () => {
@@ -423,6 +472,31 @@ export default function Data() {
         </div>
       )}
 
+      {/* Bulk selection toolbar */}
+      {(sel.size > 0 || bulkMsg) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-xs">
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
+              {sel.size} selected
+            </Badge>
+            {bulkMsg && <span className="text-muted-foreground">{bulkMsg}</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setSel(new Set()); setBulkMsg(""); }}>
+              Clear
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 gap-1 bg-red-600 text-white hover:bg-red-700 text-xs"
+              disabled={sel.size === 0 || bulkBusy}
+              onClick={() => runBulkDelete()}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> {bulkBusy ? "Deleting..." : `Delete ${sel.size} rows`}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Main Data Table */}
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardContent className="p-0">
@@ -430,6 +504,25 @@ export default function Data() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  {perms.delete && (
+                    <TableHead className="w-10">
+                      <Checkbox
+                        aria-label="Select all rows on this page"
+                        checked={allPageSelected}
+                        onChange={(e) => {
+                          const on = e.target.checked;
+                          setSel((prev) => {
+                            const next = new Set(prev);
+                            for (const pk of pageKeys) {
+                              if (on) next.add(pk.key);
+                              else next.delete(pk.key);
+                            }
+                            return next;
+                          });
+                        }}
+                      />
+                    </TableHead>
+                  )}
                   {cols.map((c) => (
                     <TableHead
                       key={c.name}
@@ -469,13 +562,13 @@ export default function Data() {
               <TableBody>
                 {rows.isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={cols.length + 1} className="h-24 text-center text-xs text-muted-foreground">
+                    <TableCell colSpan={cols.length + (perms.delete ? 2 : 1)} className="h-24 text-center text-xs text-muted-foreground">
                       Fetching records...
                     </TableCell>
                   </TableRow>
                 ) : (r?.rows ?? []).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={cols.length + 1} className="h-32 text-center">
+                    <TableCell colSpan={cols.length + (perms.delete ? 2 : 1)} className="h-32 text-center">
                       <div className="flex flex-col items-center justify-center space-y-1">
                         <Database className="h-7 w-7 text-muted-foreground/30" />
                         <p className="text-xs font-medium text-muted-foreground">No records found</p>
@@ -483,8 +576,21 @@ export default function Data() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  (r?.rows ?? []).map((row, i) => (
+                  (r?.rows ?? []).map((row, i) => {
+                    const rowKeyStr = rowKey(row) ? encodeRowKey(rowKey(row) as string[]) : "";
+                    return (
                     <TableRow key={(rowKey(row) ?? []).join("\u0000") + i} className="hover:bg-muted/20">
+                      {perms.delete && (
+                        <TableCell className="w-10">
+                          {rowKeyStr && (
+                            <Checkbox
+                              aria-label="Select row"
+                              checked={sel.has(rowKeyStr)}
+                              onChange={() => toggleSel(rowKeyStr)}
+                            />
+                          )}
+                        </TableCell>
+                      )}
                       {cols.map((c) => {
                         const disp = fkDisplay(c, row);
                         return (
@@ -541,7 +647,8 @@ export default function Data() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
