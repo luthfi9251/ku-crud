@@ -7,6 +7,31 @@ import (
 	"ku-crud/internal/meta"
 )
 
+// ListParams carries one page-list request through the Adapter contract.
+type ListParams struct {
+	Schema, Table    string
+	Columns          []string
+	Searchable       []string
+	Search           string
+	SortCol, SortDir string
+	Limit, Offset    int
+}
+
+// TableInfo names one introspectable table.
+type TableInfo struct {
+	Schema string `json:"schema"`
+	Name   string `json:"name"`
+}
+
+// LiveColumn is one introspected column of a live table.
+type LiveColumn struct {
+	Name        string   `json:"name"`
+	FieldType   string   `json:"fieldType"`
+	Nullable    bool     `json:"nullable"`
+	IsPK        bool     `json:"isPk"`
+	EnumOptions []string `json:"enumOptions"`
+}
+
 // Adapter is the dialect-neutral data access contract. Handlers import
 // ONLY this interface — SQL generation and execution live inside adapters.
 // A new adapter (SQL or not) implements this and registers in Open;

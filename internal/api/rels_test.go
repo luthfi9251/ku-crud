@@ -1,11 +1,11 @@
 package api
 
 import (
+	"database/sql"
 	"os"
 	"strings"
 	"testing"
 
-	"ku-crud/internal/ds"
 	"ku-crud/internal/meta"
 )
 
@@ -17,11 +17,14 @@ func seedFKLive(t *testing.T, s *Server) {
 	if cs == "" {
 		t.Skip("KUCRUD_TEST_PG not set")
 	}
-	db, err := ds.Connect(ds.DSN{Raw: cs})
+	db, err := sql.Open("pgx", cs)
 	if err != nil {
 		t.Skipf("no PG: %v", err)
 	}
 	defer db.Close()
+	if err := db.Ping(); err != nil {
+		t.Skipf("no PG: %v", err)
+	}
 	if _, err := db.Exec(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;
 		CREATE TABLE customers(id serial PRIMARY KEY, name varchar(80) NOT NULL, city varchar(80));
 		CREATE TABLE orders(id serial PRIMARY KEY, note varchar(80), customer_id int REFERENCES customers(id));
@@ -209,11 +212,14 @@ func seedMultiRowRef(t *testing.T, s *Server) (int64, int64) {
 	if cs == "" {
 		t.Skip("KUCRUD_TEST_PG not set")
 	}
-	db, err := ds.Connect(ds.DSN{Raw: cs})
+	db, err := sql.Open("pgx", cs)
 	if err != nil {
 		t.Skipf("no PG: %v", err)
 	}
 	defer db.Close()
+	if err := db.Ping(); err != nil {
+		t.Skipf("no PG: %v", err)
+	}
 	if _, err := db.Exec(`DROP TABLE IF EXISTS item_refs; DROP TABLE IF EXISTS items;
 		CREATE TABLE items(grp text NOT NULL, note text NOT NULL);
 		CREATE TABLE item_refs(id serial PRIMARY KEY, note_ref text);
@@ -285,11 +291,14 @@ func seedFKByName(t *testing.T, s *Server) (int64, int64) {
 	if cs == "" {
 		t.Skip("KUCRUD_TEST_PG not set")
 	}
-	db, err := ds.Connect(ds.DSN{Raw: cs})
+	db, err := sql.Open("pgx", cs)
 	if err != nil {
 		t.Skipf("no PG: %v", err)
 	}
 	defer db.Close()
+	if err := db.Ping(); err != nil {
+		t.Skipf("no PG: %v", err)
+	}
 	if _, err := db.Exec(`DROP TABLE IF EXISTS orders; DROP TABLE IF EXISTS customers;
 		CREATE TABLE customers(id serial PRIMARY KEY, name varchar(80) NOT NULL, city varchar(80));
 		CREATE TABLE orders(id serial PRIMARY KEY, note varchar(80), customer_name varchar(80));

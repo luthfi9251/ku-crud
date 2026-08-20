@@ -13,6 +13,31 @@ import (
 	"ku-crud/internal/meta"
 )
 
+// MapFieldType maps a PG data_type to a Ku-CRUD field type ("" = excluded).
+func MapFieldType(dataType string) string {
+	switch dataType {
+	case "boolean":
+		return "boolean"
+	case "smallint", "integer", "bigint", "numeric", "real", "double precision":
+		return "number"
+	case "timestamp with time zone", "timestamp without time zone",
+		"time with time zone", "time without time zone", "date":
+		return "datetime"
+	case "text", "character varying", "character":
+		return "text"
+	}
+	return "" // array, json, uuid, bytea, unknown → excluded in v1
+}
+
+// parsePGArray parses "{a,b,c}" into []string.
+func parsePGArray(s string) []string {
+	s = strings.TrimPrefix(strings.TrimSuffix(s, "}"), "{")
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, ",")
+}
+
 type pgAdapter struct {
 	db *sql.DB
 }

@@ -2,8 +2,30 @@ package ds
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// QuoteIdent is the ONLY way identifiers reach SQL. Strict allowlist beats
+// escaping: introspected names either match or the definition is rejected.
+func QuoteIdent(s string) (string, error) {
+	if !identRe.MatchString(s) {
+		return "", fmt.Errorf("invalid identifier %q", s)
+	}
+	return `"` + s + `"`, nil
+}
+
+// escapeLike neutralizes LIKE wildcards in user search input so "%"/"_" in a
+// search term match literally (values are already parameterized; this fixes
+// match semantics, not injection).
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
 
 // sqlDialect parameterizes the generic SQL builders for one database
 // family. Adding a new SQL adapter = new dialect value (+ adapter file).

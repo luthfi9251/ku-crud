@@ -1,11 +1,11 @@
 package api
 
 import (
+	"database/sql"
 	"os"
 	"strings"
 	"testing"
 
-	"ku-crud/internal/ds"
 	"ku-crud/internal/meta"
 )
 
@@ -16,11 +16,14 @@ func seedLive(t *testing.T, s *Server) {
 	if cs == "" {
 		t.Skip("KUCRUD_TEST_PG not set")
 	}
-	db, err := ds.Connect(ds.DSN{Raw: cs})
+	db, err := sql.Open("pgx", cs)
 	if err != nil {
 		t.Skipf("no PG: %v", err)
 	}
 	defer db.Close()
+	if err := db.Ping(); err != nil {
+		t.Skipf("no PG: %v", err)
+	}
 	if _, err := db.Exec(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;
 		CREATE TYPE weather AS ENUM ('sunny','rainy');
 		CREATE TABLE customers(id serial PRIMARY KEY, name varchar(80) NOT NULL,

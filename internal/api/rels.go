@@ -1,7 +1,6 @@
 package api
 
 import (
-	"database/sql"
 	"net/http"
 	"strconv"
 
@@ -36,12 +35,16 @@ func (s *Server) buildRels(u CtxUser, cols []meta.ColumnDef, rows []map[string]a
 		if err != nil {
 			continue
 		}
-		db, err := s.liveDB(target.DatasourceID)
+		a, err := s.liveAdapter(target.DatasourceID)
 		if err != nil {
 			continue
 		}
-		m, err := fetchRelRows(db, target, c, vals)
-		db.Close()
+		valsSlice := make([]any, 0, len(vals))
+		for _, v := range vals {
+			valsSlice = append(valsSlice, v)
+		}
+		m, err := a.FetchByRefValues(target.SchemaName, target.TableName, c.FKRefColumn, c.FKDisplayColumns, valsSlice)
+		a.Close()
 		if err != nil {
 			continue
 		}
@@ -79,41 +82,6 @@ func f64(v any) float64 {
 	}
 }
 
-func fetchRelRows(db *sql.DB, target *meta.TableDef, c meta.ColumnDef, vals map[string]any) (map[string]map[string]any, error) {
-	keys := make([]string, 0, len(vals))
-	args := make([]any, 0, len(vals))
-	for k, v := range vals {
-		keys = append(keys, k)
-		args = append(args, v)
-	}
-	sqlText, err := ds.BuildFetchByRefValues(target.SchemaName, target.TableName,
-		c.FKRefColumn, c.FKDisplayColumns, len(args))
-	if err != nil {
-		return nil, err
-	}
-	names := []string{c.FKRefColumn}
-	for _, d := range c.FKDisplayColumns {
-		if d != c.FKRefColumn {
-			names = append(names, d)
-		}
-	}
-	rows, err := db.Query(sqlText, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string]map[string]any{}
-	for rows.Next() {
-		scan := scanTargets(names)
-		if err := rows.Scan(scan...); err != nil {
-			return nil, err
-		}
-		m := rowToMap(names, deref(scan))
-		out[rowValKey(m[c.FKRefColumn])] = m
-	}
-	return out, rows.Err()
-}
-
 // handleFKOptions lists target-table rows for the fk picker modal.
 func (s *Server) handleFKOptions(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
@@ -148,12 +116,12 @@ func (s *Server) handleFKOptions(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
-	db, err := s.liveDB(target.DatasourceID)
+	a, err := s.liveAdapter(target.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
 		return
 	}
-	defer db.Close()
+	defer a.Close()
 
 	var searchable []string
 	for _, c := range tcols {
@@ -187,35 +155,15 @@ func (s *Server) handleFKOptions(w http.ResponseWriter, r *http.Request) {
 		Searchable: searchable, Search: q.Get("search"),
 		SortCol: sortCol, SortDir: "ASC",
 		Limit: target.PageSize, Offset: (page - 1) * target.PageSize}
-	listSQL, args, err := ds.BuildList(lp)
-	if err != nil {
-		writeErr(w, 400, "VALIDATION", "bad query params", err.Error())
-		return
-	}
-	rows, err := db.Query(listSQL, args...)
+	rows, err := a.ListRows(lp)
 	if err != nil {
 		writeErr(w, 502, "CONN", "query failed", err.Error())
 		return
 	}
-	defer rows.Close()
-	out := []map[string]any{}
-	for rows.Next() {
-		scan := scanTargets(names)
-		if err := rows.Scan(scan...); err != nil {
-			writeErr(w, 502, "CONN", "scan failed", err.Error())
-			return
-		}
-		out = append(out, rowToMap(names, deref(scan)))
-	}
-	if err := rows.Err(); err != nil {
-		writeErr(w, 502, "CONN", "query failed", err.Error())
-		return
-	}
-	countSQL, cargs, _ := ds.BuildCount(lp)
-	var total int
-	if err := db.QueryRow(countSQL, cargs...).Scan(&total); err != nil {
+	total, err := a.CountRows(lp)
+	if err != nil {
 		writeErr(w, 502, "CONN", "count failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"rows": out, "total": total, "page": page, "pageSize": target.PageSize})
+	writeJSON(w, 200, map[string]any{"rows": rows, "total": total, "page": page, "pageSize": target.PageSize})
 }
