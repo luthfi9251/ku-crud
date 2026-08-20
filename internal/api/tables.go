@@ -175,7 +175,8 @@ func (s *Server) hasTablePerm(u CtxUser, defID int64, action string) bool {
 }
 
 var validFieldTypes = map[string]bool{
-	"boolean": true, "text": true, "number": true, "datetime": true, "enum": true, "fk": true,
+	"boolean": true, "text": true, "number": true, "datetime": true, "enum": true,
+	"uuid": true, "json": true, "fk": true,
 }
 
 var (

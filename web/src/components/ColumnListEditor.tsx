@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const fieldTypes = ["boolean", "text", "number", "datetime", "enum", "fk"] as const;
+const fieldTypes = ["boolean", "text", "number", "datetime", "enum", "uuid", "json", "fk"] as const;
 
 export interface FormCol extends ColumnDef {
   livePk?: boolean;

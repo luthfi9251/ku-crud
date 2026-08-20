@@ -25,8 +25,12 @@ func MapFieldType(dataType string) string {
 		return "datetime"
 	case "text", "character varying", "character":
 		return "text"
+	case "uuid":
+		return "uuid"
+	case "json", "jsonb":
+		return "json"
 	}
-	return "" // array, json, uuid, bytea, unknown → excluded in v1
+	return "" // array, bytea, unknown → excluded
 }
 
 // parsePGArray parses "{a,b,c}" into []string.

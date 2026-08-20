@@ -24,7 +24,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ColumnListEditor, type FormCol } from "../components/ColumnListEditor";
 
-export const fieldTypes = ["boolean", "text", "number", "datetime", "enum", "fk"] as const;
+export const fieldTypes = ["boolean", "text", "number", "datetime", "enum", "uuid", "json", "fk"] as const;
 
 export function normalizeLabel(name: string): string {
   if (!name) return "";

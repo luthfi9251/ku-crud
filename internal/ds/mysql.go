@@ -68,8 +68,10 @@ func mapMySQLType(dataType, columnType string) (string, []string) {
 		return "text", nil
 	case "enum":
 		return "enum", parseMysqlEnum(columnType)
+	case "json":
+		return "json", nil
 	}
-	return "", nil // json, blob, geometry, etc. excluded
+	return "", nil // blob, geometry, etc. excluded
 }
 
 func parseMysqlEnum(columnType string) []string {
