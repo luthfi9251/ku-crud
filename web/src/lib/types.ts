@@ -1,4 +1,4 @@
-export type FieldType = "boolean" | "text" | "number" | "datetime" | "enum" | "fk";
+export type FieldType = "boolean" | "text" | "number" | "datetime" | "enum" | "uuid" | "json" | "fk";
 export type BaseFieldType = Exclude<FieldType, "fk">;
 
 // All entity ids are opaque masked tokens (11-char base64url), never raw numbers.

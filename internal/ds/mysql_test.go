@@ -40,7 +40,7 @@ func TestMapMySQLType(t *testing.T) {
 		{"varchar", "varchar(80)", "text", nil},
 		{"text", "text", "text", nil},
 		{"enum", "enum('a','b')", "enum", []string{"a", "b"}},
-		{"json", "json", "", nil},
+		{"json", "json", "json", nil},
 		{"blob", "blob", "", nil},
 	}
 	for _, c := range cases {

@@ -38,6 +38,24 @@ func TestCompareDrift(t *testing.T) {
 	}
 }
 
+func TestCompareDriftUUIDJSON(t *testing.T) {
+	defined := []meta.ColumnDef{
+		{Name: "id", FieldType: "uuid"},
+		{Name: "meta", FieldType: "json"},
+	}
+	live := []LiveColumn{
+		{Name: "id", FieldType: "uuid"},
+		{Name: "meta", FieldType: "json"},
+	}
+	if !CompareDrift(defined, live).Empty() {
+		t.Fatal("uuid/json must compare as first-class types")
+	}
+	live[1].FieldType = "text"
+	if rep := CompareDrift(defined, live); len(rep.TypeChanged) != 1 {
+		t.Fatalf("json→text must drift: %+v", rep)
+	}
+}
+
 func TestEffectiveType(t *testing.T) {
 	c := meta.ColumnDef{FieldType: "fk", BaseType: "number"}
 	if EffectiveType(c) != "number" {

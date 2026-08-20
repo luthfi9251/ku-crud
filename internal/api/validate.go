@@ -1,12 +1,16 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"time"
 )
 
 var datetimeLayouts = []string{time.RFC3339, "2006-01-02T15:04", "2006-01-02"}
+
+var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 func validateValue(ft string, v any, enum []string) error {
 	if v == nil {
@@ -49,6 +53,24 @@ func validateValue(ft string, v any, enum []string) error {
 			}
 		}
 		return fmt.Errorf("%q not in enum options", s)
+	case "uuid":
+		s, ok := v.(string)
+		if !ok {
+			return fmt.Errorf("expected uuid string, got %T", v)
+		}
+		if !uuidRe.MatchString(s) {
+			return fmt.Errorf("%q is not a valid UUID", s)
+		}
+	case "json":
+		switch v.(type) {
+		case string:
+			if !json.Valid([]byte(v.(string))) {
+				return fmt.Errorf("invalid JSON")
+			}
+		case map[string]any, []any: // decoded JSON document from the request body
+		default:
+			return fmt.Errorf("expected JSON string or object/array, got %T", v)
+		}
 	default:
 		return fmt.Errorf("unknown field type %q", ft)
 	}
@@ -63,4 +85,21 @@ func coercePK(ft, raw string) (any, error) {
 		return strconv.ParseFloat(raw, 64)
 	}
 	return raw, nil
+}
+
+// normalizeJSONValue converts a decoded JSON object/array into its compact
+// text form so adapters always receive a string for json columns. Strings
+// pass through untouched.
+func normalizeJSONValue(v any) (string, error) {
+	switch t := v.(type) {
+	case string:
+		return t, nil
+	case map[string]any, []any:
+		b, err := json.Marshal(t)
+		if err != nil {
+			return "", fmt.Errorf("json marshal: %w", err)
+		}
+		return string(b), nil
+	}
+	return "", fmt.Errorf("expected JSON string or object/array, got %T", v)
 }

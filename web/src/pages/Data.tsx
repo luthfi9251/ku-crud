@@ -31,6 +31,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 
 export default function Data() {
   const { id } = useParams();
@@ -112,8 +113,20 @@ export default function Data() {
     return vals as string[];
   };
 
+  // pretty-print json column values once, when form state is created (keeps
+  // the textarea a plain controlled input while editing)
+  const prettifyFormRow = (row: Row): Row => {
+    const out: Row = { ...row };
+    for (const c of def.data?.columns ?? []) {
+      if (c.fieldType === "json" && typeof out[c.name] === "string") {
+        out[c.name] = prettyJSON(out[c.name] as string);
+      }
+    }
+    return out;
+  };
+
   const handleCopy = (row: Row) => {
-    const copiedRow: Row = { ...row };
+    const copiedRow: Row = prettifyFormRow(row);
     for (const k of keyCols) {
       delete copiedRow[k];
     }
@@ -129,7 +142,7 @@ export default function Data() {
     });
     if (target) {
       const k = rowKey(target);
-      setForm({ mode: "edit", row: { ...target }, initialKey: k });
+      setForm({ mode: "edit", row: prettifyFormRow({ ...target }), initialKey: k });
       const next = new URLSearchParams(searchParams);
       next.delete("autoEdit");
       setSearchParams(next, { replace: true });
@@ -403,7 +416,10 @@ export default function Data() {
                       {cols.map((c) => {
                         const disp = fkDisplay(c, row);
                         return (
-                          <TableCell key={c.name} className="text-xs font-mono max-w-xs truncate">
+                          <TableCell
+                            key={c.name}
+                            className={`text-xs font-mono max-w-xs ${c.fieldType === "json" ? "align-top" : "truncate"}`}
+                          >
                             {disp !== null ? (
                               <span className="font-sans">{disp}</span>
                             ) : (
@@ -430,7 +446,7 @@ export default function Data() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                              onClick={() => setForm({ mode: "edit", row: { ...row }, initialKey: rowKey(row) })}
+                              onClick={() => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
                               title="Edit row"
                             >
                               <Edit className="h-3.5 w-3.5" />
@@ -574,6 +590,13 @@ export default function Data() {
                 if (missing.length) {
                   return alert(`Required fields missing: ${missing.map((c) => c.label).join(", ")}`);
                 }
+                const badJson = modalFields.filter(
+                  (c) => c.fieldType === "json" && typeof form!.row[c.name] === "string" &&
+                    (() => { try { JSON.parse(form!.row[c.name] as string); return false; } catch { return true; } })()
+                );
+                if (badJson.length) {
+                  return alert(`Invalid JSON: ${badJson.map((c) => c.label).join(", ")}`);
+                }
                 save.mutate();
               }}
               disabled={save.isPending}
@@ -602,7 +625,32 @@ function renderValue(v: unknown, type: ColumnDef["fieldType"]): React.ReactNode 
   if (type === "enum") {
     return <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">{String(v)}</Badge>;
   }
+  if (type === "uuid") {
+    return <span className="font-mono text-xs">{String(v)}</span>;
+  }
+  if (type === "json") {
+    const pretty = prettyJSON(String(v));
+    return (
+      <pre
+        title={pretty}
+        className="whitespace-pre-wrap font-mono text-[11px] leading-snug text-foreground/90"
+        style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+      >
+        {pretty}
+      </pre>
+    );
+  }
   return String(v);
+}
+
+// prettyJSON reformats a JSON string for readable grid/form display; invalid
+// JSON falls back to the raw string (server still validates on submit).
+export function prettyJSON(s: string): string {
+  try {
+    return JSON.stringify(JSON.parse(s), null, 2);
+  } catch {
+    return s;
+  }
 }
 
 function FieldInput({
@@ -657,6 +705,15 @@ function FieldInput({
           value={val}
           onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
         />
+      ) : col.fieldType === "json" ? (
+        <Textarea
+          disabled={disabled}
+          className="min-h-[100px] font-mono text-xs"
+          value={val}
+          onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
+        />
+      ) : col.fieldType === "uuid" ? (
+        <Input disabled={disabled} className="h-9 font-mono text-xs" value={val} placeholder="00000000-0000-0000-0000-000000000000" onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)} />
       ) : (
         <Input disabled={disabled} className="h-9 text-xs" value={val} onChange={(e) => onChange(e.target.value)} />
       )}
