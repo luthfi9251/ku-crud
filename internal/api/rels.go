@@ -172,9 +172,20 @@ func (s *Server) handleFKOptions(w http.ResponseWriter, r *http.Request) {
 			names = append(names, d)
 		}
 	}
+	sortCol := target.KeyColumns[0]
+	found := false
+	for _, n := range names {
+		if n == sortCol {
+			found = true
+			break
+		}
+	}
+	if !found {
+		names = append(names, sortCol)
+	}
 	lp := ds.ListParams{Schema: target.SchemaName, Table: target.TableName, Columns: names,
 		Searchable: searchable, Search: q.Get("search"),
-		SortCol: target.KeyColumns[0], SortDir: "ASC",
+		SortCol: sortCol, SortDir: "ASC",
 		Limit: target.PageSize, Offset: (page - 1) * target.PageSize}
 	listSQL, args, err := ds.BuildList(lp)
 	if err != nil {

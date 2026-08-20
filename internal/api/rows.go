@@ -426,10 +426,14 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
 		return
 	}
-	conflicts, err := s.referencedBy(def, oldRows[0])
-	if err != nil {
-		writeErr(w, 502, "CONN", "reference check failed", err.Error())
-		return
+	var conflicts []map[string]any
+	for _, old := range oldRows {
+		cs, err := s.referencedBy(def, old)
+		if err != nil {
+			writeErr(w, 502, "CONN", "reference check failed", err.Error())
+			return
+		}
+		conflicts = mergeConflicts(conflicts, cs)
 	}
 	if len(conflicts) > 0 {
 		writeErr(w, 409, "CONFLICT", "row is referenced by other rows", conflicts)
@@ -535,6 +539,25 @@ func (s *Server) referencedBy(def *meta.TableDef, old map[string]any) ([]map[str
 		}
 	}
 	return conflicts, nil
+}
+
+// mergeConflicts unions two delete-protection conflict lists, summing count
+// for entries sharing the same table+column pair.
+func mergeConflicts(existing []map[string]any, add []map[string]any) []map[string]any {
+	for _, c := range add {
+		merged := false
+		for _, e := range existing {
+			if e["table"] == c["table"] && e["column"] == c["column"] {
+				e["count"] = e["count"].(int) + c["count"].(int)
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			existing = append(existing, c)
+		}
+	}
+	return existing
 }
 
 // fkViolation detects a Postgres FK constraint failure (SQLSTATE 23503).

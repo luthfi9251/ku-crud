@@ -198,3 +198,149 @@ func TestFKWriteAndDeleteProtection(t *testing.T) {
 		t.Fatalf("null fk = %d %s", w.Code, w.Body)
 	}
 }
+
+// seedMultiRowRef creates items keyed on the NON-UNIQUE column grp
+// (('g1','r1'), ('g1','r2'), ('g2','r3')) and a metadata-only child
+// item_refs(note_ref → items.note) whose single row references r2.
+// Returns the def ids (items, item_refs).
+func seedMultiRowRef(t *testing.T, s *Server) (int64, int64) {
+	t.Helper()
+	cs := os.Getenv("KUCRUD_TEST_PG")
+	if cs == "" {
+		t.Skip("KUCRUD_TEST_PG not set")
+	}
+	db, err := ds.Connect(ds.DSN{Raw: cs})
+	if err != nil {
+		t.Skipf("no PG: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`DROP TABLE IF EXISTS item_refs; DROP TABLE IF EXISTS items;
+		CREATE TABLE items(grp text NOT NULL, note text NOT NULL);
+		CREATE TABLE item_refs(id serial PRIMARY KEY, note_ref text);
+		INSERT INTO items(grp,note) VALUES ('g1','r1'), ('g1','r2'), ('g2','r3');
+		INSERT INTO item_refs(note_ref) VALUES ('r2');`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := s.store.CreateDatasource(&meta.Datasource{Name: "live", Host: "x", Port: 1,
+		DBName: "x", Username: "x", Password: "x", SSLMode: "disable", Raw: cs}); err != nil {
+		t.Fatal(err)
+	}
+	items := &meta.TableDef{DatasourceID: 1, SchemaName: "public", TableName: "items",
+		Label: "Items", KeyColumns: []string{"grp"}, PageSize: 10}
+	if err := s.store.SaveTableDef(items, []meta.ColumnDef{
+		{Name: "grp", Label: "Group", FieldType: "text", Editable: true, Required: true,
+			Visible: true, Searchable: true, Sortable: true, Position: 0},
+		{Name: "note", Label: "Note", FieldType: "text", Editable: true, Required: true,
+			Visible: true, Searchable: true, Sortable: true, Position: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	refs := &meta.TableDef{DatasourceID: 1, SchemaName: "public", TableName: "item_refs",
+		Label: "ItemRefs", KeyColumns: []string{"id"}, PageSize: 10}
+	if err := s.store.SaveTableDef(refs, []meta.ColumnDef{
+		{Name: "id", Label: "ID", FieldType: "number", Editable: false, Required: true,
+			Visible: true, Searchable: true, Sortable: true, Position: 0},
+		{Name: "note_ref", Label: "Item", FieldType: "fk", BaseType: "text",
+			FKTableDefID: items.ID, FKRefColumn: "note", FKDisplayColumns: []string{"grp"},
+			Editable: true, Visible: true, Searchable: true, Sortable: true, Position: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return items.ID, refs.ID
+}
+
+func TestDeleteProtectionMultiRow(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	itemsID, refsID := seedMultiRowRef(t, s)
+
+	// delete via the NON-UNIQUE key grp='g1' matches r1 AND r2; r2 (a later
+	// match, metadata-only relation) is referenced by item_refs → 409
+	w := do(s, "DELETE", "/api/tables/"+tdTok(s, itemsID)+"/rows/"+encodeRowKey([]string{"g1"}), "", c)
+	if w.Code != 409 || !strings.Contains(w.Body.String(), "ItemRefs") ||
+		!strings.Contains(w.Body.String(), "note_ref") {
+		t.Fatalf("multi-row delete blocked = %d %s", w.Code, w.Body)
+	}
+
+	// remove the referencing child row, retry → both g1 rows deleted
+	if w = do(s, "DELETE", "/api/tables/"+tdTok(s, refsID)+"/rows/"+encodeRowKey([]string{"1"}), "", c); w.Code != 200 {
+		t.Fatalf("delete child = %d %s", w.Code, w.Body)
+	}
+	w = do(s, "DELETE", "/api/tables/"+tdTok(s, itemsID)+"/rows/"+encodeRowKey([]string{"g1"}), "", c)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"affected":2`) {
+		t.Fatalf("retry delete = %d %s", w.Code, w.Body)
+	}
+	// only the g2 row remains
+	w = do(s, "GET", "/api/tables/"+tdTok(s, itemsID)+"/rows", "", c)
+	if !strings.Contains(w.Body.String(), `"total":1`) || strings.Contains(w.Body.String(), "r1") {
+		t.Fatalf("items after delete: %s", w.Body)
+	}
+}
+
+// seedFKByName creates customers keyed on id and an orders def whose fk
+// column references customers.name (NOT the key column), display ["city"].
+func seedFKByName(t *testing.T, s *Server) (int64, int64) {
+	t.Helper()
+	cs := os.Getenv("KUCRUD_TEST_PG")
+	if cs == "" {
+		t.Skip("KUCRUD_TEST_PG not set")
+	}
+	db, err := ds.Connect(ds.DSN{Raw: cs})
+	if err != nil {
+		t.Skipf("no PG: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`DROP TABLE IF EXISTS orders; DROP TABLE IF EXISTS customers;
+		CREATE TABLE customers(id serial PRIMARY KEY, name varchar(80) NOT NULL, city varchar(80));
+		CREATE TABLE orders(id serial PRIMARY KEY, note varchar(80), customer_name varchar(80));
+		INSERT INTO customers(name,city) VALUES ('jo','Bandung'), ('joe','Jakarta');
+		INSERT INTO orders(note,customer_name) VALUES ('o1','jo');`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := s.store.CreateDatasource(&meta.Datasource{Name: "live", Host: "x", Port: 1,
+		DBName: "x", Username: "x", Password: "x", SSLMode: "disable", Raw: cs}); err != nil {
+		t.Fatal(err)
+	}
+	cust := &meta.TableDef{DatasourceID: 1, SchemaName: "public", TableName: "customers",
+		Label: "Customers", KeyColumns: []string{"id"}, PageSize: 20}
+	if err := s.store.SaveTableDef(cust, []meta.ColumnDef{
+		{Name: "id", Label: "ID", FieldType: "number", Editable: false, Required: true,
+			Visible: true, Searchable: true, Sortable: true, Position: 0},
+		{Name: "name", Label: "Name", FieldType: "text", Editable: true, Required: true,
+			Visible: true, Searchable: true, Sortable: true, Position: 1},
+		{Name: "city", Label: "City", FieldType: "text", Editable: true,
+			Visible: true, Searchable: true, Sortable: true, Position: 2},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	orders := &meta.TableDef{DatasourceID: 1, SchemaName: "public", TableName: "orders",
+		Label: "Orders", KeyColumns: []string{"id"}, PageSize: 10}
+	if err := s.store.SaveTableDef(orders, []meta.ColumnDef{
+		{Name: "id", Label: "ID", FieldType: "number", Editable: false, Required: true,
+			Visible: true, Searchable: true, Sortable: true, Position: 0},
+		{Name: "note", Label: "Note", FieldType: "text", Editable: true,
+			Visible: true, Searchable: true, Sortable: true, Position: 1},
+		{Name: "customer_name", Label: "Customer", FieldType: "fk", BaseType: "text",
+			FKTableDefID: cust.ID, FKRefColumn: "name", FKDisplayColumns: []string{"city"},
+			Editable: true, Visible: true, Searchable: true, Sortable: true, Position: 2},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return cust.ID, orders.ID
+}
+
+func TestFKOptionsNonKeyRefColumn(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	_, ordersID := seedFKByName(t, s)
+
+	// fk column refs customers.name while the target is keyed on id — the
+	// sort column must still be selectable (previously a 400)
+	w := do(s, "GET", "/api/tables/"+tdTok(s, ordersID)+"/fkoptions/customer_name", "", c)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"total":2`) {
+		t.Fatalf("fkoptions non-key ref column = %d %s", w.Code, w.Body)
+	}
+	if !strings.Contains(w.Body.String(), `"name":"jo"`) || !strings.Contains(w.Body.String(), `"city":"Bandung"`) {
+		t.Fatalf("fkoptions rows wrong: %s", w.Body)
+	}
+}
