@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Layers,
   Database,
+  Download,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { encodeRowKey } from "../lib/rowkey";
@@ -195,6 +196,43 @@ export default function Data() {
   });
 
   const [delErr, setDelErr] = useState("");
+
+  // CSV export follows the active search/sort; all pages, not just current
+  const [exporting, setExporting] = useState(false);
+  const exportCSV = async () => {
+    setExporting(true);
+    try {
+      const p = new URLSearchParams();
+      if (debounced) p.set("search", debounced);
+      if (sort) {
+        p.set("sort", sort);
+        p.set("dir", dir);
+      }
+      const res = await fetch(`/api/tables/${id}/rows/export?${p}`, { credentials: "same-origin" });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try {
+          const e = await res.json();
+          msg = e.message ? `${e.message}` : msg;
+        } catch { /* not json */ }
+        alert(`Export failed: ${msg}`);
+        return;
+      }
+      const cd = res.headers.get("Content-Disposition") || "";
+      const m = /filename="?([^";]+)"?/.exec(cd);
+      const name = m?.[1] ?? `${def.data?.tableName ?? "table"}.csv`;
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
   const del = useMutation({
     mutationFn: (key: string[]) => api(`/tables/${id}/rows/${encodeRowKey(key)}`, { method: "DELETE" }),
     onSuccess: () => {
@@ -300,6 +338,17 @@ export default function Data() {
             title="Refresh rows"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${rows.isFetching ? "animate-spin" : ""}`} />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1 text-xs"
+            onClick={() => exportCSV()}
+            disabled={exporting}
+            title="Export the current result (search & sort applied) as CSV"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {exporting ? "Exporting..." : "Export CSV"}
           </Button>
           {perms.create && (
             <Button

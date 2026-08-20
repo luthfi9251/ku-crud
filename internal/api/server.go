@@ -94,6 +94,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("PUT /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowUpdate))
 	mux.HandleFunc("DELETE /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowDelete))
 	mux.HandleFunc("GET /api/tables/{id}/fkoptions/{column}", s.RequireAuth(s.handleFKOptions))
+	mux.HandleFunc("GET /api/tables/{id}/rows/export", s.RequireAuth(s.handleRowExport))
 	mux.HandleFunc("GET /api/audit", s.RequirePlatform(s.handleAuditList))
 
 	mux.HandleFunc("GET /api/users", s.RequireAdmin(s.handleUserList))
