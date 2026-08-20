@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -108,4 +109,114 @@ func TestRowListAndGet(t *testing.T) {
 	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"999"}), "", c); w.Code != 404 {
 		t.Fatalf("missing row = %d", w.Code)
 	}
+}
+
+// seedSortable creates a 4-row table with a name column to test default sort.
+func seedSortable(t *testing.T, s *Server, defaultSortCol, defaultSortDir string) string {
+	t.Helper()
+	cs := os.Getenv("KUCRUD_TEST_PG")
+	if cs == "" {
+		t.Skip("KUCRUD_TEST_PG not set")
+	}
+	db, err := sql.Open("pgx", cs)
+	if err != nil {
+		t.Skipf("no PG: %v", err)
+	}
+	defer db.Close()
+	if err := db.Ping(); err != nil {
+		t.Skipf("no PG: %v", err)
+	}
+	if _, err := db.Exec(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;
+		CREATE TABLE items(id serial PRIMARY KEY, name text NOT NULL, note text);
+		INSERT INTO items(name) VALUES ('delta'), ('alpha'), ('gamma'), ('beta')`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := s.store.CreateDatasource(&meta.Datasource{Name: "live", Host: "x", Port: 1,
+		DBName: "x", Username: "x", Password: "x", SSLMode: "disable", Raw: cs}); err != nil {
+		t.Fatal(err)
+	}
+	def := &meta.TableDef{DatasourceID: 1, SchemaName: "public", TableName: "items",
+		Label: "Items", KeyColumns: []string{"id"}, PageSize: 10,
+		DefaultSortCol: defaultSortCol, DefaultSortDir: defaultSortDir}
+	cols := []meta.ColumnDef{
+		{Name: "id", Label: "ID", FieldType: "number", Editable: false, Required: true,
+			Visible: true, Searchable: true, Sortable: true, Position: 0},
+		{Name: "name", Label: "Name", FieldType: "text", Editable: true, Required: true,
+			Visible: true, Searchable: true, Sortable: true, Position: 1},
+		{Name: "note", Label: "Note", FieldType: "text", Editable: true,
+			Visible: true, Sortable: false, Position: 2},
+	}
+	if err := s.store.SaveTableDef(def, cols); err != nil {
+		t.Fatal(err)
+	}
+	return tdTok(s, 1)
+}
+
+func firstNames(t *testing.T, body string) []string {
+	t.Helper()
+	var res struct {
+		Rows []struct {
+			Name string `json:"name"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal([]byte(body), &res); err != nil {
+		t.Fatalf("unmarshal %s: %v", body, err)
+	}
+	out := make([]string, len(res.Rows))
+	for i, r := range res.Rows {
+		out[i] = r.Name
+	}
+	return out
+}
+
+func TestDefaultSort(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	tok := seedSortable(t, s, "name", "DESC")
+
+	w := do(s, "GET", "/api/tables/"+tok+"/rows", "", c)
+	got := firstNames(t, w.Body.String())
+	want := []string{"gamma", "delta", "beta", "alpha"}
+	if !equalSlice(got, want) {
+		t.Fatalf("default sort DESC: %v", got)
+	}
+
+	// explicit sort overrides the default
+	w = do(s, "GET", "/api/tables/"+tok+"/rows?sort=name&dir=ASC", "", c)
+	got = firstNames(t, w.Body.String())
+	if !equalSlice(got, []string{"alpha", "beta", "delta", "gamma"}) {
+		t.Fatalf("explicit override: %v", got)
+	}
+
+	// non-sortable explicit column falls back to the default sort
+	w = do(s, "GET", "/api/tables/"+tok+"/rows?sort=note&dir=DESC", "", c)
+	got = firstNames(t, w.Body.String())
+	if !equalSlice(got, want) {
+		t.Fatalf("invalid explicit falls to default: %v", got)
+	}
+}
+
+func TestDefaultSortInvalidColumnFallsBackToKey(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	// default sort column dropped from live → resolveSort falls back to key ASC
+	tok := seedSortable(t, s, "gone", "DESC")
+	w := do(s, "GET", "/api/tables/"+tok+"/rows", "", c)
+	got := firstNames(t, w.Body.String())
+	// insertion order by id: delta, alpha, gamma, beta
+	if !equalSlice(got, []string{"delta", "alpha", "gamma", "beta"}) {
+		t.Fatalf("key fallback: %v", got)
+	}
+}
+
+func equalSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

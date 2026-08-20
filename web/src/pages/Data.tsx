@@ -58,7 +58,17 @@ export default function Data() {
     setSort("");
     setDir("ASC");
     setForm(null);
+    // eslint-disable-line react-hooks/exhaustive-deps
   }, [id, searchParam]);
+
+  // apply the definition's default sort once the def is loaded and no
+  // explicit sort has been chosen
+  useEffect(() => {
+    if (!def.data) return;
+    setSort((cur) => (cur === "" && def.data?.defaultSortCol ? def.data.defaultSortCol : cur));
+    setDir((cur) => (cur === "ASC" && def.data?.defaultSortCol ? (def.data.defaultSortDir === "DESC" ? "DESC" : "ASC") : cur));
+    // eslint-disable-line react-hooks/exhaustive-deps
+  }, [def.data?.id]);
 
   useEffect(() => {
     const t = setTimeout(() => {

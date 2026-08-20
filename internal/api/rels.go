@@ -140,7 +140,7 @@ func (s *Server) handleFKOptions(w http.ResponseWriter, r *http.Request) {
 			names = append(names, d)
 		}
 	}
-	sortCol := target.KeyColumns[0]
+	sortCol, sortDir := resolveSort(target, tcols, "", "")
 	found := false
 	for _, n := range names {
 		if n == sortCol {
@@ -153,7 +153,7 @@ func (s *Server) handleFKOptions(w http.ResponseWriter, r *http.Request) {
 	}
 	lp := ds.ListParams{Schema: target.SchemaName, Table: target.TableName, Columns: names,
 		Searchable: searchable, Search: q.Get("search"),
-		SortCol: sortCol, SortDir: "ASC",
+		SortCol: sortCol, SortDir: sortDir,
 		Limit: target.PageSize, Offset: (page - 1) * target.PageSize}
 	rows, err := a.ListRows(lp)
 	if err != nil {

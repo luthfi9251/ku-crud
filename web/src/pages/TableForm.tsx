@@ -47,6 +47,8 @@ export default function TableForm() {
   const [tableName, setTableName] = useState("");
   const [label, setLabel] = useState("");
   const [pageSize, setPageSize] = useState(20);
+  const [defaultSortCol, setDefaultSortCol] = useState("");
+  const [defaultSortDir, setDefaultSortDir] = useState<"ASC" | "DESC">("ASC");
   const [keys, setKeys] = useState<string[]>([]);
   const [cols, setCols] = useState<FormCol[]>([]);
 
@@ -92,6 +94,8 @@ export default function TableForm() {
       setTableName(d.tableName);
       setLabel(d.label);
       setPageSize(d.pageSize);
+      setDefaultSortCol(d.defaultSortCol ?? "");
+      setDefaultSortDir(d.defaultSortDir === "DESC" ? "DESC" : "ASC");
       setKeys(d.keyColumns ?? []);
       setCols(d.columns);
     }
@@ -137,6 +141,8 @@ export default function TableForm() {
         label,
         keyColumns: keys,
         pageSize,
+        defaultSortCol,
+        defaultSortDir,
         columns: cols.map(({ livePk: _lp, origType: _ot, fkDs: _fd, ...c }) =>
           c.fieldType === "fk"
             ? c
@@ -426,6 +432,41 @@ export default function TableForm() {
                   onChange={(e) => setPageSize(Number(e.target.value))}
                   className="h-9 text-xs"
                 />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Default Sort Column</Label>
+                <Select
+                  value={defaultSortCol || "none"}
+                  onValueChange={(v) => setDefaultSortCol(v === "none" ? "" : v)}
+                >
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="None (key column)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none" className="text-xs">None (key column)</SelectItem>
+                    {cols.filter((c) => c.sortable).map((c) => (
+                      <SelectItem key={c.name} value={c.name} className="text-xs">
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Default Sort Direction</Label>
+                <Select
+                  value={defaultSortDir}
+                  onValueChange={(v) => setDefaultSortDir(v === "DESC" ? "DESC" : "ASC")}
+                  disabled={!defaultSortCol}
+                >
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ASC" className="text-xs">Ascending</SelectItem>
+                    <SelectItem value="DESC" className="text-xs">Descending</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
