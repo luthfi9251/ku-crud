@@ -1,12 +1,12 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"strings"
 	"testing"
 
-	"ku-crud/internal/ds"
 	"ku-crud/internal/meta"
 )
 
@@ -19,11 +19,14 @@ func seedComposite(t *testing.T, s *Server) {
 	if cs == "" {
 		t.Skip("KUCRUD_TEST_PG not set")
 	}
-	db, err := ds.Connect(ds.DSN{Raw: cs})
+	db, err := sql.Open("pgx", cs)
 	if err != nil {
 		t.Skipf("no PG: %v", err)
 	}
 	defer db.Close()
+	if err := db.Ping(); err != nil {
+		t.Skipf("no PG: %v", err)
+	}
 	if _, err := db.Exec(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;
 		CREATE TABLE order_items(order_id int NOT NULL, item_id int NOT NULL,
 			qty int NOT NULL DEFAULT 1, note text,

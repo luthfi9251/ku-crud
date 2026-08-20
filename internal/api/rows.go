@@ -1,7 +1,6 @@
 package api
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,35 +11,6 @@ import (
 	"ku-crud/internal/ds"
 	"ku-crud/internal/meta"
 )
-
-func scanTargets(cols []string) []any {
-	out := make([]any, len(cols))
-	for i := range out {
-		out[i] = new(any)
-	}
-	return out
-}
-
-func deref(scan []any) []any {
-	out := make([]any, len(scan))
-	for i, p := range scan {
-		v := p.(*any)
-		out[i] = *v
-	}
-	return out
-}
-
-func rowToMap(cols []string, scan []any) map[string]any {
-	m := make(map[string]any, len(cols))
-	for i, c := range cols {
-		v := scan[i]
-		if b, ok := v.([]byte); ok {
-			v = string(b) // e.g. numeric arrives as bytes; base64 in JSON otherwise
-		}
-		m[c] = v
-	}
-	return m
-}
 
 func colNames(cols []meta.ColumnDef) []string {
 	names := make([]string, len(cols))
@@ -60,12 +30,12 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
 		return
 	}
-	db, err := s.liveDB(def.DatasourceID)
+	a, err := s.liveAdapter(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
 		return
 	}
-	defer db.Close()
+	defer a.Close()
 
 	byName := map[string]meta.ColumnDef{}
 	var searchable []string
@@ -95,38 +65,22 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 		SortCol: sortCol, SortDir: sortDir,
 		Limit: def.PageSize, Offset: (page - 1) * def.PageSize}
 
-	listSQL, args, err := ds.BuildList(lp)
-	if err != nil {
-		writeErr(w, 400, "VALIDATION", "bad query params", err.Error())
-		return
-	}
-	rows, err := db.Query(listSQL, args...)
+	rows, err := a.ListRows(lp)
 	if err != nil {
 		writeErr(w, 502, "CONN", "query failed", err.Error())
 		return
 	}
-	defer rows.Close()
-	out := []map[string]any{}
-	for rows.Next() {
-		scan := scanTargets(names)
-		if err := rows.Scan(scan...); err != nil {
-			writeErr(w, 502, "CONN", "scan failed", err.Error())
-			return
-		}
-		out = append(out, rowToMap(names, deref(scan)))
-	}
-	if err := rows.Err(); err != nil {
-		writeErr(w, 502, "CONN", "query failed", err.Error())
-		return
-	}
-
-	countSQL, cargs, _ := ds.BuildCount(lp)
-	var total int
-	if err := db.QueryRow(countSQL, cargs...).Scan(&total); err != nil {
+	total, err := a.CountRows(lp)
+	if err != nil {
 		writeErr(w, 502, "CONN", "count failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"rows": out, "total": total, "page": page, "pageSize": def.PageSize})
+	rels := s.buildRels(userFrom(r), cols, rows)
+	if rows == nil {
+		rows = []map[string]any{}
+	}
+	writeJSON(w, 200, map[string]any{"rows": rows, "total": total, "page": page,
+		"pageSize": def.PageSize, "rels": rels})
 }
 
 func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
@@ -139,12 +93,12 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
 		return
 	}
-	db, err := s.liveDB(def.DatasourceID)
+	a, err := s.liveAdapter(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
 		return
 	}
-	defer db.Close()
+	defer a.Close()
 
 	names := colNames(cols)
 	keyVals, err := rowKeyVals(def, cols, r.PathValue("pk"))
@@ -152,31 +106,32 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return
 	}
-	sqlText, err := ds.BuildFetchByKey(def.SchemaName, def.TableName, def.KeyColumns, names)
-	if err != nil {
-		writeErr(w, 400, "VALIDATION", "bad identifiers", err.Error())
-		return
-	}
-	scan := scanTargets(names)
-	err = db.QueryRow(sqlText, keyVals...).Scan(scan...)
-	if errors.Is(err, sql.ErrNoRows) {
-		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
-		return
-	}
+	rowsOut, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, keyVals, names)
 	if err != nil {
 		writeErr(w, 502, "CONN", "query failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, rowToMap(names, deref(scan)))
+	if len(rowsOut) == 0 {
+		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
+		return
+	}
+	row := rowsOut[0]
+	rels := s.buildRels(userFrom(r), cols, []map[string]any{row})
+	writeJSON(w, 200, map[string]any{"row": row, "rels": rels})
 }
 
 // editablePayload validates body against editable columns and returns
 // (cols, vals) in column-definition order. requireAll=true enforces required
-// columns for INSERT. Any non-editable/unknown key is rejected.
-func editablePayload(body map[string]any, cols []meta.ColumnDef, requireAll bool) ([]string, []any, error) {
+// columns for INSERT / UPDATE. Any non-editable/unknown key is rejected unless it is a primary key during insert.
+func editablePayload(body map[string]any, cols []meta.ColumnDef, keyCols []string, isInsert bool) ([]string, []any, error) {
 	editable := map[string]meta.ColumnDef{}
+	isKey := map[string]bool{}
+	for _, k := range keyCols {
+		isKey[k] = true
+	}
+
 	for _, c := range cols {
-		if c.Editable {
+		if c.Editable || (isInsert && isKey[c.Name]) {
 			editable[c.Name] = c
 		}
 	}
@@ -188,17 +143,21 @@ func editablePayload(body map[string]any, cols []meta.ColumnDef, requireAll bool
 	var names []string
 	var vals []any
 	for _, c := range cols {
-		if !c.Editable {
+		if !c.Editable && !(isInsert && isKey[c.Name]) {
 			continue
 		}
 		v, present := body[c.Name]
 		if present {
-			if err := validateValue(c.FieldType, v, c.EnumOptions); err != nil {
+			ft := c.FieldType
+			if ft == "fk" {
+				ft = c.BaseType
+			}
+			if err := validateValue(ft, v, c.EnumOptions); err != nil {
 				return nil, nil, fmt.Errorf("%s: %w", c.Name, err)
 			}
 			names = append(names, c.Name)
 			vals = append(vals, v)
-		} else if requireAll && c.Required {
+		} else if isInsert && c.Required && !isKey[c.Name] {
 			return nil, nil, fmt.Errorf("%s is required", c.Name)
 		}
 	}
@@ -230,28 +189,6 @@ func (s *Server) auditBestEffort(u CtxUser, defID int64, action, rowPK string, o
 	}
 }
 
-func fetchRows(db *sql.DB, def *meta.TableDef, cols []meta.ColumnDef, keyVals []any) ([]map[string]any, error) {
-	names := colNames(cols)
-	sqlText, err := ds.BuildFetchByKey(def.SchemaName, def.TableName, def.KeyColumns, names)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := db.Query(sqlText, keyVals...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []map[string]any
-	for rows.Next() {
-		scan := scanTargets(names)
-		if err := rows.Scan(scan...); err != nil {
-			return nil, err
-		}
-		out = append(out, rowToMap(names, deref(scan)))
-	}
-	return out, rows.Err()
-}
-
 func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
 	def, cols, err := s.tableCtx(r)
@@ -268,23 +205,30 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
-	names, vals, err := editablePayload(body, cols, true)
+	names, vals, err := editablePayload(body, cols, def.KeyColumns, true)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
-	db, err := s.liveDB(def.DatasourceID)
+	a, err := s.liveAdapter(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
 		return
 	}
-	defer db.Close()
-	sqlText, _, err := ds.BuildInsert(def.SchemaName, def.TableName, names)
-	if err != nil {
-		writeErr(w, 400, "VALIDATION", "bad columns", err.Error())
+	defer a.Close()
+	if err := s.checkFKValues(cols, names, vals); err != nil {
+		if errors.Is(err, errFKRefNotFound) {
+			writeErr(w, 400, "VALIDATION", err.Error(), nil)
+			return
+		}
+		writeErr(w, 502, "CONN", "reference check failed", err.Error())
 		return
 	}
-	if _, err := db.Exec(sqlText, vals...); err != nil {
+	if err := a.Insert(def.SchemaName, def.TableName, names, vals); err != nil {
+		if a.IsFKViolation(err) {
+			writeErr(w, 409, "CONFLICT", "row is referenced by other rows (database constraint)", nil)
+			return
+		}
 		writeErr(w, 502, "CONN", "insert failed", err.Error())
 		return
 	}
@@ -308,7 +252,7 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
-	names, vals, err := editablePayload(body, cols, false)
+	names, vals, err := editablePayload(body, cols, def.KeyColumns, false)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
@@ -318,14 +262,23 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return
 	}
-	db, err := s.liveDB(def.DatasourceID)
+	a, err := s.liveAdapter(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
 		return
 	}
-	defer db.Close()
+	defer a.Close()
 
-	oldRows, err := fetchRows(db, def, cols, pkVals)
+	if err := s.checkFKValues(cols, names, vals); err != nil {
+		if errors.Is(err, errFKRefNotFound) {
+			writeErr(w, 400, "VALIDATION", err.Error(), nil)
+			return
+		}
+		writeErr(w, 502, "CONN", "reference check failed", err.Error())
+		return
+	}
+
+	oldRows, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals, colNames(cols))
 	if err != nil {
 		writeErr(w, 502, "CONN", "fetch old failed", err.Error())
 		return
@@ -335,13 +288,11 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sqlText, _, err := ds.BuildUpdateByKey(def.SchemaName, def.TableName, names, def.KeyColumns)
-	if err != nil {
-		writeErr(w, 400, "VALIDATION", "bad columns", err.Error())
-		return
-	}
-	args := append(append([]any{}, vals...), pkVals...)
-	if _, err := db.Exec(sqlText, args...); err != nil {
+	if _, err := a.UpdateByKey(def.SchemaName, def.TableName, names, vals, def.KeyColumns, pkVals); err != nil {
+		if a.IsFKViolation(err) {
+			writeErr(w, 409, "CONFLICT", "row is referenced by other rows (database constraint)", nil)
+			return
+		}
 		writeErr(w, 502, "CONN", "update failed", err.Error())
 		return
 	}
@@ -375,14 +326,14 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return
 	}
-	db, err := s.liveDB(def.DatasourceID)
+	a, err := s.liveAdapter(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
 		return
 	}
-	defer db.Close()
+	defer a.Close()
 
-	oldRows, err := fetchRows(db, def, cols, pkVals)
+	oldRows, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals, colNames(cols))
 	if err != nil {
 		writeErr(w, 502, "CONN", "fetch old failed", err.Error())
 		return
@@ -391,12 +342,24 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
 		return
 	}
-	sqlText, err := ds.BuildDeleteByKey(def.SchemaName, def.TableName, def.KeyColumns)
-	if err != nil {
-		writeErr(w, 400, "VALIDATION", "bad identifiers", err.Error())
+	var conflicts []map[string]any
+	for _, old := range oldRows {
+		cs, err := s.referencedBy(def, old)
+		if err != nil {
+			writeErr(w, 502, "CONN", "reference check failed", err.Error())
+			return
+		}
+		conflicts = mergeConflicts(conflicts, cs)
+	}
+	if len(conflicts) > 0 {
+		writeErr(w, 409, "CONFLICT", "row is referenced by other rows", conflicts)
 		return
 	}
-	if _, err := db.Exec(sqlText, pkVals...); err != nil {
+	if _, err := a.DeleteByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals); err != nil {
+		if a.IsFKViolation(err) {
+			writeErr(w, 409, "CONFLICT", "row is referenced by other rows (database constraint)", nil)
+			return
+		}
 		writeErr(w, 502, "CONN", "delete failed", err.Error())
 		return
 	}
@@ -404,4 +367,93 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 		s.auditBestEffort(u, def.ID, "DELETE", rowKeyString(def, old), old, nil)
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "affected": len(oldRows)})
+}
+
+// errFKRefNotFound marks an fk payload value that has no matching target row.
+var errFKRefNotFound = errors.New("referenced row not found")
+
+// checkFKValues verifies each non-null fk payload value exists on the target
+// table (batched per fk column via the ref-value IN query).
+func (s *Server) checkFKValues(cols []meta.ColumnDef, names []string, vals []any) error {
+	for i, name := range names {
+		var c *meta.ColumnDef
+		for j := range cols {
+			if cols[j].Name == name && cols[j].FieldType == "fk" {
+				c = &cols[j]
+				break
+			}
+		}
+		if c == nil || vals[i] == nil {
+			continue
+		}
+		target, _, err := s.store.GetTableDef(c.FKTableDefID)
+		if err != nil {
+			return fmt.Errorf("%s: fk target unavailable", name)
+		}
+		a, err := s.liveAdapter(target.DatasourceID)
+		if err != nil {
+			return err
+		}
+		m, err := a.FetchByRefValues(target.SchemaName, target.TableName, c.FKRefColumn, nil, []any{vals[i]})
+		a.Close()
+		if err != nil {
+			return err
+		}
+		if len(m) == 0 {
+			return fmt.Errorf("%s: %w", name, errFKRefNotFound)
+		}
+	}
+	return nil
+}
+
+// referencedBy reports defined tables whose fk columns point at def and hold
+// rows referencing the given old row. Detail rows feed the 409 body.
+func (s *Server) referencedBy(def *meta.TableDef, old map[string]any) ([]map[string]any, error) {
+	srcs, err := s.store.FKRefSources(def.ID)
+	if err != nil {
+		return nil, err
+	}
+	var conflicts []map[string]any
+	for _, src := range srcs {
+		refVal := old[src.RefColumn]
+		if refVal == nil {
+			continue
+		}
+		srcDef, _, err := s.store.GetTableDef(src.DefID)
+		if err != nil {
+			return nil, err
+		}
+		a, err := s.liveAdapter(srcDef.DatasourceID)
+		if err != nil {
+			return nil, err
+		}
+		n, err := a.CountByRefEq(srcDef.SchemaName, srcDef.TableName, src.Column, refVal)
+		a.Close()
+		if err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			conflicts = append(conflicts, map[string]any{"table": src.DefLabel, "column": src.Column, "count": n})
+		}
+	}
+	return conflicts, nil
+}
+
+// mergeConflicts unions two delete-protection conflict lists, summing count
+// for entries sharing the same table+column pair.
+func mergeConflicts(existing []map[string]any, add []map[string]any) []map[string]any {
+	for _, c := range add {
+		merged := false
+		for _, e := range existing {
+			if e["table"] == c["table"] && e["column"] == c["column"] {
+				e["count"] = e["count"].(int) + c["count"].(int)
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			existing = append(existing, c)
+		}
+	}
+	return existing
 }

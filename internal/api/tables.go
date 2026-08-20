@@ -1,7 +1,6 @@
 package api
 
 import (
-	"database/sql"
 	"errors"
 	"net/http"
 
@@ -11,13 +10,52 @@ import (
 
 // tableDefInput accepts masked datasource ids from the client.
 type tableDefInput struct {
-	DatasourceID string           `json:"datasourceId"`
-	SchemaName   string           `json:"schemaName"`
-	TableName    string           `json:"tableName"`
-	Label        string           `json:"label"`
-	KeyColumns   []string         `json:"keyColumns"`
-	PageSize     int              `json:"pageSize"`
-	Columns      []meta.ColumnDef `json:"columns"`
+	DatasourceID string        `json:"datasourceId"`
+	SchemaName   string        `json:"schemaName"`
+	TableName    string        `json:"tableName"`
+	Label        string        `json:"label"`
+	KeyColumns   []string      `json:"keyColumns"`
+	PageSize     int           `json:"pageSize"`
+	Columns      []columnInput `json:"columns"`
+}
+
+// columnInput mirrors meta.ColumnDef but takes the fk target as a masked
+// token or the literal "self" (this definition).
+type columnInput struct {
+	Name             string   `json:"name"`
+	Label            string   `json:"label"`
+	FieldType        string   `json:"fieldType"`
+	EnumOptions      []string `json:"enumOptions"`
+	Editable         bool     `json:"editable"`
+	Required         bool     `json:"required"`
+	Visible          bool     `json:"visible"`
+	Searchable       bool     `json:"searchable"`
+	Sortable         bool     `json:"sortable"`
+	Position         int      `json:"position"`
+	BaseType         string   `json:"baseType"`
+	FKTableDefID     string   `json:"fkTableDefId"`
+	FKRefColumn      string   `json:"fkRefColumn"`
+	FKDisplayColumns []string `json:"fkDisplayColumns"`
+}
+
+func (s *Server) toCols(in []columnInput) []meta.ColumnDef {
+	out := make([]meta.ColumnDef, 0, len(in))
+	for _, c := range in {
+		m := meta.ColumnDef{Name: c.Name, Label: c.Label, FieldType: c.FieldType,
+			EnumOptions: c.EnumOptions, Editable: c.Editable, Required: c.Required,
+			Visible: c.Visible, Searchable: c.Searchable, Sortable: c.Sortable,
+			Position: c.Position, BaseType: c.BaseType,
+			FKRefColumn: c.FKRefColumn, FKDisplayColumns: c.FKDisplayColumns}
+		if c.FKTableDefID == "self" {
+			m.FKTableDefID = meta.SelfRef
+		} else if c.FKTableDefID != "" {
+			if id, err := s.ids.Decode("td", c.FKTableDefID); err == nil {
+				m.FKTableDefID = id
+			}
+		}
+		out = append(out, m)
+	}
+	return out
 }
 
 func (s *Server) toDef(in tableDefInput) (*meta.TableDef, error) {
@@ -38,21 +76,32 @@ type permsDTO struct {
 }
 
 type columnDTO struct {
-	Name        string   `json:"name"`
-	Label       string   `json:"label"`
-	FieldType   string   `json:"fieldType"`
-	EnumOptions []string `json:"enumOptions"`
-	Editable    bool     `json:"editable"`
-	Required    bool     `json:"required"`
-	Visible     bool     `json:"visible"`
-	Searchable  bool     `json:"searchable"`
-	Sortable    bool     `json:"sortable"`
-	Position    int      `json:"position"`
+	Name             string   `json:"name"`
+	Label            string   `json:"label"`
+	FieldType        string   `json:"fieldType"`
+	EnumOptions      []string `json:"enumOptions"`
+	Editable         bool     `json:"editable"`
+	Required         bool     `json:"required"`
+	Visible          bool     `json:"visible"`
+	Searchable       bool     `json:"searchable"`
+	Sortable         bool     `json:"sortable"`
+	Position         int      `json:"position"`
+	BaseType         string   `json:"baseType,omitempty"`
+	FKTableDefID     string   `json:"fkTableDefId,omitempty"`
+	FKRefColumn      string   `json:"fkRefColumn,omitempty"`
+	FKDisplayColumns []string `json:"fkDisplayColumns,omitempty"`
 }
 
-func colToDTO(c meta.ColumnDef) columnDTO {
-	return columnDTO{c.Name, c.Label, c.FieldType, c.EnumOptions,
-		c.Editable, c.Required, c.Visible, c.Searchable, c.Sortable, c.Position}
+func (s *Server) colToDTO(c meta.ColumnDef) columnDTO {
+	dto := columnDTO{Name: c.Name, Label: c.Label, FieldType: c.FieldType,
+		EnumOptions: c.EnumOptions, Editable: c.Editable, Required: c.Required,
+		Visible: c.Visible, Searchable: c.Searchable, Sortable: c.Sortable,
+		Position: c.Position, BaseType: c.BaseType,
+		FKRefColumn: c.FKRefColumn, FKDisplayColumns: c.FKDisplayColumns}
+	if c.FKTableDefID > 0 {
+		dto.FKTableDefID = s.ids.Encode("td", c.FKTableDefID)
+	}
+	return dto
 }
 
 // tableDefDTO masks ids and carries the caller's grants.
@@ -83,7 +132,7 @@ func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDT
 		dto.KeyColumns = []string{}
 	}
 	for _, c := range cols {
-		dto.Columns = append(dto.Columns, colToDTO(c))
+		dto.Columns = append(dto.Columns, s.colToDTO(c))
 	}
 	return dto
 }
@@ -126,7 +175,7 @@ func (s *Server) hasTablePerm(u CtxUser, defID int64, action string) bool {
 }
 
 var validFieldTypes = map[string]bool{
-	"boolean": true, "text": true, "number": true, "datetime": true, "enum": true,
+	"boolean": true, "text": true, "number": true, "datetime": true, "enum": true, "fk": true,
 }
 
 var (
@@ -134,7 +183,7 @@ var (
 	errConn       = errors.New("connection failed")
 )
 
-func validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
+func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 	if def.DatasourceID == 0 || def.SchemaName == "" || def.TableName == "" ||
 		def.Label == "" || len(def.KeyColumns) == 0 {
 		return "datasourceId, schemaName, tableName, label, keyColumns are required"
@@ -161,6 +210,9 @@ func validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 		if _, err := ds.QuoteIdent(c.Name); err != nil {
 			return "invalid identifier: " + c.Name
 		}
+		if msg := s.validateFK(def, cols, c); msg != "" {
+			return msg
+		}
 		for k, key := range def.KeyColumns {
 			if c.Name == key {
 				keySeen[k] = true
@@ -180,6 +232,54 @@ func validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 	return ""
 }
 
+// validateFK checks one column's fk payload. targetCols resolves the target
+// definition's columns (the def itself for self-references).
+func (s *Server) validateFK(def *meta.TableDef, cols []meta.ColumnDef, c meta.ColumnDef) string {
+	if c.FieldType != "fk" {
+		if c.BaseType != "" || c.FKTableDefID != 0 || c.FKRefColumn != "" || len(c.FKDisplayColumns) > 0 {
+			return "column " + c.Name + ": fk fields require fieldType \"fk\""
+		}
+		return ""
+	}
+	if !validFieldTypes[c.BaseType] || c.BaseType == "fk" {
+		return "column " + c.Name + ": fk needs a valid baseType"
+	}
+	if len(c.FKDisplayColumns) == 0 {
+		return "column " + c.Name + ": fk needs at least one display column"
+	}
+	if c.FKRefColumn == "" {
+		return "column " + c.Name + ": fk needs fkRefColumn"
+	}
+	var targetCols []meta.ColumnDef
+	switch {
+	case c.FKTableDefID == meta.SelfRef, def.ID != 0 && c.FKTableDefID == def.ID:
+		targetCols = cols // this definition's own incoming columns
+	case c.FKTableDefID == 0:
+		return "column " + c.Name + ": fk needs fkTableDefId"
+	default:
+		_, tc, err := s.store.GetTableDef(c.FKTableDefID)
+		if err != nil {
+			return "column " + c.Name + ": fk target definition not found"
+		}
+		targetCols = tc
+	}
+	names := map[string]bool{}
+	for _, t := range targetCols {
+		names[t.Name] = true
+	}
+	if !names[c.FKRefColumn] {
+		return "column " + c.Name + ": fkRefColumn not on target table"
+	}
+	seen := map[string]bool{}
+	for _, d := range c.FKDisplayColumns {
+		if !names[d] || seen[d] {
+			return "column " + c.Name + ": fkDisplayColumns must match target columns"
+		}
+		seen[d] = true
+	}
+	return ""
+}
+
 func (s *Server) handleTableCreate(w http.ResponseWriter, r *http.Request) {
 	var in tableDefInput
 	if err := readJSON(r, &in); err != nil {
@@ -191,15 +291,16 @@ func (s *Server) handleTableCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
-	if msg := validateDef(def, in.Columns); msg != "" {
+	cols := s.toCols(in.Columns)
+	if msg := s.validateDef(def, cols); msg != "" {
 		writeErr(w, 400, "VALIDATION", msg, nil)
 		return
 	}
-	if err := s.store.SaveTableDef(def, in.Columns); err != nil {
+	if err := s.store.SaveTableDef(def, cols); err != nil {
 		writeErr(w, 400, "VALIDATION", "save failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, s.toTableDTO(def, in.Columns, permsDTO{true, true, true, true}))
+	writeJSON(w, 200, s.toTableDTO(def, cols, permsDTO{true, true, true, true}))
 }
 
 func (s *Server) handleTableList(w http.ResponseWriter, r *http.Request) {
@@ -279,12 +380,13 @@ func (s *Server) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
-	if msg := validateDef(def, in.Columns); msg != "" {
+	cols := s.toCols(in.Columns)
+	def.ID = id
+	if msg := s.validateDef(def, cols); msg != "" {
 		writeErr(w, 400, "VALIDATION", msg, nil)
 		return
 	}
-	def.ID = id
-	if err := s.store.UpdateTableDef(def, in.Columns); err != nil {
+	if err := s.store.UpdateTableDef(def, cols); err != nil {
 		if errors.Is(err, meta.ErrNotFound) {
 			writeErr(w, 404, "NOT_FOUND", "table def not found", nil)
 			return
@@ -292,7 +394,7 @@ func (s *Server) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", "update failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, s.toTableDTO(def, in.Columns, permsDTO{true, true, true, true}))
+	writeJSON(w, 200, s.toTableDTO(def, cols, permsDTO{true, true, true, true}))
 }
 
 func (s *Server) handleTableDelete(w http.ResponseWriter, r *http.Request) {
@@ -312,8 +414,8 @@ func (s *Server) handleTableDelete(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// liveDB opens the live PG connection for a datasource id.
-func (s *Server) liveDB(dsID int64) (*sql.DB, error) {
+// liveAdapter opens the live connection for a datasource id.
+func (s *Server) liveAdapter(dsID int64) (ds.Adapter, error) {
 	d, err := s.store.GetDatasource(dsID)
 	if errors.Is(err, meta.ErrNotFound) {
 		return nil, errDSNotFound
@@ -321,11 +423,11 @@ func (s *Server) liveDB(dsID int64) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := ds.Connect(dsToDSN(d))
+	a, err := ds.Open(*d)
 	if err != nil {
 		return nil, errConn
 	}
-	return db, nil
+	return a, nil
 }
 
 func (s *Server) writeLiveErr(w http.ResponseWriter, err error) {
@@ -346,13 +448,18 @@ func (s *Server) handleDSTables(w http.ResponseWriter, r *http.Request) {
 		s.writeDSErr(w, err)
 		return
 	}
-	db, err := s.liveDB(id)
+	d, err := s.store.GetDatasource(id)
 	if err != nil {
-		s.writeLiveErr(w, err)
+		s.writeDSErr(w, err)
 		return
 	}
-	defer db.Close()
-	tables, err := ds.ListTables(db)
+	a, err := ds.Open(*d)
+	if err != nil {
+		s.writeLiveErr(w, errConn)
+		return
+	}
+	defer a.Close()
+	tables, err := a.ListTables()
 	if err != nil {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
@@ -366,13 +473,13 @@ func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
-	db, err := s.liveDB(def.DatasourceID)
+	db, err := s.liveAdapter(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
 		return
 	}
 	defer db.Close()
-	live, err := ds.InspectTable(db, def.SchemaName, def.TableName)
+	live, err := db.InspectTable(def.SchemaName, def.TableName)
 	if err != nil {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
@@ -391,13 +498,13 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
-	db, err := s.liveDB(def.DatasourceID)
+	db, err := s.liveAdapter(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
 		return
 	}
 	defer db.Close()
-	live, err := ds.InspectTable(db, def.SchemaName, def.TableName)
+	live, err := db.InspectTable(def.SchemaName, def.TableName)
 	if err != nil {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
@@ -429,12 +536,16 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			continue // dropped
 		}
-		if c.FieldType != lc.FieldType {
-			c.FieldType = lc.FieldType
-			if lc.FieldType == "enum" {
-				c.EnumOptions = lc.EnumOptions
+		if ds.EffectiveType(c) != lc.FieldType {
+			if c.FieldType == "fk" {
+				c.BaseType = lc.FieldType // keep relation config; only base drifts
 			} else {
-				c.EnumOptions = nil
+				c.FieldType = lc.FieldType
+				if lc.FieldType == "enum" {
+					c.EnumOptions = lc.EnumOptions
+				} else {
+					c.EnumOptions = nil
+				}
 			}
 		}
 		out = append(out, c)
@@ -469,13 +580,18 @@ func (s *Server) handleDSColumns(w http.ResponseWriter, r *http.Request) {
 		s.writeDSErr(w, err)
 		return
 	}
-	db, err := s.liveDB(id)
+	d, err := s.store.GetDatasource(id)
 	if err != nil {
-		s.writeLiveErr(w, err)
+		s.writeDSErr(w, err)
 		return
 	}
-	defer db.Close()
-	cols, err := ds.InspectTable(db, r.PathValue("schema"), r.PathValue("table"))
+	a, err := ds.Open(*d)
+	if err != nil {
+		s.writeLiveErr(w, errConn)
+		return
+	}
+	defer a.Close()
+	cols, err := a.InspectTable(r.PathValue("schema"), r.PathValue("table"))
 	if err != nil {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return

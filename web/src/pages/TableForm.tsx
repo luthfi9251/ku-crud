@@ -9,21 +9,31 @@ import {
   Lock,
   Save,
   Layers,
+  Database,
+  Key,
 } from "lucide-react";
 import { api } from "../lib/api";
-import type { ColumnDef, Datasource, LiveColumn, TableDefPayload } from "../lib/types";
+import type { BaseFieldType, ColumnDef, Datasource, LiveColumn, TableDefPayload } from "../lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { ColumnListEditor, type FormCol } from "../components/ColumnListEditor";
 
-const fieldTypes = ["boolean", "text", "number", "datetime", "enum"] as const;
+export const fieldTypes = ["boolean", "text", "number", "datetime", "enum", "fk"] as const;
 
-interface FormCol extends ColumnDef {
-  livePk?: boolean;
+export function normalizeLabel(name: string): string {
+  if (!name) return "";
+  return name
+    .replace(/[-_]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
 }
 
 export default function TableForm() {
@@ -51,6 +61,12 @@ export default function TableForm() {
   const dsList = useQuery({
     queryKey: ["ds"],
     queryFn: () => api<Datasource[]>("/datasources"),
+  });
+
+  // Ku-CRUD table definitions list (for FK target selection)
+  const defs = useQuery({
+    queryKey: ["defs"],
+    queryFn: () => api<TableDefPayload[]>("/tables"),
   });
 
   // Database tables query
@@ -84,25 +100,30 @@ export default function TableForm() {
   // Populate columns from live DB inspection when creating new definition
   useEffect(() => {
     if (!isEditing && liveCols.data && liveCols.data.length > 0) {
-      setLabel((prev) => prev || tableName.charAt(0).toUpperCase() + tableName.slice(1));
+      setLabel(normalizeLabel(tableName));
       setKeys((prev) => (prev.length ? prev : liveCols.data.filter((c) => c.isPk).map((c) => c.name)));
       setCols(
-        liveCols.data.map((c, i) => ({
-          name: c.name,
-          label: c.name,
-          fieldType: c.fieldType,
-          enumOptions: c.enumOptions,
-          editable: !c.isPk,
-          required: !c.nullable,
-          visible: true,
-          searchable: true,
-          sortable: true,
-          position: i,
-          livePk: c.isPk,
-        }))
+        liveCols.data.map((c, i) => {
+          const isNotNull = !c.nullable;
+          return {
+            name: c.name,
+            label: normalizeLabel(c.name),
+            fieldType: c.fieldType,
+            enumOptions: c.enumOptions,
+            editable: isNotNull ? true : !c.isPk,
+            required: isNotNull,
+            visible: true,
+            searchable: true,
+            sortable: true,
+            position: i,
+            livePk: c.isPk,
+            origType: c.fieldType as BaseFieldType,
+            fkDs: dsId,
+          };
+        })
       );
     }
-  }, [isEditing, liveCols.data, tableName]);
+  }, [isEditing, liveCols.data, tableName, dsId]);
 
   const setCol = (i: number, patch: Partial<FormCol>) =>
     setCols((prev) => prev.map((c, j) => (j === i ? { ...c, ...patch } : c)));
@@ -116,7 +137,11 @@ export default function TableForm() {
         label,
         keyColumns: keys,
         pageSize,
-        columns: cols.map(({ livePk: _lp, ...c }) => c),
+        columns: cols.map(({ livePk: _lp, origType: _ot, fkDs: _fd, ...c }) =>
+          c.fieldType === "fk"
+            ? c
+            : { ...c, baseType: undefined, fkTableDefId: undefined, fkRefColumn: undefined, fkDisplayColumns: undefined }
+        ),
       });
       return isEditing
         ? api(`/tables/${id}`, { method: "PUT", body })
@@ -263,7 +288,7 @@ export default function TableForm() {
             )}
           </div>
         </CardHeader>
-        <CardContent className="pt-4">
+        <CardContent className="pt-4 space-y-4">
           <fieldset disabled={!step1Complete || isEditing} className="max-w-xl space-y-2">
             <Label className="text-xs font-medium">Database Table</Label>
             <Select
@@ -272,7 +297,9 @@ export default function TableForm() {
                 const [s, t] = v.split(".");
                 setSchema(s);
                 setTableName(t);
+                setLabel(normalizeLabel(t));
                 setCols([]);
+                setKeys([]);
               }}
             >
               <SelectTrigger className="h-10 text-xs">
@@ -287,6 +314,74 @@ export default function TableForm() {
               </SelectContent>
             </Select>
           </fieldset>
+
+          {/* Introspected Database Schema Preview */}
+          {step2Complete && (
+            <div className="space-y-2 pt-2 border-t border-border/40">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Database className="h-4 w-4 text-blue-500" />
+                  <span className="text-xs font-semibold text-foreground">
+                    Inspected Database Schema ({schema}.{tableName})
+                  </span>
+                </div>
+                <Badge variant="outline" className="text-[10px] font-mono bg-blue-500/10 text-blue-600 border-blue-500/20">
+                  {isEditing ? cols.length : (liveCols.data?.length ?? 0)} Raw DB Columns Introspected
+                </Badge>
+              </div>
+
+              {liveCols.isLoading && !isEditing ? (
+                <div className="p-4 text-center text-xs text-muted-foreground italic rounded-lg border bg-muted/20">
+                  Inspecting raw table schema and data types from database...
+                </div>
+              ) : (
+                <div className="rounded-lg border bg-muted/10 overflow-hidden max-h-56 overflow-y-auto shadow-xs">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/50 hover:bg-muted/50 text-[11px]">
+                        <TableHead className="py-2 h-8 font-semibold">Raw Column Name</TableHead>
+                        <TableHead className="py-2 h-8 font-semibold">DB Data Type</TableHead>
+                        <TableHead className="py-2 h-8 font-semibold text-center">Attributes / Constraints</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(isEditing ? cols : (liveCols.data ?? [])).map((col) => {
+                        const colName = col.name;
+                        const colType = col.fieldType;
+                        const isPk = isEditing ? keys.includes(col.name) : (col as LiveColumn).isPk;
+                        const isNullable = isEditing ? !(col as ColumnDef).required : (col as LiveColumn).nullable;
+
+                        return (
+                          <TableRow key={colName} className="hover:bg-muted/30 text-xs">
+                            <TableCell className="py-1.5 font-mono font-bold text-foreground">
+                              {colName}
+                            </TableCell>
+                            <TableCell className="py-1.5">
+                              <Badge variant="outline" className="text-[10px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
+                                {colType}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="py-1.5 text-center">
+                              <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                {isPk && (
+                                  <Badge variant="outline" className="text-[9px] font-mono bg-amber-500/10 text-amber-600 border-amber-500/20 gap-0.5">
+                                    <Key className="h-2.5 w-2.5" /> Primary Key
+                                  </Badge>
+                                )}
+                                <Badge variant="outline" className={`text-[9px] font-mono ${isNullable ? "bg-muted/60 text-muted-foreground" : "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"}`}>
+                                  {isNullable ? "NULLABLE" : "NOT NULL"}
+                                </Badge>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -334,118 +429,18 @@ export default function TableForm() {
               </div>
             </div>
 
-            {/* Column Mapping Table */}
-            <div className="rounded-lg border bg-card overflow-hidden shadow-xs">
-              <div className="overflow-x-auto max-h-[500px]">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead className="w-12 text-center" title="Composite key for update/delete WHERE">Key</TableHead>
-                      <TableHead>Column Name</TableHead>
-                      <TableHead className="w-48">Display Label</TableHead>
-                      <TableHead className="w-36">Field Type</TableHead>
-                      <TableHead className="text-center">Editable</TableHead>
-                      <TableHead className="text-center">Required</TableHead>
-                      <TableHead className="text-center">Visible</TableHead>
-                      <TableHead className="text-center">Searchable</TableHead>
-                      <TableHead className="text-center">Sortable</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {cols.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={9} className="h-32 text-center text-xs text-muted-foreground">
-                          {liveCols.isLoading ? "Inspecting live table columns..." : "No column mappings populated"}
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      cols.map((c, i) => (
-                        <TableRow key={c.name} className="hover:bg-muted/20">
-                          <TableCell className="text-center">
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 accent-blue-600 cursor-pointer"
-                              checked={keys.includes(c.name)}
-                              onChange={() => toggleKey(c.name)}
-                              title="Use as key column (update/delete WHERE)"
-                            />
-                          </TableCell>
-                          <TableCell className="font-mono text-xs font-medium">{c.name}</TableCell>
-                          <TableCell>
-                            <Input
-                              value={c.label}
-                              className="h-8 text-xs"
-                              onChange={(e) => setCol(i, { label: e.target.value })}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Select
-                              value={c.fieldType}
-                              onValueChange={(v) =>
-                                setCol(i, {
-                                  fieldType: v as ColumnDef["fieldType"],
-                                  enumOptions: v === "enum" ? (c.enumOptions ?? []) : null,
-                                })
-                              }
-                            >
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {fieldTypes.map((t) => (
-                                  <SelectItem key={t} value={t} className="text-xs">
-                                    {t}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Switch checked={c.editable} onCheckedChange={(v) => setCol(i, { editable: v })} />
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Switch checked={c.required} onCheckedChange={(v) => setCol(i, { required: v })} />
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Switch checked={c.visible} onCheckedChange={(v) => setCol(i, { visible: v })} />
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Switch checked={c.searchable} onCheckedChange={(v) => setCol(i, { searchable: v })} />
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Switch checked={c.sortable} onCheckedChange={(v) => setCol(i, { sortable: v })} />
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-
-            {/* Enum Options Editor if any enum field exists */}
-            {cols.some((c) => c.fieldType === "enum") && (
-              <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
-                <p className="text-xs font-semibold text-foreground">Enum Column Options</p>
-                {cols
-                  .filter((c) => c.fieldType === "enum")
-                  .map((c) => {
-                    const i = cols.indexOf(c);
-                    return (
-                      <div key={c.name} className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">{c.label} options (comma separated)</Label>
-                        <Input
-                          className="h-8 text-xs"
-                          value={(c.enumOptions ?? []).join(",")}
-                          onChange={(e) =>
-                            setCol(i, { enumOptions: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })
-                          }
-                        />
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
+            {/* Sequential Expandable Column Editor */}
+            <ColumnListEditor
+              cols={cols}
+              keys={keys}
+              toggleKey={toggleKey}
+              setCol={setCol}
+              dsId={dsId}
+              currentId={id}
+              defs={defs.data ?? []}
+              dsList={dsList.data ?? []}
+              isLoadingCols={liveCols.isLoading}
+            />
 
             {save.isError && (
               <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive">
@@ -469,6 +464,82 @@ export default function TableForm() {
           </fieldset>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/** Backup Legacy Column Table Component (Retained as backup) */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+export function LegacyColumnTable({
+  cols, keys, toggleKey, setCol, isLoadingCols, fieldTypes,
+}: {
+  cols: FormCol[]; keys: string[]; toggleKey: (name: string) => void;
+  setCol: (i: number, patch: Partial<FormCol>) => void; isLoadingCols: boolean;
+  fieldTypes: readonly string[];
+}) {
+  return (
+    <div className="rounded-lg border bg-card overflow-hidden shadow-xs">
+      <div className="overflow-x-auto max-h-[500px]">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/50">
+              <TableHead className="w-12 text-center">Key</TableHead>
+              <TableHead>Column Name</TableHead>
+              <TableHead className="w-48">Display Label</TableHead>
+              <TableHead className="w-36">Field Type</TableHead>
+              <TableHead className="text-center">Editable</TableHead>
+              <TableHead className="text-center">Required</TableHead>
+              <TableHead className="text-center">Visible</TableHead>
+              <TableHead className="text-center">Searchable</TableHead>
+              <TableHead className="text-center">Sortable</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {cols.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={9} className="h-32 text-center text-xs text-muted-foreground">
+                  {isLoadingCols ? "Inspecting live table columns..." : "No column mappings populated"}
+                </TableCell>
+              </TableRow>
+            ) : (
+              cols.map((c, i) => (
+                <TableRow key={c.name} className="hover:bg-muted/20">
+                  <TableCell className="text-center">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-blue-600 cursor-pointer"
+                      checked={keys.includes(c.name)}
+                      onChange={() => toggleKey(c.name)}
+                    />
+                  </TableCell>
+                  <TableCell className="font-mono text-xs font-medium">{c.name}</TableCell>
+                  <TableCell>
+                    <Input value={c.label} className="h-8 text-xs" onChange={(e) => setCol(i, { label: e.target.value })} />
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={c.fieldType}
+                      onValueChange={(v) => setCol(i, { fieldType: v as ColumnDef["fieldType"] })}
+                    >
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {fieldTypes.map((t) => (
+                          <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell className="text-center"><Switch checked={c.editable} onCheckedChange={(v) => setCol(i, { editable: v })} /></TableCell>
+                  <TableCell className="text-center"><Switch checked={c.required} onCheckedChange={(v) => setCol(i, { required: v })} /></TableCell>
+                  <TableCell className="text-center"><Switch checked={c.visible} onCheckedChange={(v) => setCol(i, { visible: v })} /></TableCell>
+                  <TableCell className="text-center"><Switch checked={c.searchable} onCheckedChange={(v) => setCol(i, { searchable: v })} /></TableCell>
+                  <TableCell className="text-center"><Switch checked={c.sortable} onCheckedChange={(v) => setCol(i, { sortable: v })} /></TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

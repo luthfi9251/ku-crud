@@ -56,13 +56,19 @@ export function Sidebar({ className }: SidebarProps) {
   const isAdmin = !!me.data?.isAdmin;
   const canPlatform = !!me.data?.platformManage;
   const navItems = [
-    ...(canPlatform ? [{ label: "Datasources", path: "/datasources", icon: Server }] : []),
+    ...(canPlatform
+      ? [{ label: "Datasources", path: "/datasources", icon: Server }]
+      : []),
     { label: "Tables & Schema", path: "/", icon: Table2 },
-    ...(isAdmin ? [
-      { label: "Users", path: "/users", icon: UsersIcon },
-      { label: "Roles & Access", path: "/roles", icon: KeyRound },
-    ] : []),
-    ...(canPlatform ? [{ label: "Audit Trail", path: "/audit", icon: ShieldCheck }] : []),
+    ...(isAdmin
+      ? [
+          { label: "Users", path: "/users", icon: UsersIcon },
+          { label: "Roles & Access", path: "/roles", icon: KeyRound },
+        ]
+      : []),
+    ...(canPlatform
+      ? [{ label: "Audit Trail", path: "/audit", icon: ShieldCheck }]
+      : []),
   ];
 
   return (
@@ -70,7 +76,7 @@ export function Sidebar({ className }: SidebarProps) {
       className={cn(
         "relative flex flex-col border-r bg-sidebar text-sidebar-foreground transition-all duration-300 ease-in-out select-none",
         collapsed ? "w-16" : "w-64",
-        className
+        className,
       )}
     >
       {/* Brand Header */}
@@ -82,12 +88,16 @@ export function Sidebar({ className }: SidebarProps) {
           {!collapsed && (
             <div className="flex flex-col truncate">
               <div className="flex items-center gap-1.5">
-                <span className="font-bold tracking-tight text-sidebar-foreground">Ku-CRUD</span>
+                <span className="font-bold tracking-tight text-sidebar-foreground">
+                  Ku-CRUD
+                </span>
                 <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-blue-400 border border-blue-500/20">
-                  v1.1
+                  v1.2
                 </span>
               </div>
-              <span className="text-[11px] text-sidebar-foreground/60 truncate">Database Portal</span>
+              <span className="text-[11px] text-sidebar-foreground/60 truncate">
+                Database Portal
+              </span>
             </div>
           )}
         </div>
@@ -98,7 +108,11 @@ export function Sidebar({ className }: SidebarProps) {
           onClick={() => setCollapsed(!collapsed)}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          {collapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          {collapsed ? (
+            <PanelLeft className="h-4 w-4" />
+          ) : (
+            <PanelLeftClose className="h-4 w-4" />
+          )}
         </Button>
       </div>
 
@@ -122,11 +136,16 @@ export function Sidebar({ className }: SidebarProps) {
                   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all group relative",
                   isActive
                     ? "bg-sidebar-accent text-sidebar-primary-foreground shadow-xs font-semibold"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
                 )}
                 title={collapsed ? item.label : undefined}
               >
-                <Icon className={cn("h-4 w-4 shrink-0 transition-transform group-hover:scale-110", isActive ? "text-blue-400" : "text-sidebar-foreground/60")} />
+                <Icon
+                  className={cn(
+                    "h-4 w-4 shrink-0 transition-transform group-hover:scale-110",
+                    isActive ? "text-blue-400" : "text-sidebar-foreground/60",
+                  )}
+                />
                 {!collapsed && <span>{item.label}</span>}
                 {isActive && (
                   <div className="absolute right-0 top-2 bottom-2 w-1 rounded-l-full bg-blue-500" />
@@ -149,46 +168,72 @@ export function Sidebar({ className }: SidebarProps) {
             </div>
           )}
           {defs.isLoading && !collapsed && (
-            <div className="px-3 py-2 text-xs text-sidebar-foreground/40 italic">Loading tables...</div>
+            <div className="px-3 py-2 text-xs text-sidebar-foreground/40 italic">
+              Loading tables...
+            </div>
           )}
-          {(defs.data ?? []).filter((t) => t.permissions?.read).map((table) => {
-            const tablePath = `/data/${table.id}`;
-            const isActive = location.pathname === tablePath;
-            return (
-              <Link
-                key={table.id}
-                to={tablePath}
-                className={cn(
-                  "flex items-center justify-between rounded-lg px-3 py-2 text-xs transition-all group",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-primary-foreground font-semibold"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                )}
-                title={collapsed ? table.label : `${table.schemaName}.${table.tableName}`}
-              >
-                <div className="flex items-center gap-2.5 truncate">
-                  <Layers className={cn("h-3.5 w-3.5 shrink-0", isActive ? "text-blue-400" : "text-sidebar-foreground/50")} />
-                  {!collapsed && <span className="truncate">{table.label}</span>}
-                </div>
-                {!collapsed && (
-                  <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-sidebar-foreground/40 shrink-0" />
-                )}
-              </Link>
-            );
-          })}
+          {(defs.data ?? [])
+            .filter((t) => t.permissions?.read)
+            .map((table) => {
+              const tablePath = `/data/${table.id}`;
+              const isActive = location.pathname === tablePath;
+              return (
+                <Link
+                  key={table.id}
+                  to={tablePath}
+                  className={cn(
+                    "flex items-center justify-between rounded-lg px-3 py-2 text-xs transition-all group",
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-primary-foreground font-semibold"
+                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
+                  )}
+                  title={
+                    collapsed
+                      ? table.label
+                      : `${table.schemaName}.${table.tableName}`
+                  }
+                >
+                  <div className="flex items-center gap-2.5 truncate">
+                    <Layers
+                      className={cn(
+                        "h-3.5 w-3.5 shrink-0",
+                        isActive
+                          ? "text-blue-400"
+                          : "text-sidebar-foreground/50",
+                      )}
+                    />
+                    {!collapsed && (
+                      <span className="truncate">{table.label}</span>
+                    )}
+                  </div>
+                  {!collapsed && (
+                    <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-sidebar-foreground/40 shrink-0" />
+                  )}
+                </Link>
+              );
+            })}
           {!defs.isLoading && (defs.data ?? []).length === 0 && !collapsed && (
-            <div className="px-3 py-2 text-xs text-sidebar-foreground/40 italic">No tables defined yet</div>
+            <div className="px-3 py-2 text-xs text-sidebar-foreground/40 italic">
+              No tables defined yet
+            </div>
           )}
         </div>
       </div>
 
       {/* Footer / User Profile */}
       <div className="border-t border-sidebar-border/60 p-3">
-        <div className={cn("flex items-center justify-between rounded-xl bg-sidebar-accent/40 p-2", collapsed && "justify-center")}>
+        <div
+          className={cn(
+            "flex items-center justify-between rounded-xl bg-sidebar-accent/40 p-2",
+            collapsed && "justify-center",
+          )}
+        >
           <div className="flex items-center gap-3 overflow-hidden">
             <Avatar className="h-8 w-8 border border-sidebar-border">
               <AvatarFallback className="bg-gradient-to-tr from-blue-600 to-indigo-600 text-white text-xs font-semibold">
-                {me.data?.username ? me.data.username.slice(0, 2).toUpperCase() : "US"}
+                {me.data?.username
+                  ? me.data.username.slice(0, 2).toUpperCase()
+                  : "US"}
               </AvatarFallback>
             </Avatar>
             {!collapsed && (
@@ -196,7 +241,9 @@ export function Sidebar({ className }: SidebarProps) {
                 <span className="text-xs font-medium text-sidebar-foreground truncate">
                   {me.data?.username || "Admin User"}
                 </span>
-                <span className="text-[10px] text-sidebar-foreground/50">Online</span>
+                <span className="text-[10px] text-sidebar-foreground/50">
+                  Online
+                </span>
               </div>
             )}
           </div>

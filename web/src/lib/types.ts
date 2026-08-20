@@ -1,10 +1,11 @@
-export type FieldType = "boolean" | "text" | "number" | "datetime" | "enum";
+export type FieldType = "boolean" | "text" | "number" | "datetime" | "enum" | "fk";
+export type BaseFieldType = Exclude<FieldType, "fk">;
 
 // All entity ids are opaque masked tokens (11-char base64url), never raw numbers.
 export type Id = string;
 
 export interface Datasource {
-  id: Id; name: string; host: string; port: number;
+  id: Id; name: string; driver: string; host: string; port: number;
   dbname: string; username: string; sslmode: string;
 }
 
@@ -13,6 +14,10 @@ export interface ColumnDef {
   enumOptions: string[] | null;
   editable: boolean; required: boolean; visible: boolean;
   searchable: boolean; sortable: boolean; position: number;
+  baseType?: BaseFieldType;
+  fkTableDefId?: string; // masked token or "self"
+  fkRefColumn?: string;
+  fkDisplayColumns?: string[] | null;
 }
 
 export interface Permissions {
@@ -34,7 +39,9 @@ export interface LiveColumn {
 
 export type Row = Record<string, unknown>;
 
-export interface RowsRes { rows: Row[]; total: number; page: number; pageSize: number }
+export interface RowsRes { rows: Row[]; total: number; page: number; pageSize: number; rels?: Record<string, Record<string, Row>> }
+
+export interface FkOptionsRes { rows: Row[]; total: number; page: number; pageSize: number }
 
 export interface AuditEntry {
   id: Id; userId: Id; username: string; tableDefId: Id; action: string; rowPk: string;
