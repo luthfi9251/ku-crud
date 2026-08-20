@@ -27,6 +27,7 @@ export interface Permissions {
 export interface TableDef {
   id: Id; datasourceId: Id; schemaName: string; tableName: string;
   label: string; keyColumns: string[]; pageSize: number;
+  defaultSortCol: string; defaultSortDir: "ASC" | "DESC";
   permissions: Permissions;
 }
 

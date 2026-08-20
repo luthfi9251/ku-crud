@@ -10,13 +10,15 @@ import (
 
 // tableDefInput accepts masked datasource ids from the client.
 type tableDefInput struct {
-	DatasourceID string        `json:"datasourceId"`
-	SchemaName   string        `json:"schemaName"`
-	TableName    string        `json:"tableName"`
-	Label        string        `json:"label"`
-	KeyColumns   []string      `json:"keyColumns"`
-	PageSize     int           `json:"pageSize"`
-	Columns      []columnInput `json:"columns"`
+	DatasourceID   string        `json:"datasourceId"`
+	SchemaName     string        `json:"schemaName"`
+	TableName      string        `json:"tableName"`
+	Label          string        `json:"label"`
+	KeyColumns     []string      `json:"keyColumns"`
+	PageSize       int           `json:"pageSize"`
+	DefaultSortCol string        `json:"defaultSortCol"`
+	DefaultSortDir string        `json:"defaultSortDir"`
+	Columns        []columnInput `json:"columns"`
 }
 
 // columnInput mirrors meta.ColumnDef but takes the fk target as a masked
@@ -63,9 +65,13 @@ func (s *Server) toDef(in tableDefInput) (*meta.TableDef, error) {
 	if err != nil {
 		return nil, errors.New("invalid datasourceId")
 	}
+	if in.DefaultSortDir != "DESC" {
+		in.DefaultSortDir = "ASC"
+	}
 	return &meta.TableDef{DatasourceID: dsID, SchemaName: in.SchemaName,
 		TableName: in.TableName, Label: in.Label, KeyColumns: in.KeyColumns,
-		PageSize: in.PageSize}, nil
+		PageSize:       in.PageSize,
+		DefaultSortCol: in.DefaultSortCol, DefaultSortDir: in.DefaultSortDir}, nil
 }
 
 type permsDTO struct {
@@ -106,27 +112,31 @@ func (s *Server) colToDTO(c meta.ColumnDef) columnDTO {
 
 // tableDefDTO masks ids and carries the caller's grants.
 type tableDefDTO struct {
-	ID           string      `json:"id"`
-	DatasourceID string      `json:"datasourceId"`
-	SchemaName   string      `json:"schemaName"`
-	TableName    string      `json:"tableName"`
-	Label        string      `json:"label"`
-	KeyColumns   []string    `json:"keyColumns"`
-	PageSize     int         `json:"pageSize"`
-	Columns      []columnDTO `json:"columns,omitempty"`
-	Permissions  permsDTO    `json:"permissions"`
+	ID             string      `json:"id"`
+	DatasourceID   string      `json:"datasourceId"`
+	SchemaName     string      `json:"schemaName"`
+	TableName      string      `json:"tableName"`
+	Label          string      `json:"label"`
+	KeyColumns     []string    `json:"keyColumns"`
+	PageSize       int         `json:"pageSize"`
+	DefaultSortCol string      `json:"defaultSortCol"`
+	DefaultSortDir string      `json:"defaultSortDir"`
+	Columns        []columnDTO `json:"columns,omitempty"`
+	Permissions    permsDTO    `json:"permissions"`
 }
 
 func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDTO) tableDefDTO {
 	dto := tableDefDTO{
-		ID:           s.ids.Encode("td", def.ID),
-		DatasourceID: s.ids.Encode("ds", def.DatasourceID),
-		SchemaName:   def.SchemaName,
-		TableName:    def.TableName,
-		Label:        def.Label,
-		KeyColumns:   def.KeyColumns,
-		PageSize:     def.PageSize,
-		Permissions:  p,
+		ID:             s.ids.Encode("td", def.ID),
+		DatasourceID:   s.ids.Encode("ds", def.DatasourceID),
+		SchemaName:     def.SchemaName,
+		TableName:      def.TableName,
+		Label:          def.Label,
+		KeyColumns:     def.KeyColumns,
+		PageSize:       def.PageSize,
+		DefaultSortCol: def.DefaultSortCol,
+		DefaultSortDir: def.DefaultSortDir,
+		Permissions:    p,
 	}
 	if dto.KeyColumns == nil {
 		dto.KeyColumns = []string{}
@@ -198,7 +208,9 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 		}
 	}
 	keySeen := make([]bool, len(def.KeyColumns))
+	sortable := map[string]bool{}
 	for i, c := range cols {
+		sortable[c.Name] = c.Sortable
 		if !validFieldTypes[c.FieldType] {
 			return "column " + c.Name + ": invalid fieldType " + c.FieldType
 		}
@@ -229,6 +241,9 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 		if !seen {
 			return "key column " + def.KeyColumns[k] + " must be one of the defined columns"
 		}
+	}
+	if def.DefaultSortCol != "" && !sortable[def.DefaultSortCol] {
+		return "defaultSortCol must be a defined, sortable column"
 	}
 	return ""
 }

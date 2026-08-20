@@ -20,6 +20,30 @@ func colNames(cols []meta.ColumnDef) []string {
 	return names
 }
 
+// resolveSort picks the effective sort for a list query: an explicit sortable
+// column from the request wins; otherwise the definition's default sort when
+// it is still a defined, sortable column; otherwise the first key column ASC.
+func resolveSort(def *meta.TableDef, cols []meta.ColumnDef, sortCol, sortDir string) (string, string) {
+	byName := map[string]meta.ColumnDef{}
+	for _, c := range cols {
+		byName[c.Name] = c
+	}
+	if byName[sortCol].Sortable {
+		if sortDir != "ASC" && sortDir != "DESC" {
+			sortDir = "ASC"
+		}
+		return sortCol, sortDir
+	}
+	if c, ok := byName[def.DefaultSortCol]; ok && c.Sortable {
+		d := def.DefaultSortDir
+		if d != "ASC" && d != "DESC" {
+			d = "ASC"
+		}
+		return def.DefaultSortCol, d
+	}
+	return def.KeyColumns[0], "ASC"
+}
+
 func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 	def, cols, err := s.tableCtx(r)
 	if err != nil {
@@ -37,23 +61,15 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 	}
 	defer a.Close()
 
-	byName := map[string]meta.ColumnDef{}
 	var searchable []string
 	for _, c := range cols {
-		byName[c.Name] = c
 		if c.Searchable {
 			searchable = append(searchable, c.Name)
 		}
 	}
 
 	q := r.URL.Query()
-	sortCol, sortDir := q.Get("sort"), q.Get("dir")
-	if !byName[sortCol].Sortable { // includes empty sortCol
-		sortCol, sortDir = def.KeyColumns[0], "ASC"
-	}
-	if sortDir != "ASC" && sortDir != "DESC" {
-		sortDir = "ASC"
-	}
+	sortCol, sortDir := resolveSort(def, cols, q.Get("sort"), q.Get("dir"))
 	page := 1
 	if p, err := strconv.Atoi(q.Get("page")); err == nil && p > 0 {
 		page = p

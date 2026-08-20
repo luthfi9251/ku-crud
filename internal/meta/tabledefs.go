@@ -10,13 +10,15 @@ import (
 const SelfRef int64 = -1
 
 type TableDef struct {
-	ID           int64    `json:"id"`
-	DatasourceID int64    `json:"datasourceId"`
-	SchemaName   string   `json:"schemaName"`
-	TableName    string   `json:"tableName"`
-	Label        string   `json:"label"`
-	KeyColumns   []string `json:"keyColumns"`
-	PageSize     int      `json:"pageSize"`
+	ID             int64    `json:"id"`
+	DatasourceID   int64    `json:"datasourceId"`
+	SchemaName     string   `json:"schemaName"`
+	TableName      string   `json:"tableName"`
+	Label          string   `json:"label"`
+	KeyColumns     []string `json:"keyColumns"`
+	PageSize       int      `json:"pageSize"`
+	DefaultSortCol string   `json:"defaultSortCol"`
+	DefaultSortDir string   `json:"defaultSortDir"`
 }
 
 type ColumnDef struct {
@@ -81,8 +83,11 @@ func (s *Store) SaveTableDef(def *TableDef, cols []ColumnDef) error {
 	if err != nil {
 		return err
 	}
-	res, err := tx.Exec(`INSERT INTO table_defs(datasource_id,schema_name,table_name,label,key_columns,page_size)
-		VALUES(?,?,?,?,?,?)`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize)
+	if def.DefaultSortDir != "DESC" {
+		def.DefaultSortDir = "ASC"
+	}
+	res, err := tx.Exec(`INSERT INTO table_defs(datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir)
+		VALUES(?,?,?,?,?,?,?,?)`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -106,8 +111,11 @@ func (s *Store) UpdateTableDef(def *TableDef, cols []ColumnDef) error {
 		tx.Rollback()
 		return err
 	}
-	res, err := tx.Exec(`UPDATE table_defs SET datasource_id=?,schema_name=?,table_name=?,label=?,key_columns=?,page_size=?
-		WHERE id=?`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize, def.ID)
+	if def.DefaultSortDir != "DESC" {
+		def.DefaultSortDir = "ASC"
+	}
+	res, err := tx.Exec(`UPDATE table_defs SET datasource_id=?,schema_name=?,table_name=?,label=?,key_columns=?,page_size=?,default_sort_col=?,default_sort_dir=?
+		WHERE id=?`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir, def.ID)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -145,7 +153,7 @@ func (s *Store) ReplaceColumns(defID int64, cols []ColumnDef) error {
 }
 
 func (s *Store) ListTableDefs() ([]TableDef, error) {
-	rows, err := s.db.Query(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size
+	rows, err := s.db.Query(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir
 		FROM table_defs ORDER BY label`)
 	if err != nil {
 		return nil, err
@@ -155,7 +163,7 @@ func (s *Store) ListTableDefs() ([]TableDef, error) {
 	for rows.Next() {
 		var d TableDef
 		var kj string
-		if err := rows.Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize); err != nil {
+		if err := rows.Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir); err != nil {
 			return nil, err
 		}
 		json.Unmarshal([]byte(kj), &d.KeyColumns)
@@ -167,9 +175,9 @@ func (s *Store) ListTableDefs() ([]TableDef, error) {
 func (s *Store) GetTableDef(id int64) (*TableDef, []ColumnDef, error) {
 	d := &TableDef{}
 	var kj string
-	err := s.db.QueryRow(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size
+	err := s.db.QueryRow(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir
 		FROM table_defs WHERE id=?`, id).
-		Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize)
+		Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir)
 	if err == sql.ErrNoRows {
 		return nil, nil, ErrNotFound
 	}
