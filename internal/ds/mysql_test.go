@@ -13,6 +13,15 @@ func TestParseMysqlEnum(t *testing.T) {
 	if parseMysqlEnum("enum('a')") == nil || len(parseMysqlEnum("enum('a')")) != 1 {
 		t.Fatal("single enum")
 	}
+	if got := parseMysqlEnum("enum('a,b','c')"); !reflect.DeepEqual(got, []string{"a,b", "c"}) {
+		t.Fatalf("comma literal: %v", got)
+	}
+	if got := parseMysqlEnum("enum('it''s','x')"); !reflect.DeepEqual(got, []string{"it's", "x"}) {
+		t.Fatalf("escaped quote: %v", got)
+	}
+	if got := parseMysqlEnum("enum('unterminated"); got != nil {
+		t.Fatalf("unterminated: %v", got)
+	}
 }
 
 func TestMapMySQLType(t *testing.T) {

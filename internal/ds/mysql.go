@@ -74,14 +74,37 @@ func mapMySQLType(dataType, columnType string) (string, []string) {
 
 func parseMysqlEnum(columnType string) []string {
 	s := strings.TrimSuffix(strings.TrimPrefix(columnType, "enum("), ")")
-	if s == "" {
-		return nil
+	var out []string
+	var cur strings.Builder
+	inQuote := false
+	flush := func() {
+		if cur.Len() > 0 {
+			out = append(out, cur.String())
+		}
+		cur.Reset()
 	}
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		out = append(out, strings.Trim(p, "'"))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '\'' && !inQuote:
+			inQuote = true
+		case c == '\'' && inQuote:
+			if i+1 < len(s) && s[i+1] == '\'' { // '' escape → literal '
+				cur.WriteByte('\'')
+				i++
+			} else {
+				inQuote = false
+			}
+		case c == ',' && !inQuote:
+			flush()
+		default:
+			cur.WriteByte(c)
+		}
 	}
+	if inQuote {
+		return nil // unterminated quote — unparseable
+	}
+	flush()
 	return out
 }
 
