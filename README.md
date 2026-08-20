@@ -30,19 +30,27 @@ and CRUD away.
    row create/edit/delete. All SQL is fully parameterized; identifiers are validated
    against a strict allowlist (`^[A-Za-z_][A-Za-z0-9_]*$`) before quoting, and row
    keys travel in URLs as an opaque encoding.
-4. **Drift detection** — on page visit, the live schema is compared to the definition
+4. **Relations (v1.2)** — a column can be typed `fk` pointing at another table
+   definition (same or another datasource, self-reference allowed). The grid
+   and forms show related display fields; forms pick related records via a
+   searchable modal; referenced records are edited on their own table's page.
+   Deleting a row that other defined tables reference is blocked with a clear
+   conflict message; database FK violations surface the same way.
+5. **Drift detection** — on page visit, the live schema is compared to the definition
    (`GET /api/tables/{id}/verify`). On drift the UI shows a red banner listing
    missing/added/type-changed columns with a one-click **Re-sync**.
-5. **Audit trail** — every insert/update/delete writes best-effort audit rows
+6. **Audit trail** — every insert/update/delete writes best-effort audit rows
    (user, action, row key, old/new values) viewable at `/audit`.
-6. **Roles & users** — the first user becomes the builtin **Admin**. Admins define
+7. **Roles & users** — the first user becomes the builtin **Admin**. Admins define
    custom roles: a *Platform Management* bundle (datasources, table definitions,
    audit trail) plus independent read/create/update/delete grants per table.
    User & role management is admin-only; the first user is immutable.
 
 Supported column types: `boolean`, `number` (int/float/numeric), `text`,
-`datetime` (date/time/timestamp), and native Postgres `enum`. Arrays, JSON,
-UUID, and bytea columns are excluded in v1.
+`datetime` (date/time/timestamp), and native Postgres `enum`. An `fk` column
+relates a column to another table definition (the underlying column type is
+preserved for drift checks). Arrays, JSON, UUID, and bytea columns are
+excluded in v1.
 
 ## Configuration
 
@@ -93,7 +101,9 @@ in behavior).
   roles combine the Platform Management bundle (datasources + table definitions
   + audit trail) with independent read/create/update/delete grants per table.
   User and role management is Admin-only. Disabled users are rejected at login
-  and on every request.
+  and on every request. `fk` relations follow the same grants: related display
+  values (and the fk record picker) resolve only for users with read access to
+  the target table — everyone else sees raw column values.
 - **Masked ids**: every entity id crossing the API boundary (datasources, table
   definitions, users, roles, audit entries) is an opaque 11-char token — a
   keyed Feistel permutation of the numeric id (HMAC-SHA256 round function,
