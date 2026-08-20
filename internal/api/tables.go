@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"ku-crud/internal/ds"
@@ -10,32 +11,38 @@ import (
 
 // tableDefInput accepts masked datasource ids from the client.
 type tableDefInput struct {
-	DatasourceID string        `json:"datasourceId"`
-	SchemaName   string        `json:"schemaName"`
-	TableName    string        `json:"tableName"`
-	Label        string        `json:"label"`
-	KeyColumns   []string      `json:"keyColumns"`
-	PageSize     int           `json:"pageSize"`
-	Columns      []columnInput `json:"columns"`
+	DatasourceID   string        `json:"datasourceId"`
+	SchemaName     string        `json:"schemaName"`
+	TableName      string        `json:"tableName"`
+	Label          string        `json:"label"`
+	KeyColumns     []string      `json:"keyColumns"`
+	PageSize       int           `json:"pageSize"`
+	DefaultSortCol string        `json:"defaultSortCol"`
+	DefaultSortDir string        `json:"defaultSortDir"`
+	Columns        []columnInput `json:"columns"`
 }
 
-// columnInput mirrors meta.ColumnDef but takes the fk target as a masked
-// token or the literal "self" (this definition).
+// columnInput mirrors meta.ColumnDef but takes the fk/m2m targets as masked
+// tokens (fk target may also be the literal "self").
 type columnInput struct {
-	Name             string   `json:"name"`
-	Label            string   `json:"label"`
-	FieldType        string   `json:"fieldType"`
-	EnumOptions      []string `json:"enumOptions"`
-	Editable         bool     `json:"editable"`
-	Required         bool     `json:"required"`
-	Visible          bool     `json:"visible"`
-	Searchable       bool     `json:"searchable"`
-	Sortable         bool     `json:"sortable"`
-	Position         int      `json:"position"`
-	BaseType         string   `json:"baseType"`
-	FKTableDefID     string   `json:"fkTableDefId"`
-	FKRefColumn      string   `json:"fkRefColumn"`
-	FKDisplayColumns []string `json:"fkDisplayColumns"`
+	Name              string   `json:"name"`
+	Label             string   `json:"label"`
+	FieldType         string   `json:"fieldType"`
+	EnumOptions       []string `json:"enumOptions"`
+	Editable          bool     `json:"editable"`
+	Required          bool     `json:"required"`
+	Visible           bool     `json:"visible"`
+	Searchable        bool     `json:"searchable"`
+	Sortable          bool     `json:"sortable"`
+	Position          int      `json:"position"`
+	BaseType          string   `json:"baseType"`
+	FKTableDefID      string   `json:"fkTableDefId"`
+	FKRefColumn       string   `json:"fkRefColumn"`
+	FKDisplayColumns  []string `json:"fkDisplayColumns"`
+	M2MJunctionDefID  string   `json:"m2mJunctionDefId"`
+	M2MJunctionSrcCol string   `json:"m2mJunctionSrcCol"`
+	M2MJunctionTgtCol string   `json:"m2mJunctionTgtCol"`
+	M2MDisplayColumns []string `json:"m2mDisplayColumns"`
 }
 
 func (s *Server) toCols(in []columnInput) []meta.ColumnDef {
@@ -45,12 +52,19 @@ func (s *Server) toCols(in []columnInput) []meta.ColumnDef {
 			EnumOptions: c.EnumOptions, Editable: c.Editable, Required: c.Required,
 			Visible: c.Visible, Searchable: c.Searchable, Sortable: c.Sortable,
 			Position: c.Position, BaseType: c.BaseType,
-			FKRefColumn: c.FKRefColumn, FKDisplayColumns: c.FKDisplayColumns}
+			FKRefColumn: c.FKRefColumn, FKDisplayColumns: c.FKDisplayColumns,
+			M2MJunctionSrcCol: c.M2MJunctionSrcCol, M2MJunctionTgtCol: c.M2MJunctionTgtCol,
+			M2MDisplayColumns: c.M2MDisplayColumns}
 		if c.FKTableDefID == "self" {
 			m.FKTableDefID = meta.SelfRef
 		} else if c.FKTableDefID != "" {
 			if id, err := s.ids.Decode("td", c.FKTableDefID); err == nil {
 				m.FKTableDefID = id
+			}
+		}
+		if c.M2MJunctionDefID != "" {
+			if id, err := s.ids.Decode("td", c.M2MJunctionDefID); err == nil {
+				m.M2MJunctionDefID = id
 			}
 		}
 		out = append(out, m)
@@ -63,9 +77,13 @@ func (s *Server) toDef(in tableDefInput) (*meta.TableDef, error) {
 	if err != nil {
 		return nil, errors.New("invalid datasourceId")
 	}
+	if in.DefaultSortDir != "DESC" {
+		in.DefaultSortDir = "ASC"
+	}
 	return &meta.TableDef{DatasourceID: dsID, SchemaName: in.SchemaName,
 		TableName: in.TableName, Label: in.Label, KeyColumns: in.KeyColumns,
-		PageSize: in.PageSize}, nil
+		PageSize:       in.PageSize,
+		DefaultSortCol: in.DefaultSortCol, DefaultSortDir: in.DefaultSortDir}, nil
 }
 
 type permsDTO struct {
@@ -76,63 +94,96 @@ type permsDTO struct {
 }
 
 type columnDTO struct {
-	Name             string   `json:"name"`
-	Label            string   `json:"label"`
-	FieldType        string   `json:"fieldType"`
-	EnumOptions      []string `json:"enumOptions"`
-	Editable         bool     `json:"editable"`
-	Required         bool     `json:"required"`
-	Visible          bool     `json:"visible"`
-	Searchable       bool     `json:"searchable"`
-	Sortable         bool     `json:"sortable"`
-	Position         int      `json:"position"`
-	BaseType         string   `json:"baseType,omitempty"`
-	FKTableDefID     string   `json:"fkTableDefId,omitempty"`
-	FKRefColumn      string   `json:"fkRefColumn,omitempty"`
-	FKDisplayColumns []string `json:"fkDisplayColumns,omitempty"`
+	Name              string   `json:"name"`
+	Label             string   `json:"label"`
+	FieldType         string   `json:"fieldType"`
+	EnumOptions       []string `json:"enumOptions"`
+	Editable          bool     `json:"editable"`
+	Required          bool     `json:"required"`
+	Visible           bool     `json:"visible"`
+	Searchable        bool     `json:"searchable"`
+	Sortable          bool     `json:"sortable"`
+	Position          int      `json:"position"`
+	BaseType          string   `json:"baseType,omitempty"`
+	FKTableDefID      string   `json:"fkTableDefId,omitempty"`
+	FKRefColumn       string   `json:"fkRefColumn,omitempty"`
+	FKDisplayColumns  []string `json:"fkDisplayColumns,omitempty"`
+	M2MJunctionDefID  string   `json:"m2mJunctionDefId,omitempty"`
+	M2MJunctionSrcCol string   `json:"m2mJunctionSrcCol,omitempty"`
+	M2MJunctionTgtCol string   `json:"m2mJunctionTgtCol,omitempty"`
+	M2MDisplayColumns []string `json:"m2mDisplayColumns,omitempty"`
+	// M2MRefColumn is the source-table column the junction references —
+	// resolved server-side so the grid can key m2mRels lookups.
+	M2MRefColumn string `json:"m2mRefColumn,omitempty"`
+	// M2MTargetRef is the target-table column used as the link value.
+	M2MTargetRef string `json:"m2mTargetRef,omitempty"`
 }
 
-func (s *Server) colToDTO(c meta.ColumnDef) columnDTO {
+func (s *Server) colToDTO(c meta.ColumnDef, m2mRefCache *map[string][2]string) columnDTO {
 	dto := columnDTO{Name: c.Name, Label: c.Label, FieldType: c.FieldType,
 		EnumOptions: c.EnumOptions, Editable: c.Editable, Required: c.Required,
 		Visible: c.Visible, Searchable: c.Searchable, Sortable: c.Sortable,
 		Position: c.Position, BaseType: c.BaseType,
-		FKRefColumn: c.FKRefColumn, FKDisplayColumns: c.FKDisplayColumns}
+		FKRefColumn: c.FKRefColumn, FKDisplayColumns: c.FKDisplayColumns,
+		M2MJunctionSrcCol: c.M2MJunctionSrcCol, M2MJunctionTgtCol: c.M2MJunctionTgtCol,
+		M2MDisplayColumns: c.M2MDisplayColumns}
 	if c.FKTableDefID > 0 {
 		dto.FKTableDefID = s.ids.Encode("td", c.FKTableDefID)
+	}
+	if c.M2MJunctionDefID > 0 {
+		dto.M2MJunctionDefID = s.ids.Encode("td", c.M2MJunctionDefID)
+		cacheKey := fmt.Sprintf("%d|%s|%s", c.M2MJunctionDefID, c.M2MJunctionSrcCol, c.M2MJunctionTgtCol)
+		if v, ok := (*m2mRefCache)[cacheKey]; ok {
+			dto.M2MRefColumn, dto.M2MTargetRef = v[0], v[1]
+		} else if _, jcols, err := s.store.GetTableDef(c.M2MJunctionDefID); err == nil {
+			for _, jc := range jcols {
+				if jc.Name == c.M2MJunctionSrcCol && jc.FieldType == "fk" {
+					dto.M2MRefColumn = jc.FKRefColumn
+				}
+				if jc.Name == c.M2MJunctionTgtCol && jc.FieldType == "fk" {
+					dto.M2MTargetRef = jc.FKRefColumn
+				}
+			}
+			(*m2mRefCache)[cacheKey] = [2]string{dto.M2MRefColumn, dto.M2MTargetRef}
+		}
 	}
 	return dto
 }
 
 // tableDefDTO masks ids and carries the caller's grants.
 type tableDefDTO struct {
-	ID           string      `json:"id"`
-	DatasourceID string      `json:"datasourceId"`
-	SchemaName   string      `json:"schemaName"`
-	TableName    string      `json:"tableName"`
-	Label        string      `json:"label"`
-	KeyColumns   []string    `json:"keyColumns"`
-	PageSize     int         `json:"pageSize"`
-	Columns      []columnDTO `json:"columns,omitempty"`
-	Permissions  permsDTO    `json:"permissions"`
+	ID             string      `json:"id"`
+	DatasourceID   string      `json:"datasourceId"`
+	SchemaName     string      `json:"schemaName"`
+	TableName      string      `json:"tableName"`
+	Label          string      `json:"label"`
+	KeyColumns     []string    `json:"keyColumns"`
+	PageSize       int         `json:"pageSize"`
+	DefaultSortCol string      `json:"defaultSortCol"`
+	DefaultSortDir string      `json:"defaultSortDir"`
+	Columns        []columnDTO `json:"columns,omitempty"`
+	Permissions    permsDTO    `json:"permissions"`
 }
 
 func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDTO) tableDefDTO {
 	dto := tableDefDTO{
-		ID:           s.ids.Encode("td", def.ID),
-		DatasourceID: s.ids.Encode("ds", def.DatasourceID),
-		SchemaName:   def.SchemaName,
-		TableName:    def.TableName,
-		Label:        def.Label,
-		KeyColumns:   def.KeyColumns,
-		PageSize:     def.PageSize,
-		Permissions:  p,
+		ID:             s.ids.Encode("td", def.ID),
+		DatasourceID:   s.ids.Encode("ds", def.DatasourceID),
+		SchemaName:     def.SchemaName,
+		TableName:      def.TableName,
+		Label:          def.Label,
+		KeyColumns:     def.KeyColumns,
+		PageSize:       def.PageSize,
+		DefaultSortCol: def.DefaultSortCol,
+		DefaultSortDir: def.DefaultSortDir,
+		Permissions:    p,
 	}
 	if dto.KeyColumns == nil {
 		dto.KeyColumns = []string{}
 	}
+	m2mRefCache := map[string][2]string{}
 	for _, c := range cols {
-		dto.Columns = append(dto.Columns, s.colToDTO(c))
+		dto.Columns = append(dto.Columns, s.colToDTO(c, &m2mRefCache))
 	}
 	return dto
 }
@@ -175,7 +226,8 @@ func (s *Server) hasTablePerm(u CtxUser, defID int64, action string) bool {
 }
 
 var validFieldTypes = map[string]bool{
-	"boolean": true, "text": true, "number": true, "datetime": true, "enum": true, "fk": true,
+	"boolean": true, "text": true, "number": true, "datetime": true, "enum": true,
+	"uuid": true, "json": true, "fk": true, "m2m": true,
 }
 
 var (
@@ -197,7 +249,9 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 		}
 	}
 	keySeen := make([]bool, len(def.KeyColumns))
+	sortable := map[string]bool{}
 	for i, c := range cols {
+		sortable[c.Name] = c.Sortable
 		if !validFieldTypes[c.FieldType] {
 			return "column " + c.Name + ": invalid fieldType " + c.FieldType
 		}
@@ -213,8 +267,14 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 		if msg := s.validateFK(def, cols, c); msg != "" {
 			return msg
 		}
+		if msg := s.validateM2M(def, cols, c); msg != "" {
+			return msg
+		}
 		for k, key := range def.KeyColumns {
 			if c.Name == key {
+				if c.FieldType == "m2m" {
+					return "key column " + c.Name + " cannot be a many-to-many relation"
+				}
 				keySeen[k] = true
 			}
 		}
@@ -228,6 +288,99 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 		if !seen {
 			return "key column " + def.KeyColumns[k] + " must be one of the defined columns"
 		}
+	}
+	if def.DefaultSortCol != "" && !sortable[def.DefaultSortCol] {
+		return "defaultSortCol must be a defined, sortable column"
+	}
+	return ""
+}
+
+// m2mConfig is the resolved many-to-many configuration of one column.
+type m2mConfig struct {
+	Junction  *meta.TableDef
+	JCols     []meta.ColumnDef
+	SrcCol    *meta.ColumnDef // junction fk column → this table
+	TgtCol    *meta.ColumnDef // junction fk column → target table
+	TargetID  int64           // target def id (from TgtCol.FKTableDefID)
+	TargetRef string          // target ref column (TgtCol.FKRefColumn)
+	SrcRef    string          // this table's column the junction references
+}
+
+// resolveM2M loads and cross-checks one column's m2m payload. Returns nil
+// config + error message on any inconsistency.
+func (s *Server) resolveM2M(def *meta.TableDef, c meta.ColumnDef) (*m2mConfig, string) {
+	jdef, jcols, err := s.store.GetTableDef(c.M2MJunctionDefID)
+	if err != nil {
+		return nil, "column " + c.Name + ": junction definition not found (save it first)"
+	}
+	if jdef.ID == def.ID {
+		return nil, "column " + c.Name + ": junction cannot be this table itself"
+	}
+	var src, tgt *meta.ColumnDef
+	for i, jc := range jcols {
+		if jc.Name == c.M2MJunctionSrcCol && jc.FieldType == "fk" {
+			src = &jcols[i]
+		}
+		if jc.Name == c.M2MJunctionTgtCol && jc.FieldType == "fk" {
+			tgt = &jcols[i]
+		}
+	}
+	if src == nil || tgt == nil {
+		return nil, "column " + c.Name + ": junction source/target columns must be defined fk columns"
+	}
+	if src.Name == tgt.Name {
+		return nil, "column " + c.Name + ": junction source and target columns must differ"
+	}
+	if src.FKTableDefID != def.ID {
+		return nil, "column " + c.Name + ": junction source column must reference this table"
+	}
+	// every required junction column must be one of the two link columns —
+	// otherwise link inserts would violate NOT NULL
+	for _, jc := range jcols {
+		if jc.Required && jc.Name != src.Name && jc.Name != tgt.Name {
+			return nil, "column " + c.Name + ": junction has required column " + jc.Name +
+				" outside the two link columns"
+		}
+	}
+	return &m2mConfig{Junction: jdef, JCols: jcols, SrcCol: src, TgtCol: tgt,
+		TargetID: tgt.FKTableDefID, TargetRef: tgt.FKRefColumn, SrcRef: src.FKRefColumn}, ""
+}
+
+// validateM2M checks one column's m2m payload (mirror of validateFK).
+func (s *Server) validateM2M(def *meta.TableDef, cols []meta.ColumnDef, c meta.ColumnDef) string {
+	if c.FieldType != "m2m" {
+		if c.M2MJunctionDefID != 0 || c.M2MJunctionSrcCol != "" || c.M2MJunctionTgtCol != "" || len(c.M2MDisplayColumns) > 0 {
+			return "column " + c.Name + ": m2m fields require fieldType \"m2m\""
+		}
+		return ""
+	}
+	if c.M2MJunctionDefID == 0 {
+		return "column " + c.Name + ": m2m needs m2mJunctionDefId"
+	}
+	if len(c.M2MDisplayColumns) == 0 {
+		return "column " + c.Name + ": m2m needs at least one display column"
+	}
+	if def.ID == 0 {
+		return "column " + c.Name + ": save this table definition before adding many-to-many relations"
+	}
+	cfg, msg := s.resolveM2M(def, c)
+	if cfg == nil {
+		return msg
+	}
+	_, tcols, err := s.store.GetTableDef(cfg.TargetID)
+	if err != nil {
+		return "column " + c.Name + ": m2m target definition not found"
+	}
+	names := map[string]bool{}
+	for _, t := range tcols {
+		names[t.Name] = true
+	}
+	seen := map[string]bool{}
+	for _, d := range c.M2MDisplayColumns {
+		if !names[d] || seen[d] {
+			return "column " + c.Name + ": m2mDisplayColumns must match target columns"
+		}
+		seen[d] = true
 	}
 	return ""
 }
@@ -532,6 +685,10 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 
 	var out []meta.ColumnDef
 	for _, c := range cols {
+		if c.FieldType == "m2m" {
+			out = append(out, c) // virtual relation column — preserved on resync
+			continue
+		}
 		lc, ok := liveByName[c.Name]
 		if !ok {
 			continue // dropped

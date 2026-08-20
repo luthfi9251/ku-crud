@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"ku-crud/internal/meta"
 	"ku-crud/internal/tokenid"
@@ -12,6 +13,9 @@ import (
 type Server struct {
 	store *meta.Store
 	ids   *tokenid.Codec
+	// loginLimit throttles credential endpoints (brute-force protection);
+	// in-memory, per instance.
+	loginLimit *loginLimiter
 }
 
 func New(store *meta.Store) (*Server, error) {
@@ -19,7 +23,8 @@ func New(store *meta.Store) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{store: store, ids: tokenid.New(secret)}, nil
+	return &Server{store: store, ids: tokenid.New(secret),
+		loginLimit: newLoginLimiter(5, 15*time.Minute)}, nil
 }
 
 // CtxUser is the per-request auth context (role included).
@@ -88,7 +93,13 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowGet))
 	mux.HandleFunc("PUT /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowUpdate))
 	mux.HandleFunc("DELETE /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowDelete))
+	mux.HandleFunc("POST /api/tables/{id}/rows/bulk-delete", s.RequireAuth(s.handleRowBulkDelete))
 	mux.HandleFunc("GET /api/tables/{id}/fkoptions/{column}", s.RequireAuth(s.handleFKOptions))
+	mux.HandleFunc("GET /api/tables/{id}/m2moptions/{column}", s.RequireAuth(s.handleM2MOptions))
+	mux.HandleFunc("GET /api/tables/{id}/rows/{pk}/m2m/{column}", s.RequireAuth(s.handleM2MLinks))
+	mux.HandleFunc("GET /api/tables/{id}/rows/export", s.RequireAuth(s.handleRowExport))
+	mux.HandleFunc("POST /api/tables/{id}/import/preview", s.RequireAuth(s.handleImportPreview))
+	mux.HandleFunc("POST /api/tables/{id}/import/apply", s.RequireAuth(s.handleImportApply))
 	mux.HandleFunc("GET /api/audit", s.RequirePlatform(s.handleAuditList))
 
 	mux.HandleFunc("GET /api/users", s.RequireAdmin(s.handleUserList))

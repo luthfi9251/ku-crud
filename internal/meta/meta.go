@@ -89,6 +89,13 @@ ALTER TABLE columns ADD COLUMN fk_ref_column TEXT NOT NULL DEFAULT '';
 ALTER TABLE columns ADD COLUMN fk_display_columns TEXT;`,
 	// v1.2 phase 2: adapter driver per datasource ('postgres' | 'mysql' | future).
 	`ALTER TABLE datasources ADD COLUMN driver TEXT NOT NULL DEFAULT 'postgres';`,
+	// v1.3: default sort on table definitions + many-to-many virtual columns.
+	`ALTER TABLE table_defs ADD COLUMN default_sort_col TEXT NOT NULL DEFAULT '';
+ALTER TABLE table_defs ADD COLUMN default_sort_dir TEXT NOT NULL DEFAULT 'ASC';
+ALTER TABLE columns ADD COLUMN m2m_junction_def_id INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE columns ADD COLUMN m2m_junction_src_col TEXT NOT NULL DEFAULT '';
+ALTER TABLE columns ADD COLUMN m2m_junction_tgt_col TEXT NOT NULL DEFAULT '';
+ALTER TABLE columns ADD COLUMN m2m_display_cols TEXT NOT NULL DEFAULT '';`,
 }
 
 func Open(path string) (*Store, error) {
@@ -103,6 +110,9 @@ func Open(path string) (*Store, error) {
 	s := &Store{db: db, path: path}
 	if err := s.migrate(); err != nil {
 		return nil, err
+	}
+	if err := s.encryptLegacyPasswords(); err != nil {
+		return nil, fmt.Errorf("password encryption migration: %w", err)
 	}
 	return s, nil
 }

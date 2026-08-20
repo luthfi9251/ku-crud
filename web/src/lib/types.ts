@@ -1,4 +1,4 @@
-export type FieldType = "boolean" | "text" | "number" | "datetime" | "enum" | "fk";
+export type FieldType = "boolean" | "text" | "number" | "datetime" | "enum" | "uuid" | "json" | "fk" | "m2m";
 export type BaseFieldType = Exclude<FieldType, "fk">;
 
 // All entity ids are opaque masked tokens (11-char base64url), never raw numbers.
@@ -18,6 +18,13 @@ export interface ColumnDef {
   fkTableDefId?: string; // masked token or "self"
   fkRefColumn?: string;
   fkDisplayColumns?: string[] | null;
+  // many-to-many virtual columns
+  m2mJunctionDefId?: string;
+  m2mJunctionSrcCol?: string;
+  m2mJunctionTgtCol?: string;
+  m2mDisplayColumns?: string[] | null;
+  m2mRefColumn?: string; // server-resolved source ref column (grid lookup key)
+  m2mTargetRef?: string; // server-resolved target link value column
 }
 
 export interface Permissions {
@@ -27,6 +34,7 @@ export interface Permissions {
 export interface TableDef {
   id: Id; datasourceId: Id; schemaName: string; tableName: string;
   label: string; keyColumns: string[]; pageSize: number;
+  defaultSortCol: string; defaultSortDir: "ASC" | "DESC";
   permissions: Permissions;
 }
 
@@ -39,7 +47,11 @@ export interface LiveColumn {
 
 export type Row = Record<string, unknown>;
 
-export interface RowsRes { rows: Row[]; total: number; page: number; pageSize: number; rels?: Record<string, Record<string, Row>> }
+export interface RowsRes {
+  rows: Row[]; total: number; page: number; pageSize: number;
+  rels?: Record<string, Record<string, Row>>;
+  m2mRels?: Record<string, Record<string, Row[]>>;
+}
 
 export interface FkOptionsRes { rows: Row[]; total: number; page: number; pageSize: number }
 

@@ -45,12 +45,27 @@ and CRUD away.
    custom roles: a *Platform Management* bundle (datasources, table definitions,
    audit trail) plus independent read/create/update/delete grants per table.
    User & role management is admin-only; the first user is immutable.
+8. **CSV import/export (v1.3)** — export the grid as CSV (active search/sort
+   applied, all pages, fk/m2m relations resolved to display values); import
+   CSV with server-side parsing (comma/semicolon/tab auto-detected), editable
+   column mapping, per-row validation preview and batch insert (valid-only or
+   all), every insert audited.
+9. **Bulk operations (v1.3)** — multi-select rows on the grid and delete them
+   in one confirmed action; per-row conflict reporting and audit entries.
+10. **Many-to-many (v1.3)** — a virtual `m2m` column models a junction table
+    (a defined table with two fk columns: one → this table, one → target).
+    Grids show joined display values; forms manage links through a
+    multi-select picker (requires create+delete grants on the junction;
+    every link change is audited; deleting linked rows is blocked).
+11. **Quick wins (v1.3)** — UUID and JSON column types (JSON pretty-printed in
+    forms and grids, validated before submit), datasource passwords encrypted
+    at rest (AES-256-GCM), login/setup rate limiting (5 failures / 15 min per
+    username+IP), and a default sort per table definition.
 
 Supported column types: `boolean`, `number` (int/float/numeric), `text`,
-`datetime` (date/time/timestamp), and native Postgres `enum`. An `fk` column
-relates a column to another table definition (the underlying column type is
-preserved for drift checks). Arrays, JSON, UUID, and bytea columns are
-excluded in v1.
+`datetime` (date/time/timestamp), native Postgres `enum`, `uuid`, `json`
+(json/jsonb; MySQL `json`), and `fk`/`m2m` relations. Arrays and bytea
+columns are excluded.
 
 ## Configuration
 
@@ -90,12 +105,18 @@ Replace the binary and restart — schema migrations run automatically on
 startup. The v1.1 migration assigns every pre-existing user the builtin
 **Admin** role and flags the earliest user as the immutable first user;
 single-PK definitions are migrated to the new `keyColumns` form (no change
-in behavior).
+in behavior). From v1.2 the datasource driver defaults to `postgres`.
+v1.3 adds default-sort + relation columns and encrypts stored datasource
+passwords in place (one-way: the metadata file then requires v1.3+).
 
 ## Security notes
 
-- Datasource passwords are stored PLAINTEXT in the SQLite metadata file. Anyone who
-  can read ku-crud.db can read those passwords — protect the file (file permissions).
+- Datasource passwords are stored **encrypted at rest** (AES-256-GCM, key kept in
+  the metadata file's settings table). This removes plaintext credentials from
+  casual reads or dumps of `ku-crud.db`; note the key lives in the same file,
+  so this is hardening rather than a security boundary — still protect the file
+  (file permissions). Upgrading from ≤ v1.2 encrypts existing passwords
+  automatically on first start, and the DB then requires v1.3+ to read.
 - **RBAC**: users hold exactly one role. The builtin Admin role implicitly has
   every permission (full platform access and full CRUD on all tables). Custom
   roles combine the Platform Management bundle (datasources + table definitions
@@ -111,7 +132,10 @@ in behavior).
   and not decodable into a chosen id; raw numeric ids simply 404.
 - Ku-CRUD never runs DDL. All changes go through parameterized SQL with strict
   identifier validation. Search input has LIKE wildcards escaped; sort columns
-  are checked against the stored definition.
+  are checked against the stored definition. CSV import mapping and values go
+  through the same validation as the row write path.
+- Login and first-run setup endpoints are rate limited (5 failed attempts per
+  username+IP within 15 minutes → HTTP 429).
 - The first user cannot be modified or deleted through the API.
   `cmd/seed-admin` remains the CLI recovery path.
 - Bind to localhost or a private interface if the app is not behind an

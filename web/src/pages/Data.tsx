@@ -17,6 +17,8 @@ import {
   ChevronRight,
   Layers,
   Database,
+  Download,
+  Upload,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { encodeRowKey } from "../lib/rowkey";
@@ -30,10 +32,13 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 
 export default function Data() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const autoEditParam = searchParams.get("autoEdit");
   const searchParam = searchParams.get("search") || "";
@@ -57,7 +62,17 @@ export default function Data() {
     setSort("");
     setDir("ASC");
     setForm(null);
+    // eslint-disable-line react-hooks/exhaustive-deps
   }, [id, searchParam]);
+
+  // apply the definition's default sort once the def is loaded and no
+  // explicit sort has been chosen
+  useEffect(() => {
+    if (!def.data) return;
+    setSort((cur) => (cur === "" && def.data?.defaultSortCol ? def.data.defaultSortCol : cur));
+    setDir((cur) => (cur === "ASC" && def.data?.defaultSortCol ? (def.data.defaultSortDir === "DESC" ? "DESC" : "ASC") : cur));
+    // eslint-disable-line react-hooks/exhaustive-deps
+  }, [def.data?.id]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -112,8 +127,20 @@ export default function Data() {
     return vals as string[];
   };
 
+  // pretty-print json column values once, when form state is created (keeps
+  // the textarea a plain controlled input while editing)
+  const prettifyFormRow = (row: Row): Row => {
+    const out: Row = { ...row };
+    for (const c of def.data?.columns ?? []) {
+      if (c.fieldType === "json" && typeof out[c.name] === "string") {
+        out[c.name] = prettyJSON(out[c.name] as string);
+      }
+    }
+    return out;
+  };
+
   const handleCopy = (row: Row) => {
-    const copiedRow: Row = { ...row };
+    const copiedRow: Row = prettifyFormRow(row);
     for (const k of keyCols) {
       delete copiedRow[k];
     }
@@ -129,7 +156,7 @@ export default function Data() {
     });
     if (target) {
       const k = rowKey(target);
-      setForm({ mode: "edit", row: { ...target }, initialKey: k });
+      setForm({ mode: "edit", row: prettifyFormRow({ ...target }), initialKey: k });
       const next = new URLSearchParams(searchParams);
       next.delete("autoEdit");
       setSearchParams(next, { replace: true });
@@ -139,7 +166,7 @@ export default function Data() {
 
   const modalFields = useMemo(() => {
     const allCols = def.data?.columns ?? [];
-    return allCols.filter((c) => c.editable || keyCols.includes(c.name));
+    return allCols.filter((c) => c.editable || keyCols.includes(c.name) || c.fieldType === "m2m");
   }, [def.data?.columns, keyCols]);
 
   const save = useMutation({
@@ -156,7 +183,12 @@ export default function Data() {
         await api(`/tables/${id}/rows`, { method: "POST", body: JSON.stringify(payload) });
       } else {
         // In edit mode, strip PKs and non-editable fields from PUT payload
-        for (const c of editable.filter((c) => !keyCols.includes(c.name))) {
+        // (m2m selections always ride along — the server strips and syncs them)
+        const sendCols = [
+          ...editable.filter((c) => !keyCols.includes(c.name)),
+          ...(def.data?.columns ?? []).filter((c) => c.fieldType === "m2m"),
+        ];
+        for (const c of sendCols) {
           const v = form!.row[c.name];
           if (v !== undefined) payload[c.name] = v;
         }
@@ -172,6 +204,43 @@ export default function Data() {
   });
 
   const [delErr, setDelErr] = useState("");
+
+  // CSV export follows the active search/sort; all pages, not just current
+  const [exporting, setExporting] = useState(false);
+  const exportCSV = async () => {
+    setExporting(true);
+    try {
+      const p = new URLSearchParams();
+      if (debounced) p.set("search", debounced);
+      if (sort) {
+        p.set("sort", sort);
+        p.set("dir", dir);
+      }
+      const res = await fetch(`/api/tables/${id}/rows/export?${p}`, { credentials: "same-origin" });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try {
+          const e = await res.json();
+          msg = e.message ? `${e.message}` : msg;
+        } catch { /* not json */ }
+        alert(`Export failed: ${msg}`);
+        return;
+      }
+      const cd = res.headers.get("Content-Disposition") || "";
+      const m = /filename="?([^";]+)"?/.exec(cd);
+      const name = m?.[1] ?? `${def.data?.tableName ?? "table"}.csv`;
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
   const del = useMutation({
     mutationFn: (key: string[]) => api(`/tables/${id}/rows/${encodeRowKey(key)}`, { method: "DELETE" }),
     onSuccess: () => {
@@ -190,6 +259,54 @@ export default function Data() {
       }
     },
   });
+
+  // multi-select bulk delete (chunked requests, per-row results)
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [bulkMsg, setBulkMsg] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const toggleSel = (key: string) => {
+    setSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const pageKeys = (rows.data?.rows ?? [])
+    .map((row) => ({ key: rowKey(row) ? encodeRowKey(rowKey(row) as string[]) : "", row }))
+    .filter((x) => x.key !== "");
+  const allPageSelected = pageKeys.length > 0 && pageKeys.every((x) => sel.has(x.key));
+  const runBulkDelete = async () => {
+    if (!confirm(`Delete ${sel.size} selected rows? This cannot be undone.`)) return;
+    setBulkBusy(true);
+    setBulkMsg("");
+    try {
+      const keys = [...sel];
+      let deleted = 0;
+      const failed: { key: string; code: string; message: string }[] = [];
+      for (let i = 0; i < keys.length; i += 500) {
+        const res = await api<{ deleted: number; failures: { key: string; code: string; message: string }[] }>(
+          `/tables/${id}/rows/bulk-delete`,
+          { method: "POST", body: JSON.stringify({ keys: keys.slice(i, i + 500) }) }
+        );
+        deleted += res.deleted;
+        failed.push(...res.failures);
+      }
+      setBulkMsg(
+        failed.length
+          ? `${deleted} deleted, ${failed.length} failed: ` +
+              failed.slice(0, 5).map((f) => `[${f.code}] ${f.message}`).join("; ") +
+              (failed.length > 5 ? ` … (+${failed.length - 5} more)` : "")
+          : `${deleted} rows deleted.`
+      );
+      setSel(new Set());
+      rows.refetch();
+    } catch (e) {
+      setBulkMsg(e instanceof Error ? e.message : "bulk delete failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   const resync = useMutation({
     mutationFn: () => api(`/tables/${id}/resync`, { method: "POST" }),
@@ -226,7 +343,21 @@ export default function Data() {
   const pages = r ? Math.max(1, Math.ceil(r.total / r.pageSize)) : 1;
 
   const rels = rows.data?.rels;
+  const m2mRels = rows.data?.m2mRels;
   const fkDisplay = (c: ColumnDef, row: Row): string | null => {
+    if (c.fieldType === "m2m") {
+      if (!c.m2mRefColumn) return "";
+      const list = m2mRels?.[c.name]?.[String(row[c.m2mRefColumn])];
+      if (!list || list.length === 0) return "";
+      return list
+        .map((tr) =>
+          (c.m2mDisplayColumns ?? [])
+            .map((f) => (tr[f] === null || tr[f] === undefined ? null : String(tr[f])))
+            .filter((p): p is string => p !== null)
+            .join(" — ")
+        )
+        .join(", ");
+    }
     if (c.fieldType !== "fk" || !c.fkDisplayColumns) return null;
     const rel = rels?.[c.name]?.[String(row[c.name])];
     if (!rel) return null;
@@ -278,13 +409,35 @@ export default function Data() {
           >
             <RefreshCw className={`h-3.5 w-3.5 ${rows.isFetching ? "animate-spin" : ""}`} />
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1 text-xs"
+            onClick={() => exportCSV()}
+            disabled={exporting}
+            title="Export the current result (search & sort applied) as CSV"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {exporting ? "Exporting..." : "Export CSV"}
+          </Button>
           {perms.create && (
-            <Button
-              onClick={() => setForm({ mode: "new", row: {} })}
-              className="h-9 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1 text-xs"
-            >
-              <Plus className="h-4 w-4" /> New Row
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1 text-xs"
+                onClick={() => navigate(`/data/${id}/import`)}
+                title="Import rows from a CSV file"
+              >
+                <Upload className="h-3.5 w-3.5" /> Import CSV
+              </Button>
+              <Button
+                onClick={() => setForm({ mode: "new", row: {} })}
+                className="h-9 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1 text-xs"
+              >
+                <Plus className="h-4 w-4" /> New Row
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -338,6 +491,31 @@ export default function Data() {
         </div>
       )}
 
+      {/* Bulk selection toolbar */}
+      {(sel.size > 0 || bulkMsg) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-xs">
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
+              {sel.size} selected
+            </Badge>
+            {bulkMsg && <span className="text-muted-foreground">{bulkMsg}</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setSel(new Set()); setBulkMsg(""); }}>
+              Clear
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 gap-1 bg-red-600 text-white hover:bg-red-700 text-xs"
+              disabled={sel.size === 0 || bulkBusy}
+              onClick={() => runBulkDelete()}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> {bulkBusy ? "Deleting..." : `Delete ${sel.size} rows`}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Main Data Table */}
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardContent className="p-0">
@@ -345,6 +523,25 @@ export default function Data() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  {perms.delete && (
+                    <TableHead className="w-10">
+                      <Checkbox
+                        aria-label="Select all rows on this page"
+                        checked={allPageSelected}
+                        onChange={(e) => {
+                          const on = e.target.checked;
+                          setSel((prev) => {
+                            const next = new Set(prev);
+                            for (const pk of pageKeys) {
+                              if (on) next.add(pk.key);
+                              else next.delete(pk.key);
+                            }
+                            return next;
+                          });
+                        }}
+                      />
+                    </TableHead>
+                  )}
                   {cols.map((c) => (
                     <TableHead
                       key={c.name}
@@ -384,13 +581,13 @@ export default function Data() {
               <TableBody>
                 {rows.isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={cols.length + 1} className="h-24 text-center text-xs text-muted-foreground">
+                    <TableCell colSpan={cols.length + (perms.delete ? 2 : 1)} className="h-24 text-center text-xs text-muted-foreground">
                       Fetching records...
                     </TableCell>
                   </TableRow>
                 ) : (r?.rows ?? []).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={cols.length + 1} className="h-32 text-center">
+                    <TableCell colSpan={cols.length + (perms.delete ? 2 : 1)} className="h-32 text-center">
                       <div className="flex flex-col items-center justify-center space-y-1">
                         <Database className="h-7 w-7 text-muted-foreground/30" />
                         <p className="text-xs font-medium text-muted-foreground">No records found</p>
@@ -398,12 +595,28 @@ export default function Data() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  (r?.rows ?? []).map((row, i) => (
+                  (r?.rows ?? []).map((row, i) => {
+                    const rowKeyStr = rowKey(row) ? encodeRowKey(rowKey(row) as string[]) : "";
+                    return (
                     <TableRow key={(rowKey(row) ?? []).join("\u0000") + i} className="hover:bg-muted/20">
+                      {perms.delete && (
+                        <TableCell className="w-10">
+                          {rowKeyStr && (
+                            <Checkbox
+                              aria-label="Select row"
+                              checked={sel.has(rowKeyStr)}
+                              onChange={() => toggleSel(rowKeyStr)}
+                            />
+                          )}
+                        </TableCell>
+                      )}
                       {cols.map((c) => {
                         const disp = fkDisplay(c, row);
                         return (
-                          <TableCell key={c.name} className="text-xs font-mono max-w-xs truncate">
+                          <TableCell
+                            key={c.name}
+                            className={`text-xs font-mono max-w-xs ${c.fieldType === "json" ? "align-top" : "truncate"}`}
+                          >
                             {disp !== null ? (
                               <span className="font-sans">{disp}</span>
                             ) : (
@@ -430,7 +643,7 @@ export default function Data() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                              onClick={() => setForm({ mode: "edit", row: { ...row }, initialKey: rowKey(row) })}
+                              onClick={() => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
                               title="Edit row"
                             >
                               <Edit className="h-3.5 w-3.5" />
@@ -453,7 +666,8 @@ export default function Data() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
@@ -536,6 +750,17 @@ export default function Data() {
                     rels={rows.data?.rels}
                     onChange={(v) => setForm({ ...form, row: { ...form.row, [c.name]: v } })}
                   />
+                ) : c.fieldType === "m2m" ? (
+                  <div key={c.name} className="md:col-span-2">
+                    <M2MField
+                      col={c}
+                      tableId={id}
+                      mode={form.mode}
+                      rowKey={form.initialKey || rowKey(form.row)}
+                      value={(form.row[c.name] as unknown[]) ?? []}
+                      onChange={(v) => setForm({ ...form, row: { ...form.row, [c.name]: v } })}
+                    />
+                  </div>
                 ) : (
                   <FieldInput
                     key={c.name}
@@ -574,6 +799,13 @@ export default function Data() {
                 if (missing.length) {
                   return alert(`Required fields missing: ${missing.map((c) => c.label).join(", ")}`);
                 }
+                const badJson = modalFields.filter(
+                  (c) => c.fieldType === "json" && typeof form!.row[c.name] === "string" &&
+                    (() => { try { JSON.parse(form!.row[c.name] as string); return false; } catch { return true; } })()
+                );
+                if (badJson.length) {
+                  return alert(`Invalid JSON: ${badJson.map((c) => c.label).join(", ")}`);
+                }
                 save.mutate();
               }}
               disabled={save.isPending}
@@ -602,7 +834,32 @@ function renderValue(v: unknown, type: ColumnDef["fieldType"]): React.ReactNode 
   if (type === "enum") {
     return <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">{String(v)}</Badge>;
   }
+  if (type === "uuid") {
+    return <span className="font-mono text-xs">{String(v)}</span>;
+  }
+  if (type === "json") {
+    const pretty = prettyJSON(String(v));
+    return (
+      <pre
+        title={pretty}
+        className="whitespace-pre-wrap font-mono text-[11px] leading-snug text-foreground/90"
+        style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+      >
+        {pretty}
+      </pre>
+    );
+  }
   return String(v);
+}
+
+// prettyJSON reformats a JSON string for readable grid/form display; invalid
+// JSON falls back to the raw string (server still validates on submit).
+export function prettyJSON(s: string): string {
+  try {
+    return JSON.stringify(JSON.parse(s), null, 2);
+  } catch {
+    return s;
+  }
 }
 
 function FieldInput({
@@ -657,6 +914,15 @@ function FieldInput({
           value={val}
           onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
         />
+      ) : col.fieldType === "json" ? (
+        <Textarea
+          disabled={disabled}
+          className="min-h-[100px] font-mono text-xs"
+          value={val}
+          onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
+        />
+      ) : col.fieldType === "uuid" ? (
+        <Input disabled={disabled} className="h-9 font-mono text-xs" value={val} placeholder="00000000-0000-0000-0000-000000000000" onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)} />
       ) : (
         <Input disabled={disabled} className="h-9 text-xs" value={val} onChange={(e) => onChange(e.target.value)} />
       )}
@@ -836,6 +1102,190 @@ function FkField({
               </Button>
               <span>Page {opts.data?.page ?? page} of {pages}</span>
               <Button type="button" variant="outline" size="sm" className="h-8 text-xs" disabled={page >= pages} onClick={() => setPage(page + 1)}>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// M2MField manages a many-to-many selection: chips of picked target records
+// plus a multi-select picker dialog reusing the fk picker's search pattern.
+function M2MField({
+  col, tableId, mode, rowKey, value, onChange,
+}: {
+  col: ColumnDef; tableId?: string; mode: "new" | "edit";
+  rowKey: string[] | null | undefined;
+  value: unknown[];
+  onChange: (v: unknown[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [page, setPage] = useState(1);
+  const targetRef = col.m2mTargetRef ?? "id";
+
+  useEffect(() => {
+    const t = setTimeout(() => { setDebounced(search); setPage(1); }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const opts = useQuery({
+    queryKey: ["m2mopts", tableId, col.name, debounced, page],
+    enabled: open,
+    queryFn: () =>
+      api<FkOptionsRes>(
+        `/tables/${tableId}/m2moptions/${col.name}?` +
+          new URLSearchParams({ ...(debounced ? { search: debounced } : {}), page: String(page) })
+      ),
+  });
+
+  // current selection display rows (edit mode only — keyed by the row key)
+  const encodedKey = mode === "edit" && rowKey ? encodeRowKey(rowKey) : "";
+  const links = useQuery({
+    queryKey: ["m2mlinks", tableId, col.name, encodedKey],
+    enabled: mode === "edit" && !!encodedKey,
+    queryFn: () =>
+      api<{ values: unknown[]; rows: Row[] }>(
+        `/tables/${tableId}/rows/${encodedKey}/m2m/${col.name}`
+      ),
+  });
+
+  // initialize the form value from links once loaded
+  useEffect(() => {
+    if (links.data && mode === "edit") {
+      const cur = JSON.stringify(value ?? []);
+      const loaded = JSON.stringify(links.data.values ?? []);
+      if (cur !== loaded) {
+        onChange(links.data.values ?? []);
+      }
+    }
+    // eslint-disable-line react-hooks/exhaustive-deps
+  }, [links.data]);
+
+  const selectedKeys = new Set((value ?? []).map((v) => String(v)));
+  const labelOf = (v: unknown): string => {
+    const row = links.data?.rows?.find(
+      (r) => String(r[targetRef]) === String(v)
+    );
+    if (row) {
+      const parts = (col.m2mDisplayColumns ?? [])
+        .map((f) => (row[f] === null || row[f] === undefined ? null : String(row[f])))
+        .filter((p): p is string => p !== null);
+      if (parts.length) return parts.join(" — ");
+    }
+    return String(v);
+  };
+
+  const toggle = (v: unknown) => {
+    const k = String(v);
+    const next = (value ?? []).filter((x) => String(x) !== k);
+    if (!selectedKeys.has(k)) next.push(v);
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs font-medium">
+          {col.label} <Badge variant="outline" className="ml-1 text-[9px] font-mono">m2m</Badge>
+        </Label>
+        <span className="text-[10px] text-muted-foreground font-mono">{value?.length ?? 0} selected</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5 rounded-md border border-input bg-transparent p-2 min-h-[38px]">
+        {(value ?? []).map((v) => (
+          <span
+            key={String(v)}
+            className="inline-flex items-center gap-1 rounded-md border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[11px] text-violet-700 dark:text-violet-300"
+          >
+            {labelOf(v)}
+            <button
+              type="button"
+              className="text-violet-500/70 hover:text-destructive"
+              onClick={() => toggle(v)}
+              title="Remove"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {(value ?? []).length === 0 && (
+          <span className="text-[11px] text-muted-foreground italic">Belum ada relasi dipilih</span>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="ml-auto h-7 gap-1 text-[11px]"
+          onClick={() => setOpen(true)}
+        >
+          Pilih…
+        </Button>
+      </div>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Select {col.label}</DialogTitle>
+            <DialogDescription className="text-xs">
+              Multi-select; picked records are linked via the junction table on save.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              autoFocus
+              placeholder="Search related records..."
+              className="h-9 pl-8 text-xs"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="max-h-72 space-y-1 overflow-y-auto">
+            {opts.isLoading && <p className="py-6 text-center text-xs text-muted-foreground">Loading...</p>}
+            {(opts.data?.rows ?? []).map((row) => {
+              const refV = row[targetRef];
+              const on = selectedKeys.has(String(refV));
+              const parts = (col.m2mDisplayColumns ?? [])
+                .map((f) => (row[f] === null || row[f] === undefined ? null : String(row[f])))
+                .filter((p): p is string => p !== null);
+              return (
+                <button
+                  key={String(refV)}
+                  type="button"
+                  onClick={() => toggle(refV)}
+                  className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-xs transition-colors ${
+                    on ? "border-violet-500/40 bg-violet-500/10" : "hover:bg-muted/50"
+                  }`}
+                >
+                  <span className="pointer-events-none"><Checkbox checked={on} readOnly tabIndex={-1} aria-hidden /></span>
+                  <span className="flex-1 font-sans">{parts.join(" — ") || String(refV)}</span>
+                  <Badge variant="outline" className="font-mono text-[10px]">{String(refV)}</Badge>
+                </button>
+              );
+            })}
+            {(opts.data?.rows ?? []).length === 0 && !opts.isLoading && (
+              <p className="py-6 text-center text-xs text-muted-foreground">No records found</p>
+            )}
+          </div>
+          <div className="flex items-center justify-between border-t pt-3">
+            <span className="text-[11px] text-muted-foreground">
+              {opts.data?.total ?? 0} records • page {opts.data?.page ?? 1}
+            </span>
+            <div className="flex gap-1">
+              <Button variant="outline" size="sm" className="h-7 text-xs" disabled={(opts.data?.page ?? 1) <= 1} onClick={() => setPage((p) => p - 1)}>
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={(opts.data?.page ?? 1) >= Math.ceil((opts.data?.total ?? 0) / (opts.data?.pageSize ?? 20))}
+                onClick={() => setPage((p) => p + 1)}
+              >
                 <ChevronRight className="h-3.5 w-3.5" />
               </Button>
             </div>

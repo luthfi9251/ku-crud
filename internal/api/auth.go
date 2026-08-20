@@ -100,10 +100,25 @@ func userFrom(r *http.Request) CtxUser {
 	return r.Context().Value(ctxUserKey).(CtxUser)
 }
 
+// limitKey scopes a credential attempt to username+client IP so one
+// account (or one host) cannot be hammered from everywhere at once.
+func limitKey(username string, r *http.Request) string {
+	host := r.RemoteAddr
+	if i := strings.LastIndex(host, ":"); i > 0 {
+		host = host[:i]
+	}
+	return strings.ToLower(username) + "|" + host
+}
+
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct{ Username, Password string }
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+	key := limitKey(body.Username, r)
+	if !s.loginLimit.allow(key) {
+		writeErr(w, 429, "RATE_LIMITED", "too many failed attempts; try again later", nil)
 		return
 	}
 	ok, err := s.store.VerifyUser(body.Username, body.Password)
@@ -112,9 +127,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
+		s.loginLimit.fail(key)
 		writeErr(w, 401, "AUTH", "invalid username or password", nil)
 		return
 	}
+	s.loginLimit.reset(key)
 	secret, err := s.store.SessionSecret()
 	if err != nil {
 		writeErr(w, 500, "INTERNAL", "server error", nil)

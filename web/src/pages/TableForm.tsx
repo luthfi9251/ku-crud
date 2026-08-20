@@ -22,9 +22,9 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ColumnListEditor, type FormCol } from "../components/ColumnListEditor";
+import { ColumnListEditor, M2MRelationsEditor, type FormCol } from "../components/ColumnListEditor";
 
-export const fieldTypes = ["boolean", "text", "number", "datetime", "enum", "fk"] as const;
+export const fieldTypes = ["boolean", "text", "number", "datetime", "enum", "uuid", "json", "fk"] as const;
 
 export function normalizeLabel(name: string): string {
   if (!name) return "";
@@ -47,6 +47,8 @@ export default function TableForm() {
   const [tableName, setTableName] = useState("");
   const [label, setLabel] = useState("");
   const [pageSize, setPageSize] = useState(20);
+  const [defaultSortCol, setDefaultSortCol] = useState("");
+  const [defaultSortDir, setDefaultSortDir] = useState<"ASC" | "DESC">("ASC");
   const [keys, setKeys] = useState<string[]>([]);
   const [cols, setCols] = useState<FormCol[]>([]);
 
@@ -92,6 +94,8 @@ export default function TableForm() {
       setTableName(d.tableName);
       setLabel(d.label);
       setPageSize(d.pageSize);
+      setDefaultSortCol(d.defaultSortCol ?? "");
+      setDefaultSortDir(d.defaultSortDir === "DESC" ? "DESC" : "ASC");
       setKeys(d.keyColumns ?? []);
       setCols(d.columns);
     }
@@ -137,10 +141,15 @@ export default function TableForm() {
         label,
         keyColumns: keys,
         pageSize,
+        defaultSortCol,
+        defaultSortDir,
         columns: cols.map(({ livePk: _lp, origType: _ot, fkDs: _fd, ...c }) =>
           c.fieldType === "fk"
-            ? c
-            : { ...c, baseType: undefined, fkTableDefId: undefined, fkRefColumn: undefined, fkDisplayColumns: undefined }
+            ? { ...c, m2mJunctionDefId: undefined, m2mJunctionSrcCol: undefined, m2mJunctionTgtCol: undefined, m2mDisplayColumns: undefined, m2mRefColumn: undefined }
+            : c.fieldType === "m2m"
+              ? { ...c, baseType: undefined, fkTableDefId: undefined, fkRefColumn: undefined, fkDisplayColumns: undefined, m2mRefColumn: undefined }
+              : { ...c, baseType: undefined, fkTableDefId: undefined, fkRefColumn: undefined, fkDisplayColumns: undefined,
+                  m2mJunctionDefId: undefined, m2mJunctionSrcCol: undefined, m2mJunctionTgtCol: undefined, m2mDisplayColumns: undefined, m2mRefColumn: undefined }
         ),
       });
       return isEditing
@@ -427,6 +436,41 @@ export default function TableForm() {
                   className="h-9 text-xs"
                 />
               </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Default Sort Column</Label>
+                <Select
+                  value={defaultSortCol || "none"}
+                  onValueChange={(v) => setDefaultSortCol(v === "none" ? "" : v)}
+                >
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="None (key column)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none" className="text-xs">None (key column)</SelectItem>
+                    {cols.filter((c) => c.sortable).map((c) => (
+                      <SelectItem key={c.name} value={c.name} className="text-xs">
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Default Sort Direction</Label>
+                <Select
+                  value={defaultSortDir}
+                  onValueChange={(v) => setDefaultSortDir(v === "DESC" ? "DESC" : "ASC")}
+                  disabled={!defaultSortCol}
+                >
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ASC" className="text-xs">Ascending</SelectItem>
+                    <SelectItem value="DESC" className="text-xs">Descending</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {/* Sequential Expandable Column Editor */}
@@ -441,6 +485,8 @@ export default function TableForm() {
               dsList={dsList.data ?? []}
               isLoadingCols={liveCols.isLoading}
             />
+
+            <M2MRelationsEditor cols={cols} setCols={setCols} defs={defs.data ?? []} currentId={id} />
 
             {save.isError && (
               <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive">
