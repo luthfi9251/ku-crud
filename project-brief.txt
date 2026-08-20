@@ -59,3 +59,99 @@ Pada saat create row, pada field FK, maka akan ada tombol untuk mentrigger sebua
 Ketika Delete Row, Jangan otomatis delete cascade apabila row itu mereferensikan ke row lain.
 Saat tampil form edit, pastikan field relasi nya juga tampil, namun non-editable dari situ. Berikan tombol atau tulisan edit, yang ketika di klik akan redirect ke halaman tabel yang direferensikan.
 Jadi pastikan operasi Create, Update dan Delete itu berjalan dari halaman table yang direferensikan (single source)
+
+Catatan v1.2: MongoDB belum terimplementasi. Karena paradigma nya schemaless dan berbeda jauh dengan fondasi adapter sekarang yang bergantung pada introspection schema, maka MongoDB dikeluarkan dari scope v1.2 dan TIDAK dijadwalkan pada v1.3. Bisa dievaluasi kembali pada versi berikutnya jika memang dibutuhkan.
+
+Fitur V1.3
+Versi ini fokus pada data movement dan produktivitas harian, agar Ku-CRUD menjadi alat kerja utama user, bukan sekadar viewer. Berikut adalah fitur yang akan dideliver:
+
+1. Import & Export CSV
+Export: data yang tampil pada grid (mengikuti filter, search, sort, dan pagination yang sedang aktif) dapat diunduh sebagai file CSV.
+Import: upload file CSV, kemudian sistem akan menampilkan preview beserta mapping kolom CSV ke field pada table definition (otomatis dipetakan berdasarkan nama, namun tetap bisa diubah). Lakukan validasi per baris sesuai definisi field, tampilkan baris mana saja yang valid dan invalid beserta alasannya, lalu user dapat memilih insert hanya baris valid atau semua. Insert dilakukan secara batch. Seluruh insert wajib masuk audit trail dan tunduk pada grant create per table.
+
+2. Bulk Operations
+Pada halaman grid, user dapat melakukan multi-select row untuk kemudian di delete secara massal (dengan konfirmasi). Delete massal tetap masuk audit trail per row dan tunduk pada grant delete per table.
+
+3. Relasi Many-to-Many (Junction Table)
+Melengkapi relasi v1.2 yang baru sampai FK one-ke-one. Pada table definition, user dapat memilih relasi many-to-many yang mereferensikan junction table (table yang berisi 2 FK ke 2 table lain). Pada form create/edit, field relasi ini akan menampilkan multi-select picker (menggunakan modal pencarian yang sudah ada). Pada grid, tampilkan nilai referensi yang digabung.
+
+4. Tipe Kolom Tambahan: UUID dan JSON
+Saat ini UUID dan JSON/JSONB di exclude padahal UUID sering digunakan sebagai PK di Postgres. Pada versi ini keduanya di support: UUID diperlakukan sebagai text biasa dengan format validation. Sedangkan JSON, pada saat ditampilkan di form edit/create, harus tampil seperti layaknya JSON yang terformat rapi (pretty printed dengan indentasi), bukan string satu baris yang susah dibaca. Begitu juga pada grid, tampilannya harus readable. Validasi parse JSON dilakukan sebelum submit.
+
+5. Quick Wins Keamanan & Utility
+- Encrypt password datasource pada metadata store SQLite (menutup utang keamanan yang tercatat di README)
+- Rate limit pada endpoint login untuk mencegah brute force
+- Default sort didefinisikan pada table definition saja, sehingga setiap user membuka halaman table langsung dengan urutan default yang sudah diset
+
+Fitur V1.4
+Versi ini fokus pada advanced exploration dan portability, yaitu kemampuan menemukan data dengan lebih presisi serta memindahkan definisi antar environment dengan mudah. Berikut adalah fitur yang akan dideliver:
+
+1. Advanced Filtering
+Menambahkan kemampuan filter per kolom pada halaman grid, dengan operator yang disesuaikan tipe kolom: equals, not equals, greater than, less than, between, in list, contains (untuk text), dan date range (untuk datetime). Beberapa filter kolom dapat dikombinasikan sekaligus (AND). Seluruh nama kolom dan operator tetap wajib divalidasi terhadap table definition yang tersimpan di metadata, sama seperti mekanisme anti SQL Injection yang sudah ada. Filter yang aktif juga ikut diterapkan pada export CSV.
+
+2. Export & Import Metadata Definition
+Kemampuan mengekspor definisi (datasource dan table definition) menjadi satu file JSON, untuk keperluan transfer antar environment (misal dev ke prod). Password datasource TIDAK ikut diekspor demi keamanan, sehingga di environment tujuan user hanya perlu memasukkan password kembali. Saat import, sistem akan memvalidasi struktur file, membolehkan user memilih definisi mana saja yang ingin dimasukkan, dan menangani kondisi duplikat (skip atau overwrite). Relasi antar table definition tetap terjaga saat import (referensi table tujuan ikut dipetakan).
+
+3. Keyset / Cursor Pagination
+Mengganti offset pagination pada halaman grid dengan pendekatan keyset/cursor, agar navigasi pada table berukuran besar tetap cepat dan konsisten (offset pagination makin lambat di halaman akhir dan bisa skip row saat data berubah). Cursor dibangun dari nilai kolom sort yang sedang aktif (dan key columns sebagai tie breaker), berbentuk opaque token yang divalidasi server. Tombol previous/next tetap tersedia di UI, dan parameter cursor ini juga berlaku pada export CSV.
+
+4. Validasi Per Kolom
+Pada table definition, user dapat (opsional) mendefinisikan validasi untuk setiap kolom. Validasi dijalankan di backend pada saat insert maupun update, sebelum query ke database dijalankan; jika tidak lolos maka request ditolak beserta pesan error yang jelas per kolom. Validasi yang disediakan adalah:
+- Format email (memastikan value sesuai format email yang valid)
+- Panjang minimal dan maksimal (min length / max length)
+- Number only (value hanya boleh berisi angka)
+- Text only (value hanya boleh berisi huruf/huruf dan spasi)
+Sebuah kolom dapat memiliki lebih dari satu validasi sekaligus (misal: format email dan panjang maksimal). Validasi ini juga diterapkan pada import CSV v1.3, sehingga baris yang tidak lolos validasi ditandai invalid pada preview.
+
+Fitur V1.5
+POV berubah dari "tool untuk yang malas buka SQL editor" menjadi Low Code CRUD dengan dua persona: programmer yang melakukan setup table definition, dan user bisnis murni tanpa pengalaman IT yang menggunakan table. Versi ini fokus agar data tampil dan terbaca nyaman bagi user bisnis.
+
+1. Multiple Views per Table
+Table dapat ditampilkan dalam 3 mode view: Grid (default, yang sudah ada), Kanban, dan Calendar.
+- Kanban: programmer memilih satu kolom enum sebagai kolom board. Setiap nilai enum menjadi kolom board, dan row menjadi card (judul card menggunakan display field yang dipilih). Drag and drop card antar kolom akan melakukan update nilai kolom tersebut, tunduk pada grant update dan tetap masuk audit trail.
+- Calendar: programmer memilih satu kolom datetime sebagai tanggal event (opsional satu kolom lagi untuk end date). Row tampil sebagai event pada kalender. Klik event membuka detail row, dan klik tanggal pada kalendar membuka form create dengan tanggal ter-pre-fill.
+User dapat berganti mode view dari halaman data. View default ditentukan pada table definition.
+
+2. Column Formatting
+Presentasi data yang readable bagi user bisnis, didefinisikan per kolom pada table definition:
+- Enum: badge dengan warna per nilai enum (palet warna terbatas yang disediakan)
+- Number: format pemisah ribuan, jumlah desimal, dan optional prefix currency
+- Datetime: format human-friendly yang konsisten
+Formatting hanya presentasi, tidak mengubah value yang disimpan di database.
+
+3. Group By pada Grid
+Grid dapat dikelompokkan berdasarkan satu kolom pilihan user, dengan header grup menampilkan nilai grup dan jumlah row di dalamnya.
+
+4. Computed Column
+Kolom virtual read-only yang nilainya dihitung di application layer, tidak disimpan di database. Formula dipilih dari daftar yang disediakan (bukan ekspresi bebas, demi keamanan): aritmetika (+, -, *, /) antar kolom number, dan concat antar kolom text, dengan konstanta opsional. Computed column tampil di grid, detail, dan export CSV, namun tidak dapat di-filter/sort/search server side karena tidak ada di database; UI harus menandai hal ini.
+
+5. Platform Polish
+- Lokalisasi UI bahasa Indonesia dan Inggris. Bahasa dipilih per user dan disimpan di profile user.
+- Organisasi menu: programmer dapat mengelompokkan table definition ke dalam kategori (seperti folder) pada sidebar, beserta label khusus untuk navigasi.
+- Saved filter per user: kombinasi advanced filter yang aktif dapat disimpan dengan nama, tampil sebagai dropdown pada halaman data, dan hanya visible untuk user yang membuatnya. (Fitur ini tadinya dipangkas dari v1.3, menjadi relevan kembali dengan hadirnya user bisnis)
+
+Fitur V1.6 — Automation via Go Hooks
+POV automation di v1.6 adalah memberi developer kebebasan menjalankan logic custom tanpa harus membuat service baru. Developer menulis fungsi Go yang dipanggil melalui event pada operasi CRUD, assignment-nya dilakukan lewat table definition, dan deployment production tetap memerlukan build ulang binary. Dengan demikian hook adalah kode Go trusted yang full type safety dan bisa di unit test.
+
+1. Mekanisme Hook
+Developer menulis fungsi Go pada package khusus (hooks/) dan mendaftarkannya lewat registry eksplisit. API menyediakan endpoint listing hook terdaftar (GET /api/hooks) untuk mengisi dropdown pada table definition.
+Event yang tersedia: before/after x create/update/delete (6 titik).
+- Before hook: dieksekusi sinkron sebelum query database. Dapat memodifikasi nilai row, dan dapat MENOLAK operasi (return error -> request ditolak 400, query tidak jalan). Cocok untuk validasi custom, normalisasi data, dan business rule.
+- After hook: dieksekusi untuk side effect setelah data ter-commit.
+Eksekusi hook dibungkus context timeout dan recover panic, sehingga hook yang rusak tidak menjatuhkan aplikasi.
+
+2. Assignment pada Table Definition
+Pada table definition, programmer memilih hook per event (bisa lebih dari satu per event), lengkap dengan urutan eksekusi dan optional JSON config per assignment yang dapat dibaca oleh hook tersebut.
+
+3. Eksekusi After Hook: Async Worker + Durable Outbox
+Setelah data ter-commit, after hook TIDAK dieksekusi di dalam request. Hook selalu di-enqueue ke outbox di SQLite, lalu worker background yang mengeksekusi. Request tetap cepat; ada delay kecil antara commit dan side effect.
+Outbox mencatat status eksekusi; entry yang gagal di-retry otomatis dengan backoff, dan terdapat halaman admin untuk memantau serta retry manual.
+
+4. Kebijakan Hook Hilang
+Jika definition mereferensikan hook yang tidak ter-compile di binary (hook dihapus/di-rename, atau metadata di-import dari environment lain), operasi write DITOLAK dengan error jelas. Drift tidak pernah terjadi diam-diam.
+
+5. Context Hook
+Hook mendapat akses penuh: adapter ke seluruh datasource terdaftar, metadata store (baca definisi/audit), dan logger. Ini yang membuat janji "tanpa membuat service baru" terpenuhi: scope side effect tidak dibatasi.
+
+6. Konsistensi Trigger
+Hook dipasang di service layer, bukan HTTP handler, sehingga seluruh jalur memicu hook yang sama: form biasa, import CSV, bulk delete, dan drag kanban. Pada preview import CSV, before hook dijalankan untuk validasi sehingga baris yang ditolak hook terdeteksi sebelum insert.
