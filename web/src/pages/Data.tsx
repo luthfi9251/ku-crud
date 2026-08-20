@@ -338,7 +338,21 @@ export default function Data() {
   const pages = r ? Math.max(1, Math.ceil(r.total / r.pageSize)) : 1;
 
   const rels = rows.data?.rels;
+  const m2mRels = rows.data?.m2mRels;
   const fkDisplay = (c: ColumnDef, row: Row): string | null => {
+    if (c.fieldType === "m2m") {
+      if (!c.m2mRefColumn) return "";
+      const list = m2mRels?.[c.name]?.[String(row[c.m2mRefColumn])];
+      if (!list || list.length === 0) return "";
+      return list
+        .map((tr) =>
+          (c.m2mDisplayColumns ?? [])
+            .map((f) => (tr[f] === null || tr[f] === undefined ? null : String(tr[f])))
+            .filter((p): p is string => p !== null)
+            .join(" — ")
+        )
+        .join(", ");
+    }
     if (c.fieldType !== "fk" || !c.fkDisplayColumns) return null;
     const rel = rels?.[c.name]?.[String(row[c.name])];
     if (!rel) return null;
@@ -731,6 +745,17 @@ export default function Data() {
                     rels={rows.data?.rels}
                     onChange={(v) => setForm({ ...form, row: { ...form.row, [c.name]: v } })}
                   />
+                ) : c.fieldType === "m2m" ? (
+                  <div key={c.name} className="md:col-span-2">
+                    <M2MField
+                      col={c}
+                      tableId={id}
+                      mode={form.mode}
+                      rowKey={form.initialKey || rowKey(form.row)}
+                      value={(form.row[c.name] as unknown[]) ?? []}
+                      onChange={(v) => setForm({ ...form, row: { ...form.row, [c.name]: v } })}
+                    />
+                  </div>
                 ) : (
                   <FieldInput
                     key={c.name}
@@ -1072,6 +1097,190 @@ function FkField({
               </Button>
               <span>Page {opts.data?.page ?? page} of {pages}</span>
               <Button type="button" variant="outline" size="sm" className="h-8 text-xs" disabled={page >= pages} onClick={() => setPage(page + 1)}>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// M2MField manages a many-to-many selection: chips of picked target records
+// plus a multi-select picker dialog reusing the fk picker's search pattern.
+function M2MField({
+  col, tableId, mode, rowKey, value, onChange,
+}: {
+  col: ColumnDef; tableId?: string; mode: "new" | "edit";
+  rowKey: string[] | null | undefined;
+  value: unknown[];
+  onChange: (v: unknown[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [page, setPage] = useState(1);
+  const targetRef = col.m2mTargetRef ?? "id";
+
+  useEffect(() => {
+    const t = setTimeout(() => { setDebounced(search); setPage(1); }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const opts = useQuery({
+    queryKey: ["m2mopts", tableId, col.name, debounced, page],
+    enabled: open,
+    queryFn: () =>
+      api<FkOptionsRes>(
+        `/tables/${tableId}/m2moptions/${col.name}?` +
+          new URLSearchParams({ ...(debounced ? { search: debounced } : {}), page: String(page) })
+      ),
+  });
+
+  // current selection display rows (edit mode only — keyed by the row key)
+  const encodedKey = mode === "edit" && rowKey ? encodeRowKey(rowKey) : "";
+  const links = useQuery({
+    queryKey: ["m2mlinks", tableId, col.name, encodedKey],
+    enabled: mode === "edit" && !!encodedKey,
+    queryFn: () =>
+      api<{ values: unknown[]; rows: Row[] }>(
+        `/tables/${tableId}/rows/${encodedKey}/m2m/${col.name}`
+      ),
+  });
+
+  // initialize the form value from links once loaded
+  useEffect(() => {
+    if (links.data && mode === "edit") {
+      const cur = JSON.stringify(value ?? []);
+      const loaded = JSON.stringify(links.data.values ?? []);
+      if (cur !== loaded) {
+        onChange(links.data.values ?? []);
+      }
+    }
+    // eslint-disable-line react-hooks/exhaustive-deps
+  }, [links.data]);
+
+  const selectedKeys = new Set((value ?? []).map((v) => String(v)));
+  const labelOf = (v: unknown): string => {
+    const row = links.data?.rows?.find(
+      (r) => String(r[targetRef]) === String(v)
+    );
+    if (row) {
+      const parts = (col.m2mDisplayColumns ?? [])
+        .map((f) => (row[f] === null || row[f] === undefined ? null : String(row[f])))
+        .filter((p): p is string => p !== null);
+      if (parts.length) return parts.join(" — ");
+    }
+    return String(v);
+  };
+
+  const toggle = (v: unknown) => {
+    const k = String(v);
+    const next = (value ?? []).filter((x) => String(x) !== k);
+    if (!selectedKeys.has(k)) next.push(v);
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs font-medium">
+          {col.label} <Badge variant="outline" className="ml-1 text-[9px] font-mono">m2m</Badge>
+        </Label>
+        <span className="text-[10px] text-muted-foreground font-mono">{value?.length ?? 0} selected</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5 rounded-md border border-input bg-transparent p-2 min-h-[38px]">
+        {(value ?? []).map((v) => (
+          <span
+            key={String(v)}
+            className="inline-flex items-center gap-1 rounded-md border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[11px] text-violet-700 dark:text-violet-300"
+          >
+            {labelOf(v)}
+            <button
+              type="button"
+              className="text-violet-500/70 hover:text-destructive"
+              onClick={() => toggle(v)}
+              title="Remove"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {(value ?? []).length === 0 && (
+          <span className="text-[11px] text-muted-foreground italic">Belum ada relasi dipilih</span>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="ml-auto h-7 gap-1 text-[11px]"
+          onClick={() => setOpen(true)}
+        >
+          Pilih…
+        </Button>
+      </div>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Select {col.label}</DialogTitle>
+            <DialogDescription className="text-xs">
+              Multi-select; picked records are linked via the junction table on save.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              autoFocus
+              placeholder="Search related records..."
+              className="h-9 pl-8 text-xs"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="max-h-72 space-y-1 overflow-y-auto">
+            {opts.isLoading && <p className="py-6 text-center text-xs text-muted-foreground">Loading...</p>}
+            {(opts.data?.rows ?? []).map((row) => {
+              const refV = row[targetRef];
+              const on = selectedKeys.has(String(refV));
+              const parts = (col.m2mDisplayColumns ?? [])
+                .map((f) => (row[f] === null || row[f] === undefined ? null : String(row[f])))
+                .filter((p): p is string => p !== null);
+              return (
+                <button
+                  key={String(refV)}
+                  type="button"
+                  onClick={() => toggle(refV)}
+                  className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-xs transition-colors ${
+                    on ? "border-violet-500/40 bg-violet-500/10" : "hover:bg-muted/50"
+                  }`}
+                >
+                  <span className="pointer-events-none"><Checkbox checked={on} readOnly tabIndex={-1} aria-hidden /></span>
+                  <span className="flex-1 font-sans">{parts.join(" — ") || String(refV)}</span>
+                  <Badge variant="outline" className="font-mono text-[10px]">{String(refV)}</Badge>
+                </button>
+              );
+            })}
+            {(opts.data?.rows ?? []).length === 0 && !opts.isLoading && (
+              <p className="py-6 text-center text-xs text-muted-foreground">No records found</p>
+            )}
+          </div>
+          <div className="flex items-center justify-between border-t pt-3">
+            <span className="text-[11px] text-muted-foreground">
+              {opts.data?.total ?? 0} records • page {opts.data?.page ?? 1}
+            </span>
+            <div className="flex gap-1">
+              <Button variant="outline" size="sm" className="h-7 text-xs" disabled={(opts.data?.page ?? 1) <= 1} onClick={() => setPage((p) => p - 1)}>
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={(opts.data?.page ?? 1) >= Math.ceil((opts.data?.total ?? 0) / (opts.data?.pageSize ?? 20))}
+                onClick={() => setPage((p) => p + 1)}
+              >
                 <ChevronRight className="h-3.5 w-3.5" />
               </Button>
             </div>

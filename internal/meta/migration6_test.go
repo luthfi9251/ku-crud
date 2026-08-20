@@ -111,3 +111,46 @@ func TestTableDefDefaultSortRoundtrip(t *testing.T) {
 		t.Fatalf("list default sort: %+v", list[0])
 	}
 }
+
+func TestM2MColumnRoundtrip(t *testing.T) {
+	s := openTest(t)
+	defer s.Close()
+	if err := s.CreateDatasource(&Datasource{Name: "d", Host: "h", Port: 1, DBName: "db", Username: "u", Password: "p", SSLMode: "disable"}); err != nil {
+		t.Fatal(err)
+	}
+	junction := &TableDef{DatasourceID: 1, SchemaName: "public", TableName: "customer_tags", Label: "Junction",
+		KeyColumns: []string{"customer_id", "tag_id"}, PageSize: 20}
+	jcols := []ColumnDef{
+		{Name: "customer_id", Label: "Customer", FieldType: "fk", BaseType: "number",
+			FKTableDefID: 2, FKRefColumn: "id", FKDisplayColumns: []string{"name"}, Required: true, Position: 0},
+		{Name: "tag_id", Label: "Tag", FieldType: "fk", BaseType: "number",
+			FKTableDefID: 3, FKRefColumn: "id", FKDisplayColumns: []string{"label"}, Required: true, Position: 1},
+	}
+	if err := s.SaveTableDef(junction, jcols); err != nil {
+		t.Fatal(err)
+	}
+	def := &TableDef{DatasourceID: 1, SchemaName: "public", TableName: "customers", Label: "Customers",
+		KeyColumns: []string{"id"}, PageSize: 20}
+	cols := []ColumnDef{
+		{Name: "id", Label: "ID", FieldType: "number", Editable: true, Required: true, Position: 0},
+		{Name: "m2m_customer_tags_tag_id", Label: "Tags", FieldType: "m2m",
+			M2MJunctionDefID: junction.ID, M2MJunctionSrcCol: "customer_id", M2MJunctionTgtCol: "tag_id",
+			M2MDisplayColumns: []string{"label"}, Visible: true, Position: 1},
+	}
+	if err := s.SaveTableDef(def, cols); err != nil {
+		t.Fatal(err)
+	}
+	_, got, err := s.GetTableDef(def.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("cols = %d", len(got))
+	}
+	m := got[1]
+	if m.FieldType != "m2m" || m.M2MJunctionDefID != junction.ID ||
+		m.M2MJunctionSrcCol != "customer_id" || m.M2MJunctionTgtCol != "tag_id" ||
+		len(m.M2MDisplayColumns) != 1 || m.M2MDisplayColumns[0] != "label" {
+		t.Fatalf("m2m roundtrip: %+v", m)
+	}
+}

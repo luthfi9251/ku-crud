@@ -65,11 +65,14 @@ func parseCSV(data []byte) (rune, []string, [][]string, error) {
 
 // autoMap proposes header→columnName mappings: exact name, then trimmed
 // case-insensitive name, then column label (case-insensitive). Unmapped
-// headers map to "".
+// headers map to "". Virtual m2m columns are not importable.
 func autoMap(headers []string, cols []meta.ColumnDef) map[string]string {
 	byLowerName := map[string]string{}
 	byLowerLabel := map[string]string{}
 	for _, c := range cols {
+		if c.FieldType == "m2m" {
+			continue
+		}
 		byLowerName[strings.ToLower(strings.TrimSpace(c.Name))] = c.Name
 		byLowerLabel[strings.ToLower(strings.TrimSpace(c.Label))] = c.Name
 	}

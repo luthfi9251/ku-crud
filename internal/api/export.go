@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"ku-crud/internal/ds"
@@ -64,7 +65,7 @@ func (s *Server) handleRowExport(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	sortCol, sortDir := resolveSort(def, cols, q.Get("sort"), q.Get("dir"))
-	lp := ds.ListParams{Schema: def.SchemaName, Table: def.TableName, Columns: colNames(cols),
+	lp := ds.ListParams{Schema: def.SchemaName, Table: def.TableName, Columns: realColNames(cols),
 		Searchable: searchable, Search: q.Get("search"),
 		SortCol: sortCol, SortDir: sortDir, Limit: exportRowCap + 1, Offset: 0}
 
@@ -92,6 +93,7 @@ func (s *Server) handleRowExport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rels := map[string]map[string]map[string]any{}
+	m2mRels := map[string]map[string][]map[string]any{}
 	const chunk = 500
 	for i := 0; i < len(rows); i += chunk {
 		end := i + chunk
@@ -106,6 +108,14 @@ func (s *Server) handleRowExport(w http.ResponseWriter, r *http.Request) {
 				rels[col][k] = v
 			}
 		}
+		for col, m := range s.buildM2MRels(u, def, visible, rows[i:end]) {
+			if m2mRels[col] == nil {
+				m2mRels[col] = map[string][]map[string]any{}
+			}
+			for k, v := range m {
+				m2mRels[col][k] = v
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
@@ -116,8 +126,14 @@ func (s *Server) handleRowExport(w http.ResponseWriter, r *http.Request) {
 
 	cw := csv.NewWriter(w)
 	header := make([]string, len(visible))
+	m2mCfgs := map[string]*m2mConfig{}
 	for i, c := range visible {
 		header[i] = c.Name
+		if c.FieldType == "m2m" {
+			if cfg, _ := s.resolveM2M(def, c); cfg != nil {
+				m2mCfgs[c.Name] = cfg
+			}
+		}
 	}
 	cw.Write(header)
 	for _, row := range rows {
@@ -129,6 +145,20 @@ func (s *Server) handleRowExport(w http.ResponseWriter, r *http.Request) {
 					rec[i] = joinDisplay(rel, c.FKDisplayColumns, c.FKRefColumn)
 					continue
 				}
+			}
+			if c.FieldType == "m2m" {
+				if cfg := m2mCfgs[c.Name]; cfg != nil {
+					if list, ok := m2mRels[c.Name][rowValKey(row[cfg.SrcRef])]; ok {
+						parts := make([]string, len(list))
+						for j, tr := range list {
+							parts[j] = joinDisplay(tr, c.M2MDisplayColumns, cfg.TargetRef)
+						}
+						rec[i] = strings.Join(parts, ", ")
+						continue
+					}
+				}
+				rec[i] = ""
+				continue
 			}
 			rec[i] = csvCell(v)
 		}

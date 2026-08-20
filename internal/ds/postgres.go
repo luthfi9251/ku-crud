@@ -271,6 +271,45 @@ func (a *pgAdapter) CountByRefEq(schema, table, col string, val any) (int, error
 	return n, nil
 }
 
+func (a *pgAdapter) FetchPairsByRef(schema, table, col, retCol string, vals []any) ([]Pair, error) {
+	sqlText, args, err := pgDialect.buildFetchPairs(schema, table, col, retCol, vals)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.db.Query(sqlText, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Pair
+	for rows.Next() {
+		var c, r any
+		if err := rows.Scan(&c, &r); err != nil {
+			return nil, err
+		}
+		if b, ok := c.([]byte); ok {
+			c = string(b)
+		}
+		if b, ok := r.([]byte); ok {
+			r = string(b)
+		}
+		out = append(out, Pair{Col: c, Ret: r})
+	}
+	return out, rows.Err()
+}
+
+func (a *pgAdapter) DeletePairs(schema, table, col1 string, val1 any, col2 string, val2 any) (int64, error) {
+	sqlText, _, err := pgDialect.buildDeletePairs(schema, table, col1, col2)
+	if err != nil {
+		return 0, err
+	}
+	res, err := a.db.Exec(sqlText, val1, val2)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func (a *pgAdapter) queryMaps(sqlText string, args ...any) ([]map[string]any, error) {
 	rows, err := a.db.Query(sqlText, args...)
 	if err != nil {

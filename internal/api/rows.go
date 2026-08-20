@@ -20,6 +20,20 @@ func colNames(cols []meta.ColumnDef) []string {
 	return names
 }
 
+// realCols drops virtual m2m columns — they have no live counterpart and
+// must never reach SQL SELECT lists.
+func realCols(cols []meta.ColumnDef) []meta.ColumnDef {
+	out := make([]meta.ColumnDef, 0, len(cols))
+	for _, c := range cols {
+		if c.FieldType != "m2m" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func realColNames(cols []meta.ColumnDef) []string { return colNames(realCols(cols)) }
+
 // resolveSort picks the effective sort for a list query: an explicit sortable
 // column from the request wins; otherwise the definition's default sort when
 // it is still a defined, sortable column; otherwise the first key column ASC.
@@ -75,7 +89,7 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 		page = p
 	}
 
-	names := colNames(cols)
+	names := realColNames(cols)
 	lp := ds.ListParams{Schema: def.SchemaName, Table: def.TableName, Columns: names,
 		Searchable: searchable, Search: q.Get("search"),
 		SortCol: sortCol, SortDir: sortDir,
@@ -92,11 +106,12 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rels := s.buildRels(userFrom(r), cols, rows)
+	m2mRels := s.buildM2MRels(userFrom(r), def, cols, rows)
 	if rows == nil {
 		rows = []map[string]any{}
 	}
 	writeJSON(w, 200, map[string]any{"rows": rows, "total": total, "page": page,
-		"pageSize": def.PageSize, "rels": rels})
+		"pageSize": def.PageSize, "rels": rels, "m2mRels": m2mRels})
 }
 
 func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +131,7 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 	}
 	defer a.Close()
 
-	names := colNames(cols)
+	names := realColNames(cols)
 	keyVals, err := rowKeyVals(def, cols, r.PathValue("pk"))
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
@@ -147,6 +162,9 @@ func editablePayload(body map[string]any, cols []meta.ColumnDef, keyCols []strin
 	}
 
 	for _, c := range cols {
+		if c.FieldType == "m2m" {
+			continue // virtual relation column — handled by syncM2MLinks
+		}
 		if c.Editable || (isInsert && isKey[c.Name]) {
 			editable[c.Name] = c
 		}
@@ -159,6 +177,9 @@ func editablePayload(body map[string]any, cols []meta.ColumnDef, keyCols []strin
 	var names []string
 	var vals []any
 	for _, c := range cols {
+		if c.FieldType == "m2m" {
+			continue // virtual relation column — handled by syncM2MLinks
+		}
 		if !c.Editable && !(isInsert && isKey[c.Name]) {
 			continue
 		}
@@ -228,6 +249,25 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
+	selections, err := stripM2MPayload(cols, body)
+	if err != nil {
+		var ae *apiError
+		if errors.As(err, &ae) {
+			writeErr(w, ae.status, ae.code, ae.msg, nil)
+			return
+		}
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+	if err := s.precheckM2M(u, def, cols, selections); err != nil {
+		var ae *apiError
+		if errors.As(err, &ae) {
+			writeErr(w, ae.status, ae.code, ae.msg, nil)
+			return
+		}
+		writeErr(w, 500, "INTERNAL", "relation check failed", nil)
+		return
+	}
 	names, vals, err := editablePayload(body, cols, def.KeyColumns, true)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
@@ -255,6 +295,15 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "CONN", "insert failed", err.Error())
 		return
 	}
+	if err := s.applyM2MPayload(u, def, cols, body, nil, selections); err != nil {
+		var ae *apiError
+		if errors.As(err, &ae) {
+			writeErr(w, ae.status, ae.code, ae.msg, nil)
+			return
+		}
+		writeErr(w, 502, "CONN", "relation sync failed", err.Error())
+		return
+	}
 	s.auditBestEffort(u, def.ID, "INSERT", "", nil, body)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
@@ -273,6 +322,25 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 	var body map[string]any
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+	selections, err := stripM2MPayload(cols, body)
+	if err != nil {
+		var ae *apiError
+		if errors.As(err, &ae) {
+			writeErr(w, ae.status, ae.code, ae.msg, nil)
+			return
+		}
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+	if err := s.precheckM2M(u, def, cols, selections); err != nil {
+		var ae *apiError
+		if errors.As(err, &ae) {
+			writeErr(w, ae.status, ae.code, ae.msg, nil)
+			return
+		}
+		writeErr(w, 500, "INTERNAL", "relation check failed", nil)
 		return
 	}
 	names, vals, err := editablePayload(body, cols, def.KeyColumns, false)
@@ -301,7 +369,7 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	oldRows, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals, colNames(cols))
+	oldRows, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals, realColNames(cols))
 	if err != nil {
 		writeErr(w, 502, "CONN", "fetch old failed", err.Error())
 		return
@@ -330,6 +398,15 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		s.auditBestEffort(u, def.ID, "UPDATE", rowKeyString(def, old), old, merged)
 	}
+	if err := s.applyM2MPayload(u, def, cols, body, oldRows[0], selections); err != nil {
+		var ae *apiError
+		if errors.As(err, &ae) {
+			writeErr(w, ae.status, ae.code, ae.msg, nil)
+			return
+		}
+		writeErr(w, 502, "CONN", "relation sync failed", err.Error())
+		return
+	}
 	writeJSON(w, 200, map[string]any{"ok": true, "affected": len(oldRows)})
 }
 
@@ -356,7 +433,7 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	defer a.Close()
 
-	oldRows, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals, colNames(cols))
+	oldRows, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals, realColNames(cols))
 	if err != nil {
 		writeErr(w, 502, "CONN", "fetch old failed", err.Error())
 		return
@@ -394,6 +471,156 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 
 // errFKRefNotFound marks an fk payload value that has no matching target row.
 var errFKRefNotFound = errors.New("referenced row not found")
+
+// m2mSelection extracts []any target ref values from a request body value.
+func m2mSelection(v any) ([]any, error) {
+	switch t := v.(type) {
+	case nil:
+		return nil, nil
+	case []any:
+		return t, nil
+	default:
+		return nil, fmt.Errorf("many-to-many selection must be an array of target values")
+	}
+}
+
+// syncM2MLinks diffs the wanted target values against the current junction
+// rows for one source value and applies inserts/deletes. Requires create and
+// delete grants on the junction definition; audits every link change.
+func (s *Server) syncM2MLinks(u CtxUser, def *meta.TableDef, c meta.ColumnDef, srcVal any, want []any) error {
+	if srcVal == nil {
+		return newAPIErr(400, "VALIDATION",
+			"column "+c.Name+": cannot manage relations without a source key value")
+	}
+	cfg, msg := s.resolveM2M(def, c)
+	if cfg == nil {
+		return newAPIErr(400, "VALIDATION", msg)
+	}
+	if !s.hasTablePerm(u, cfg.Junction.ID, "create") || !s.hasTablePerm(u, cfg.Junction.ID, "delete") {
+		return newAPIErr(403, "FORBIDDEN", "managing "+cfg.Junction.Label+
+			" relations requires create and delete grants on that table")
+	}
+	ja, err := s.liveAdapter(cfg.Junction.DatasourceID)
+	if err != nil {
+		return err
+	}
+	defer ja.Close()
+	pairs, err := ja.FetchPairsByRef(cfg.Junction.SchemaName, cfg.Junction.TableName,
+		c.M2MJunctionSrcCol, c.M2MJunctionTgtCol, []any{srcVal})
+	if err != nil {
+		return err
+	}
+	current := map[string]any{}
+	for _, p := range pairs {
+		if p.Ret != nil {
+			current[rowValKey(p.Ret)] = p.Ret
+		}
+	}
+	wantSet := map[string]bool{}
+	for _, w := range want {
+		wantSet[rowValKey(w)] = true
+	}
+	for _, w := range want { // added links
+		if _, exists := current[rowValKey(w)]; exists {
+			continue
+		}
+		if err := ja.Insert(cfg.Junction.SchemaName, cfg.Junction.TableName,
+			[]string{c.M2MJunctionSrcCol, c.M2MJunctionTgtCol}, []any{srcVal, w}); err != nil {
+			return err
+		}
+		s.auditBestEffort(u, cfg.Junction.ID, "INSERT", "", nil,
+			map[string]any{c.M2MJunctionSrcCol: srcVal, c.M2MJunctionTgtCol: w})
+	}
+	for k, v := range current { // removed links
+		if wantSet[k] {
+			continue
+		}
+		if _, err := ja.DeletePairs(cfg.Junction.SchemaName, cfg.Junction.TableName,
+			c.M2MJunctionSrcCol, srcVal, c.M2MJunctionTgtCol, v); err != nil {
+			return err
+		}
+		s.auditBestEffort(u, cfg.Junction.ID, "DELETE", "",
+			map[string]any{c.M2MJunctionSrcCol: srcVal, c.M2MJunctionTgtCol: v}, nil)
+	}
+	return nil
+}
+
+// stripM2MPayload removes m2m selections from the body (they must never
+// reach editablePayload) and returns them per column.
+func stripM2MPayload(cols []meta.ColumnDef, body map[string]any) (map[string][]any, error) {
+	var out map[string][]any
+	for _, c := range cols {
+		if c.FieldType != "m2m" {
+			continue
+		}
+		v, present := body[c.Name]
+		if !present {
+			continue
+		}
+		delete(body, c.Name)
+		want, err := m2mSelection(v)
+		if err != nil {
+			return nil, newAPIErr(400, "VALIDATION", "column "+c.Name+": "+err.Error())
+		}
+		if out == nil {
+			out = map[string][]any{}
+		}
+		out[c.Name] = want
+	}
+	return out, nil
+}
+
+// precheckM2M validates configs and junction grants before any parent write,
+// so permission failures reject the whole request atomically.
+func (s *Server) precheckM2M(u CtxUser, def *meta.TableDef, cols []meta.ColumnDef, selections map[string][]any) error {
+	for _, c := range cols {
+		if _, ok := selections[c.Name]; !ok {
+			continue
+		}
+		cfg, msg := s.resolveM2M(def, c)
+		if cfg == nil {
+			return newAPIErr(400, "VALIDATION", msg)
+		}
+		if !s.hasTablePerm(u, cfg.Junction.ID, "create") || !s.hasTablePerm(u, cfg.Junction.ID, "delete") {
+			return newAPIErr(403, "FORBIDDEN", "managing "+cfg.Junction.Label+
+				" relations requires create and delete grants on that table")
+		}
+	}
+	return nil
+}
+
+// applyM2MPayload syncs stripped selections after the row write committed.
+// srcRow (old row, update path) supplies the source ref value; on insert it
+// comes from the payload via the resolved config.
+func (s *Server) applyM2MPayload(u CtxUser, def *meta.TableDef, cols []meta.ColumnDef,
+	body map[string]any, srcRow map[string]any, selections map[string][]any,
+) error {
+	for _, c := range cols {
+		want, ok := selections[c.Name]
+		if !ok {
+			continue
+		}
+		cfg, msg := s.resolveM2M(def, c)
+		if cfg == nil {
+			return newAPIErr(400, "VALIDATION", msg)
+		}
+		var srcVal any
+		if srcRow != nil {
+			srcVal = srcRow[cfg.SrcRef]
+		}
+		if srcVal == nil {
+			srcVal = body[cfg.SrcRef]
+		}
+		if srcVal == nil {
+			return newAPIErr(400, "VALIDATION",
+				"column "+c.Name+": provide the "+cfg.SrcRef+" value so relations can be created")
+		}
+		if err := s.syncM2MLinks(u, def, c, srcVal, want); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // checkFKValues verifies each non-null fk payload value exists on the target
 // table (batched per fk column via the ref-value IN query).

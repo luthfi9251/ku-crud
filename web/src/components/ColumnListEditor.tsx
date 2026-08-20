@@ -10,6 +10,9 @@ import {
   Check,
   HelpCircle,
   Info,
+  Layers,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { api } from "../lib/api";
 import type { BaseFieldType, ColumnDef, Datasource, TableDefPayload } from "../lib/types";
@@ -653,4 +656,250 @@ function FKConfigInline({
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Many-to-Many relations (v1.3): virtual columns backed by a junction table
+// that must already be defined with two fk columns.
+// ---------------------------------------------------------------------------
+
+export function M2MRelationsEditor({
+  cols, setCols, defs, currentId,
+}: {
+  cols: FormCol[];
+  setCols: React.Dispatch<React.SetStateAction<FormCol[]>>;
+  defs: TableDefPayload[];
+  currentId?: string;
+}) {
+  const relations = cols.filter((c) => c.fieldType === "m2m");
+  const candidates = defs.filter((d) => String(d.id) !== currentId);
+
+  const setRel = (i: number, patch: Partial<FormCol>) => {
+    const idx = cols.findIndex((c) => c.fieldType === "m2m" && c.name === relations[i].name);
+    if (idx >= 0) setCols((prev) => prev.map((c, j) => (j === idx ? { ...c, ...patch } : c)));
+  };
+  const removeRel = (i: number) => {
+    setCols((prev) => prev.filter((c) => !(c.fieldType === "m2m" && c.name === relations[i].name)));
+  };
+  const addRel = () => {
+    setCols((prev) => [
+      ...prev,
+      {
+        name: `m2m_${prev.length}`,
+        label: "New Relation",
+        fieldType: "m2m",
+        enumOptions: null,
+        editable: true, required: false, visible: true, searchable: false, sortable: false,
+        position: 1000 + prev.length,
+        m2mJunctionDefId: undefined,
+        m2mJunctionSrcCol: undefined,
+        m2mJunctionTgtCol: undefined,
+        m2mDisplayColumns: [],
+      },
+    ]);
+  };
+
+  return (
+    <div className="space-y-3 rounded-lg border border-violet-500/20 bg-violet-500/5 p-4">
+      <div className="flex items-center justify-between border-b border-violet-500/10 pb-2">
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+          <Label className="text-xs font-semibold text-violet-900 dark:text-violet-300">
+            Many-to-Many Relations
+          </Label>
+          <HelpPopover title="Many-to-Many Guide">
+            <p>A relation connects this table to another through a <strong>junction table</strong>.</p>
+            <p className="pt-1">The junction must already be defined as a table definition with two fk columns: one pointing at this table, one at the target.</p>
+            <p className="pt-1 text-[10px]">💡 Save this table definition first — relations reference it by id, so they can only be configured when editing an existing definition.</p>
+          </HelpPopover>
+        </div>
+        <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={addRel} disabled={!currentId}>
+          <Plus className="h-3.5 w-3.5" /> Add Relation
+        </Button>
+      </div>
+      {!currentId && (
+        <p className="text-[11px] text-muted-foreground">
+          Save the definition first, then edit it to add many-to-many relations.
+        </p>
+      )}
+      {relations.map((rel, i) => (
+        <M2MRelationCard
+          key={rel.name}
+          rel={rel}
+          setRel={(patch) => setRel(i, patch)}
+          remove={() => removeRel(i)}
+          candidates={candidates}
+          currentId={currentId}
+        />
+      ))}
+    </div>
+  );
+}
+
+function M2MRelationCard({
+  rel, setRel, remove, candidates, currentId,
+}: {
+  rel: FormCol;
+  setRel: (patch: Partial<FormCol>) => void;
+  remove: () => void;
+  candidates: TableDefPayload[];
+  currentId?: string;
+}) {
+  const junctionQ = useQuery({
+    queryKey: ["def", rel.m2mJunctionDefId],
+    enabled: !!rel.m2mJunctionDefId,
+    queryFn: () => api<TableDefPayload>(`/tables/${rel.m2mJunctionDefId}`),
+  });
+  const jcols = junctionQ.data?.columns ?? [];
+  const fkCols = jcols.filter((c) => c.fieldType === "fk");
+  const srcOptions = fkCols.filter((c) => c.fkTableDefId === currentId);
+  const tgtOptions = fkCols.filter((c) => c.name !== rel.m2mJunctionSrcCol);
+
+  const tgtCol = fkCols.find((c) => c.name === rel.m2mJunctionTgtCol);
+  const targetQ = useQuery({
+    queryKey: ["def", tgtCol?.fkTableDefId],
+    enabled: !!tgtCol?.fkTableDefId,
+    queryFn: () => api<TableDefPayload>(`/tables/${tgtCol!.fkTableDefId}`),
+  });
+  const targetCols = targetQ.data?.columns ?? [];
+  const selectedDisplay = rel.m2mDisplayColumns ?? [];
+
+  const junctionTable = candidates.find((d) => String(d.id) === rel.m2mJunctionDefId);
+
+  return (
+    <div className="space-y-3 rounded-md border bg-background p-3">
+      <div className="flex items-center gap-2">
+        <Input
+          className="h-8 flex-1 text-xs"
+          value={rel.label}
+          onChange={(e) => setRel({ label: e.target.value })}
+          placeholder="Relation label (e.g. Tags)"
+        />
+        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={remove} title="Remove relation">
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="space-y-1">
+          <Label className="text-[11px] text-muted-foreground font-medium">Junction Table</Label>
+          <Select
+            value={rel.m2mJunctionDefId ?? ""}
+            onValueChange={(v) =>
+              setRel({
+                m2mJunctionDefId: v,
+                m2mJunctionSrcCol: undefined,
+                m2mJunctionTgtCol: undefined,
+                m2mDisplayColumns: [],
+                name: `m2m_${defsTableName(v, candidates)}_${rel.name}`,
+              })
+            }
+          >
+            <SelectTrigger className="h-8 text-xs bg-background">
+              <SelectValue placeholder="Choose junction table..." />
+            </SelectTrigger>
+            <SelectContent>
+              {candidates.map((d) => (
+                <SelectItem key={d.id} value={String(d.id)} className="text-xs">
+                  {d.label} ({d.tableName})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[11px] text-muted-foreground font-medium">Link to this table via</Label>
+          <Select
+            value={rel.m2mJunctionSrcCol ?? ""}
+            onValueChange={(v) => setRel({ m2mJunctionSrcCol: v, m2mJunctionTgtCol: undefined, m2mDisplayColumns: [] })}
+            disabled={!rel.m2mJunctionDefId}
+          >
+            <SelectTrigger className="h-8 text-xs bg-background">
+              <SelectValue placeholder="Junction fk column → this table" />
+            </SelectTrigger>
+            <SelectContent>
+              {srcOptions.map((c) => (
+                <SelectItem key={c.name} value={c.name} className="text-xs">
+                  {c.label} ({c.name})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {rel.m2mJunctionDefId && srcOptions.length === 0 && (
+            <p className="text-[10px] text-amber-600">No junction fk column points at this table yet.</p>
+          )}
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[11px] text-muted-foreground font-medium">Related table via</Label>
+          <Select
+            value={rel.m2mJunctionTgtCol ?? ""}
+            onValueChange={(v) => {
+              const t = fkCols.find((c) => c.name === v);
+              setRel({
+                m2mJunctionTgtCol: v,
+                m2mDisplayColumns: [],
+                name: `m2m_${junctionTable?.tableName ?? "j"}_${v}`,
+                label: t?.label ?? rel.label,
+              });
+            }}
+            disabled={!rel.m2mJunctionSrcCol}
+          >
+            <SelectTrigger className="h-8 text-xs bg-background">
+              <SelectValue placeholder="Junction fk column → target" />
+            </SelectTrigger>
+            <SelectContent>
+              {tgtOptions.map((c) => (
+                <SelectItem key={c.name} value={c.name} className="text-xs">
+                  {c.label} ({c.name})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      {rel.m2mJunctionTgtCol && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Label className="text-[11px] text-muted-foreground font-medium">Display columns on target table</Label>
+            <div className="flex gap-1">
+              <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setRel({ m2mDisplayColumns: targetCols.map((c) => c.name) })}>
+                Select All
+              </Button>
+              <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setRel({ m2mDisplayColumns: [] })}>
+                Clear
+              </Button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {targetCols.map((c) => {
+              const on = selectedDisplay.includes(c.name);
+              return (
+                <button
+                  key={c.name}
+                  type="button"
+                  onClick={() =>
+                    setRel({
+                      m2mDisplayColumns: on
+                        ? selectedDisplay.filter((d) => d !== c.name)
+                        : [...selectedDisplay, c.name],
+                    })
+                  }
+                  className={`rounded-md border px-2 py-1 text-[10px] font-mono transition-colors ${
+                    on
+                      ? "border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+                      : "border-border text-muted-foreground hover:border-violet-500/30"
+                  }`}
+                >
+                  {c.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function defsTableName(id: string, defs: TableDefPayload[]): string {
+  return defs.find((d) => String(d.id) === id)?.tableName?.replace(/[^A-Za-z0-9_]/g, "_") ?? "j";
 }
