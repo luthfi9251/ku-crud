@@ -1,6 +1,6 @@
 # Ku-CRUD
 
-Runtime-defined CRUD over your Postgres databases. Single binary, no DDL —
+Runtime-defined CRUD over your Postgres and MySQL databases. Single binary, no DDL —
 you own the schema, Ku-CRUD gives it a UI.
 
 One Go process serves the JSON API (`/api/*`) and an embedded React SPA.
@@ -19,7 +19,7 @@ and CRUD away.
 
 ## How it works
 
-1. **Datasources** — register Postgres databases (host/port/db/user/password/sslmode).
+1. **Datasources** — register Postgres or MySQL databases (driver + host/port/db/user/password/sslmode).
 2. **Table definitions** — a 3-step wizard introspects a live table (columns, types,
    keys, enums) and lets you tune labels, editability, visibility, search/sort flags,
    and the page size. Keys can be a single column or a **composite key** (they are
@@ -142,8 +142,10 @@ Under systemd, follow with `journalctl -u ku-crud -f`.
     cmd/seed-admin/        create an admin login user in the metadata store
     internal/meta/         SQLite metadata store: migrations, users, roles,
                            datasources, table defs, audit
-    internal/ds/           Postgres: DSN/connect, introspection, drift compare,
-                           query builders (QuoteIdent + fully parameterized SQL)
+    internal/ds/           Adapter layer: dialect-neutral `Adapter` interface +
+                           `ds.Open` factory, sqlkit (dialect SQL builders),
+                           postgres & mysql adapters (introspection, drift
+                           compare inputs, fully parameterized SQL)
     internal/tokenid/      masked id codec (Feistel-HMAC, 11-char tokens)
     internal/api/          HTTP handlers: auth, RBAC gates, datasources,
                            table defs, rows, users, roles, audit, logging
@@ -177,13 +179,17 @@ piped, so it works from scripts):
 
 ### Backend
 
-    make dev-pg                       # dev Postgres on :5433 (ku/ku/ku)
+    make dev-pg                       # docker compose up -d — starts both dev DBs:
+                                      # Postgres on :5433 (ku/ku/ku)
+                                      # MySQL on :3307 (ku/ku/ku)
     go run ./cmd/main.go -addr :8080 -data /tmp/dev.db
 
 Tests (unit tests self-skip without a database):
 
     go test ./...                                   # unit only
     KUCRUD_TEST_PG=postgres://ku:ku@localhost:5433/ku go test ./... -count=1
+    KUCRUD_TEST_MYSQL='ku:ku@tcp(localhost:3307)/ku?parseTime=true' \
+      go test ./... -count=1 -p 1
 
 Integration tests share one schema (`DROP SCHEMA public CASCADE`), so run
 packages serially under load: `go test -p 1 ./...`.

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -62,5 +63,50 @@ func TestDatasourceEndpoints(t *testing.T) {
 	w = do(s, "POST", "/api/datasources/"+s.ids.Encode("ds", 2)+"/test", "", c)
 	if w.Code != 502 || !strings.Contains(w.Body.String(), `"CONN"`) {
 		t.Fatalf("test conn = %d %s", w.Code, w.Body)
+	}
+}
+
+func TestDatasourceDriverField(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+
+	// create mysql datasource (dead host fine — validation only)
+	body := `{"name":"my","driver":"mysql","host":"h","port":3306,"dbname":"db",
+		"username":"u","password":"p","sslmode":"disable"}`
+	w := do(s, "POST", "/api/datasources", body, c)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"driver":"mysql"`) {
+		t.Fatalf("create mysql ds = %d %s", w.Code, w.Body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &created)
+
+	// missing driver → defaults postgres
+	w = do(s, "POST", "/api/datasources",
+		`{"name":"pg","host":"h","port":5432,"dbname":"db","username":"u","password":"p","sslmode":"disable"}`, c)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"driver":"postgres"`) {
+		t.Fatalf("default driver = %d %s", w.Code, w.Body)
+	}
+
+	// unknown driver → 400
+	w = do(s, "POST", "/api/datasources",
+		`{"name":"x","driver":"oracle","host":"h","port":1,"dbname":"db","username":"u","password":"p","sslmode":"disable"}`, c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "unsupported driver") {
+		t.Fatalf("oracle = %d %s", w.Code, w.Body)
+	}
+
+	// update keeps driver field
+	w = do(s, "PUT", "/api/datasources/"+created.ID,
+		`{"name":"my2","driver":"mysql","host":"h","port":3306,"dbname":"db","username":"u","password":"p","sslmode":"disable"}`, c)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"driver":"mysql"`) {
+		t.Fatalf("update = %d %s", w.Code, w.Body)
+	}
+
+	// legacy PUT without driver keeps stored mysql driver
+	w = do(s, "PUT", "/api/datasources/"+created.ID,
+		`{"name":"my3","host":"h","port":3306,"dbname":"db","username":"u","password":"p","sslmode":"disable"}`, c)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"driver":"mysql"`) {
+		t.Fatalf("legacy update driver = %d %s", w.Code, w.Body)
 	}
 }

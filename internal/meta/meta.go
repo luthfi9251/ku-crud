@@ -87,6 +87,8 @@ ALTER TABLE table_defs DROP COLUMN pk_column;`,
 ALTER TABLE columns ADD COLUMN fk_table_def_id INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE columns ADD COLUMN fk_ref_column TEXT NOT NULL DEFAULT '';
 ALTER TABLE columns ADD COLUMN fk_display_columns TEXT;`,
+	// v1.2 phase 2: adapter driver per datasource ('postgres' | 'mysql' | future).
+	`ALTER TABLE datasources ADD COLUMN driver TEXT NOT NULL DEFAULT 'postgres';`,
 }
 
 func Open(path string) (*Store, error) {

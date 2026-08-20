@@ -1,7 +1,6 @@
 package api
 
 import (
-	"database/sql"
 	"errors"
 	"net/http"
 
@@ -415,8 +414,8 @@ func (s *Server) handleTableDelete(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// liveDB opens the live PG connection for a datasource id.
-func (s *Server) liveDB(dsID int64) (*sql.DB, error) {
+// liveAdapter opens the live connection for a datasource id.
+func (s *Server) liveAdapter(dsID int64) (ds.Adapter, error) {
 	d, err := s.store.GetDatasource(dsID)
 	if errors.Is(err, meta.ErrNotFound) {
 		return nil, errDSNotFound
@@ -424,11 +423,11 @@ func (s *Server) liveDB(dsID int64) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := ds.Connect(dsToDSN(d))
+	a, err := ds.Open(*d)
 	if err != nil {
 		return nil, errConn
 	}
-	return db, nil
+	return a, nil
 }
 
 func (s *Server) writeLiveErr(w http.ResponseWriter, err error) {
@@ -449,13 +448,18 @@ func (s *Server) handleDSTables(w http.ResponseWriter, r *http.Request) {
 		s.writeDSErr(w, err)
 		return
 	}
-	db, err := s.liveDB(id)
+	d, err := s.store.GetDatasource(id)
 	if err != nil {
-		s.writeLiveErr(w, err)
+		s.writeDSErr(w, err)
 		return
 	}
-	defer db.Close()
-	tables, err := ds.ListTables(db)
+	a, err := ds.Open(*d)
+	if err != nil {
+		s.writeLiveErr(w, errConn)
+		return
+	}
+	defer a.Close()
+	tables, err := a.ListTables()
 	if err != nil {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
@@ -469,13 +473,13 @@ func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
-	db, err := s.liveDB(def.DatasourceID)
+	db, err := s.liveAdapter(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
 		return
 	}
 	defer db.Close()
-	live, err := ds.InspectTable(db, def.SchemaName, def.TableName)
+	live, err := db.InspectTable(def.SchemaName, def.TableName)
 	if err != nil {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
@@ -494,13 +498,13 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
-	db, err := s.liveDB(def.DatasourceID)
+	db, err := s.liveAdapter(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
 		return
 	}
 	defer db.Close()
-	live, err := ds.InspectTable(db, def.SchemaName, def.TableName)
+	live, err := db.InspectTable(def.SchemaName, def.TableName)
 	if err != nil {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
@@ -576,13 +580,18 @@ func (s *Server) handleDSColumns(w http.ResponseWriter, r *http.Request) {
 		s.writeDSErr(w, err)
 		return
 	}
-	db, err := s.liveDB(id)
+	d, err := s.store.GetDatasource(id)
 	if err != nil {
-		s.writeLiveErr(w, err)
+		s.writeDSErr(w, err)
 		return
 	}
-	defer db.Close()
-	cols, err := ds.InspectTable(db, r.PathValue("schema"), r.PathValue("table"))
+	a, err := ds.Open(*d)
+	if err != nil {
+		s.writeLiveErr(w, errConn)
+		return
+	}
+	defer a.Close()
+	cols, err := a.InspectTable(r.PathValue("schema"), r.PathValue("table"))
 	if err != nil {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
