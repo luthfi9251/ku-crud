@@ -166,7 +166,7 @@ export default function Data() {
 
   const modalFields = useMemo(() => {
     const allCols = def.data?.columns ?? [];
-    return allCols.filter((c) => c.editable || keyCols.includes(c.name));
+    return allCols.filter((c) => c.editable || keyCols.includes(c.name) || c.fieldType === "m2m");
   }, [def.data?.columns, keyCols]);
 
   const save = useMutation({
@@ -183,7 +183,12 @@ export default function Data() {
         await api(`/tables/${id}/rows`, { method: "POST", body: JSON.stringify(payload) });
       } else {
         // In edit mode, strip PKs and non-editable fields from PUT payload
-        for (const c of editable.filter((c) => !keyCols.includes(c.name))) {
+        // (m2m selections always ride along — the server strips and syncs them)
+        const sendCols = [
+          ...editable.filter((c) => !keyCols.includes(c.name)),
+          ...(def.data?.columns ?? []).filter((c) => c.fieldType === "m2m"),
+        ];
+        for (const c of sendCols) {
           const v = form!.row[c.name];
           if (v !== undefined) payload[c.name] = v;
         }
