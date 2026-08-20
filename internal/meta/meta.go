@@ -82,6 +82,11 @@ CREATE TABLE role_table_grants(
 ALTER TABLE table_defs ADD COLUMN key_columns TEXT NOT NULL DEFAULT '[]';
 UPDATE table_defs SET key_columns=json_array(pk_column);
 ALTER TABLE table_defs DROP COLUMN pk_column;`,
+	// v1.2: FK relation columns. fk_table_def_id 0 = not an FK reference.
+	`ALTER TABLE columns ADD COLUMN base_type TEXT NOT NULL DEFAULT '';
+ALTER TABLE columns ADD COLUMN fk_table_def_id INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE columns ADD COLUMN fk_ref_column TEXT NOT NULL DEFAULT '';
+ALTER TABLE columns ADD COLUMN fk_display_columns TEXT;`,
 }
 
 func Open(path string) (*Store, error) {

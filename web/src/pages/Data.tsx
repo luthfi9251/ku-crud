@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search,
   Plus,
+  ExternalLink,
   RefreshCw,
   Edit,
   Trash2,
@@ -18,7 +19,7 @@ import {
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { encodeRowKey } from "../lib/rowkey";
-import type { ColumnDef, Row, RowsRes, TableDefPayload } from "../lib/types";
+import type { ColumnDef, FkOptionsRes, Row, RowsRes, TableDefPayload } from "../lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -117,9 +118,24 @@ export default function Data() {
     },
   });
 
+  const [delErr, setDelErr] = useState("");
   const del = useMutation({
     mutationFn: (key: string[]) => api(`/tables/${id}/rows/${encodeRowKey(key)}`, { method: "DELETE" }),
-    onSuccess: () => rows.refetch(),
+    onSuccess: () => {
+      setDelErr("");
+      rows.refetch();
+    },
+    onError: (e) => {
+      if (e instanceof ApiError && e.code === "CONFLICT") {
+        const d = Array.isArray(e.detail)
+          ? (e.detail as { table: string; column: string; count: number }[])
+              .map((x) => `${x.table}.${x.column} (${x.count} rows)`).join(", ")
+          : String(e.detail ?? "");
+        setDelErr(`Row direferensikan oleh: ${d || "table lain"}`);
+      } else {
+        setDelErr(e instanceof Error ? e.message : "delete failed");
+      }
+    },
   });
 
   const resync = useMutation({
@@ -155,6 +171,17 @@ export default function Data() {
 
   const r = rows.data;
   const pages = r ? Math.max(1, Math.ceil(r.total / r.pageSize)) : 1;
+
+  const rels = rows.data?.rels;
+  const fkDisplay = (c: ColumnDef, row: Row): string | null => {
+    if (c.fieldType !== "fk" || !c.fkDisplayColumns) return null;
+    const rel = rels?.[c.name]?.[String(row[c.name])];
+    if (!rel) return null;
+    const parts = c.fkDisplayColumns
+      .map((f) => (rel[f] === null || rel[f] === undefined ? null : String(rel[f])))
+      .filter((p): p is string => p !== null);
+    return parts.length ? parts.join(" — ") : null;
+  };
 
   return (
     <div className="space-y-6">
@@ -250,6 +277,14 @@ export default function Data() {
         </div>
       )}
 
+      {delErr && (
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3.5 text-xs text-destructive">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span className="flex-1">{delErr}</span>
+          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setDelErr("")}>Tutup</Button>
+        </div>
+      )}
+
       {/* Main Data Table */}
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardContent className="p-0">
@@ -312,11 +347,18 @@ export default function Data() {
                 ) : (
                   (r?.rows ?? []).map((row, i) => (
                     <TableRow key={(rowKey(row) ?? []).join("\u0000") + i} className="hover:bg-muted/20">
-                      {cols.map((c) => (
-                        <TableCell key={c.name} className="text-xs font-mono max-w-xs truncate">
-                          {renderValue(row[c.name], c.fieldType)}
-                        </TableCell>
-                      ))}
+                      {cols.map((c) => {
+                        const disp = fkDisplay(c, row);
+                        return (
+                          <TableCell key={c.name} className="text-xs font-mono max-w-xs truncate">
+                            {disp !== null ? (
+                              <span className="font-sans">{disp}</span>
+                            ) : (
+                              renderValue(row[c.name], c.fieldType === "fk" ? "text" : c.fieldType)
+                            )}
+                          </TableCell>
+                        );
+                      })}
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
                           {rowKey(row) && perms.update && (
@@ -394,14 +436,25 @@ export default function Data() {
 
           {form && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
-              {editable.map((c) => (
-                <FieldInput
-                  key={c.name}
-                  col={c}
-                  row={form.row}
-                  onChange={(v) => setForm({ ...form, row: { ...form.row, [c.name]: v } })}
-                />
-              ))}
+              {editable.map((c) =>
+                c.fieldType === "fk" ? (
+                  <FkField
+                    key={c.name}
+                    col={c}
+                    tableId={id}
+                    row={form.row}
+                    rels={rows.data?.rels}
+                    onChange={(v) => setForm({ ...form, row: { ...form.row, [c.name]: v } })}
+                  />
+                ) : (
+                  <FieldInput
+                    key={c.name}
+                    col={c}
+                    row={form.row}
+                    onChange={(v) => setForm({ ...form, row: { ...form.row, [c.name]: v } })}
+                  />
+                )
+              )}
             </div>
           )}
 
@@ -502,6 +555,127 @@ function FieldInput({ col, row, onChange }: { col: ColumnDef; row: Row; onChange
       ) : (
         <Input className="h-9 text-xs" value={val} onChange={(e) => onChange(e.target.value)} />
       )}
+    </div>
+  );
+}
+
+function FkField({
+  col, tableId, row, rels, onChange,
+}: {
+  col: ColumnDef; tableId?: string; row: Row;
+  rels?: Record<string, Record<string, Row>>; onChange: (v: unknown) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [page, setPage] = useState(1);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const t = setTimeout(() => { setDebounced(search); setPage(1); }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const opts = useQuery({
+    queryKey: ["fkopts", tableId, col.name, debounced, page],
+    enabled: open,
+    queryFn: () =>
+      api<FkOptionsRes>(
+        `/tables/${tableId}/fkoptions/${col.name}?` +
+          new URLSearchParams({ ...(debounced ? { search: debounced } : {}), page: String(page) })
+      ),
+  });
+
+  const rel = rels?.[col.name]?.[String(row[col.name])];
+  const preview = rel
+    ? (col.fkDisplayColumns ?? []).map((f) => (rel[f] === null || rel[f] === undefined ? null : String(rel[f]))).filter(Boolean).join(" — ")
+    : row[col.name] === null || row[col.name] === undefined
+      ? ""
+      : String(row[col.name]);
+  const pages = opts.data ? Math.max(1, Math.ceil(opts.data.total / opts.data.pageSize)) : 1;
+
+  return (
+    <div className="space-y-1 md:col-span-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs font-medium">
+          {col.label} {col.required && <span className="text-destructive">*</span>}
+        </Label>
+        <span className="text-[10px] text-muted-foreground font-mono">fk</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="flex h-9 flex-1 items-center rounded-md border bg-background px-3 text-xs">
+          {preview || <span className="text-muted-foreground italic">— not set —</span>}
+        </div>
+        {row[col.name] !== null && row[col.name] !== undefined && (
+          <Button
+            type="button" variant="outline" size="sm" className="h-9 gap-1 text-xs"
+            onClick={() => col.fkTableDefId && col.fkTableDefId !== "self" && navigate(`/data/${col.fkTableDefId}`)}
+            title="Edit this record on its own table page"
+          >
+            <ExternalLink className="h-3.5 w-3.5" /> Edit di table terkait
+          </Button>
+        )}
+        <Button type="button" variant="outline" size="sm" className="h-9 gap-1 text-xs" onClick={() => setOpen(true)}>
+          <Search className="h-3.5 w-3.5" /> Pilih…
+        </Button>
+        {row[col.name] !== null && row[col.name] !== undefined && (
+          <Button type="button" variant="ghost" size="sm" className="h-9 text-xs" onClick={() => onChange(null)}>
+            Clear
+          </Button>
+        )}
+      </div>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Pilih {col.label}</DialogTitle>
+            <DialogDescription className="text-xs">Cari lalu klik baris untuk menghubungkan</DialogDescription>
+          </DialogHeader>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input className="h-9 pl-8 text-xs" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+          <div className="max-h-64 overflow-y-auto rounded-md border">
+            {(opts.data?.rows ?? []).length === 0 ? (
+              <p className="p-4 text-center text-xs text-muted-foreground">Tidak ada data ditemukan</p>
+            ) : (
+              (opts.data?.rows ?? []).map((r, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className="flex w-full items-center justify-between border-b px-3 py-2 text-left text-xs hover:bg-muted/50"
+                  onClick={() => { onChange(r[col.fkRefColumn ?? ""]); setOpen(false); }}
+                >
+                  <span className="font-mono">
+                    {(col.fkDisplayColumns ?? []).map((f) => String(r[f] ?? "—")).join(" — ")}
+                  </span>
+                  <Badge variant="outline" className="text-[10px] font-mono">
+                    {String(r[col.fkRefColumn ?? ""])}
+                  </Badge>
+                </button>
+              ))
+            )}
+          </div>
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <Button
+              type="button" variant="outline" size="sm" className="h-8 gap-1 text-xs"
+              disabled={!col.fkTableDefId || col.fkTableDefId === "self"}
+              onClick={() => col.fkTableDefId && navigate(`/data/${col.fkTableDefId}`)}
+            >
+              <Plus className="h-3.5 w-3.5" /> Tambah baru
+            </Button>
+            <div className="flex items-center gap-1">
+              <Button type="button" variant="outline" size="sm" className="h-8 text-xs" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <span>Page {opts.data?.page ?? page} of {pages}</span>
+              <Button type="button" variant="outline" size="sm" className="h-8 text-xs" disabled={page >= pages} onClick={() => setPage(page + 1)}>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

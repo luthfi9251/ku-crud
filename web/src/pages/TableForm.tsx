@@ -11,7 +11,7 @@ import {
   Layers,
 } from "lucide-react";
 import { api } from "../lib/api";
-import type { ColumnDef, Datasource, LiveColumn, TableDefPayload } from "../lib/types";
+import type { BaseFieldType, ColumnDef, Datasource, LiveColumn, TableDefPayload } from "../lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,10 +20,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
-const fieldTypes = ["boolean", "text", "number", "datetime", "enum"] as const;
+const fieldTypes = ["boolean", "text", "number", "datetime", "enum", "fk"] as const;
 
 interface FormCol extends ColumnDef {
   livePk?: boolean;
+  origType?: BaseFieldType; // introspected type, becomes baseType when switched to fk
+  fkDs?: string;            // transient: selected target datasource for this fk column
 }
 
 export default function TableForm() {
@@ -51,6 +53,12 @@ export default function TableForm() {
   const dsList = useQuery({
     queryKey: ["ds"],
     queryFn: () => api<Datasource[]>("/datasources"),
+  });
+
+  // Ku-CRUD table definitions list (for FK target selection)
+  const defs = useQuery({
+    queryKey: ["defs"],
+    queryFn: () => api<TableDefPayload[]>("/tables"),
   });
 
   // Database tables query
@@ -99,6 +107,8 @@ export default function TableForm() {
           sortable: true,
           position: i,
           livePk: c.isPk,
+          origType: c.fieldType as BaseFieldType,
+          fkDs: dsId,
         }))
       );
     }
@@ -116,7 +126,11 @@ export default function TableForm() {
         label,
         keyColumns: keys,
         pageSize,
-        columns: cols.map(({ livePk: _lp, ...c }) => c),
+        columns: cols.map(({ livePk: _lp, origType: _ot, fkDs: _fd, ...c }) =>
+          c.fieldType === "fk"
+            ? c
+            : { ...c, baseType: undefined, fkTableDefId: undefined, fkRefColumn: undefined, fkDisplayColumns: undefined }
+        ),
       });
       return isEditing
         ? api(`/tables/${id}`, { method: "PUT", body })
@@ -385,6 +399,9 @@ export default function TableForm() {
                                 setCol(i, {
                                   fieldType: v as ColumnDef["fieldType"],
                                   enumOptions: v === "enum" ? (c.enumOptions ?? []) : null,
+                                  ...(v === "fk"
+                                    ? { baseType: c.origType ?? (c.fieldType === "fk" ? c.baseType : "text") }
+                                    : { baseType: undefined, fkTableDefId: undefined, fkRefColumn: undefined, fkDisplayColumns: undefined }),
                                 })
                               }
                             >
@@ -447,6 +464,31 @@ export default function TableForm() {
               </div>
             )}
 
+            {/* Foreign Key Relations config if any fk field exists */}
+            {cols.some((c) => c.fieldType === "fk") && (
+              <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
+                <p className="text-xs font-semibold text-foreground">Foreign Key Relations</p>
+                {cols
+                  .filter((c) => c.fieldType === "fk")
+                  .map((c) => {
+                    const i = cols.indexOf(c);
+                    return (
+                      <FKConfig
+                        key={c.name}
+                        col={c}
+                        index={i}
+                        dsId={dsId}
+                        currentId={id}
+                        defs={defs.data ?? []}
+                        dsList={dsList.data ?? []}
+                        cols={cols}
+                        setCol={setCol}
+                      />
+                    );
+                  })}
+              </div>
+            )}
+
             {save.isError && (
               <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive">
                 {String((save.error as Error).message)}
@@ -469,6 +511,103 @@ export default function TableForm() {
           </fieldset>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function FKConfig({
+  col, index, dsId, currentId, defs, dsList, cols, setCol,
+}: {
+  col: FormCol; index: number; dsId: string; currentId?: string;
+  defs: TableDefPayload[]; dsList: Datasource[]; cols: FormCol[];
+  setCol: (i: number, patch: Partial<FormCol>) => void;
+}) {
+  const fkDs = col.fkDs ?? dsId;
+  const targetDefs = defs.filter((d) => d.datasourceId === fkDs);
+  const isSelf = col.fkTableDefId === "self" || (!!currentId && col.fkTableDefId === currentId);
+  const targetDefQ = useQuery({
+    queryKey: ["def", col.fkTableDefId],
+    enabled: !!col.fkTableDefId && !isSelf,
+    queryFn: () => api<TableDefPayload>(`/tables/${col.fkTableDefId}`),
+  });
+  const targetCols = isSelf ? cols : (targetDefQ.data?.columns ?? []);
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 rounded-md border bg-card p-3">
+      <div className="space-y-1">
+        <Label className="text-[11px] text-muted-foreground">{col.label} — target datasource</Label>
+        <Select
+          value={fkDs}
+          onValueChange={(v) => setCol(index, { fkDs: v, fkTableDefId: undefined, fkRefColumn: undefined, fkDisplayColumns: undefined })}
+        >
+          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {dsList.map((d) => (
+              <SelectItem key={d.id} value={String(d.id)} className="text-xs">{d.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[11px] text-muted-foreground">Related table</Label>
+        <Select
+          value={col.fkTableDefId ?? ""}
+          onValueChange={(v) => setCol(index, { fkTableDefId: v, fkRefColumn: undefined, fkDisplayColumns: undefined })}
+        >
+          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose table..." /></SelectTrigger>
+          <SelectContent>
+            {fkDs === dsId && (
+              <SelectItem value="self" className="text-xs">This table (self)</SelectItem>
+            )}
+            {targetDefs
+              .filter((d) => String(d.id) !== currentId)
+              .map((d) => (
+                <SelectItem key={d.id} value={String(d.id)} className="text-xs">{d.label}</SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[11px] text-muted-foreground">Reference column</Label>
+        <Select
+          value={col.fkRefColumn ?? ""}
+          onValueChange={(v) => setCol(index, { fkRefColumn: v, fkDisplayColumns: undefined })}
+          disabled={!col.fkTableDefId}
+        >
+          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Ref column..." /></SelectTrigger>
+          <SelectContent>
+            {targetCols.map((tc) => (
+              <SelectItem key={tc.name} value={tc.name} className="text-xs font-mono">{tc.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[11px] text-muted-foreground">Display columns</Label>
+        <div className="max-h-24 space-y-1 overflow-y-auto rounded-md border bg-background p-2">
+          {targetCols
+            .filter((tc) => tc.name !== col.fkRefColumn)
+            .map((tc) => {
+              const sel = (col.fkDisplayColumns ?? []).includes(tc.name);
+              return (
+                <label key={tc.name} className="flex items-center gap-2 text-xs font-mono">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-blue-600"
+                    checked={sel}
+                    onChange={() =>
+                      setCol(index, {
+                        fkDisplayColumns: sel
+                          ? (col.fkDisplayColumns ?? []).filter((n) => n !== tc.name)
+                          : [...(col.fkDisplayColumns ?? []), tc.name],
+                      })
+                    }
+                  />
+                  {tc.name}
+                </label>
+              );
+            })}
+        </div>
+      </div>
     </div>
   );
 }

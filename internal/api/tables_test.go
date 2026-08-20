@@ -131,3 +131,120 @@ func TestIntrospectionEndpoints(t *testing.T) {
 		t.Fatalf("columns = %d %s", w.Code, w.Body)
 	}
 }
+
+// fkDefBody creates a customers def, then an orders def whose customer_id is
+// an fk to it. Returns the orders create payload (fkTableDefId token).
+func fkDefBody(s *Server) string {
+	return `{"datasourceId":"` + s.ids.Encode("ds", 1) + `","schemaName":"public","tableName":"orders",
+"label":"Orders","keyColumns":["id"],"pageSize":20,"columns":[
+ {"name":"id","label":"ID","fieldType":"number","editable":false,"required":true,
+  "visible":true,"searchable":true,"sortable":true,"position":0},
+ {"name":"customer_id","label":"Customer","fieldType":"fk","baseType":"number",
+  "fkTableDefId":"` + s.ids.Encode("td", 1) + `","fkRefColumn":"id","fkDisplayColumns":["id","name"],
+  "editable":true,"required":false,"visible":true,"searchable":true,"sortable":true,"position":1}]}`
+}
+
+func seedParentDef(t *testing.T, s *Server) {
+	t.Helper()
+	parent := `{"datasourceId":"` + s.ids.Encode("ds", 1) + `","schemaName":"public","tableName":"customers",
+"label":"Customers","keyColumns":["id"],"pageSize":20,"columns":[
+ {"name":"id","label":"ID","fieldType":"number","editable":false,"required":true,
+  "visible":true,"searchable":true,"sortable":true,"position":0},
+ {"name":"name","label":"Name","fieldType":"text","editable":true,"required":true,
+  "visible":true,"searchable":true,"sortable":true,"position":1}]}`
+	if w := do(s, "POST", "/api/tables", parent, login(s)); w.Code != 200 {
+		t.Fatalf("parent = %d %s", w.Code, w.Body)
+	}
+}
+
+func TestTableDefFKValidation(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	seedDS(t, s)
+	seedParentDef(t, s)
+
+	// valid fk def → 200, DTO carries masked fk id + display columns
+	w := do(s, "POST", "/api/tables", fkDefBody(s), c)
+	if w.Code != 200 {
+		t.Fatalf("create fk def = %d %s", w.Code, w.Body)
+	}
+	if !strings.Contains(w.Body.String(), `"fkTableDefId":"`+s.ids.Encode("td", 1)+`"`) ||
+		!strings.Contains(w.Body.String(), `"baseType":"number"`) ||
+		!strings.Contains(w.Body.String(), `"fkDisplayColumns":["id","name"]`) {
+		t.Fatalf("dto missing fk fields: %s", w.Body)
+	}
+
+	// fk to unknown def → 400
+	w = do(s, "POST", "/api/tables", strings.Replace(fkDefBody(s),
+		s.ids.Encode("td", 1), s.ids.Encode("td", 99), 1), c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "fk") {
+		t.Fatalf("unknown target = %d %s", w.Code, w.Body)
+	}
+
+	// undecodable fk token → 400, not silently treated as self-ref
+	w = do(s, "POST", "/api/tables", strings.Replace(fkDefBody(s),
+		s.ids.Encode("td", 1), "zzz", 1), c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "fk needs fkTableDefId") {
+		t.Fatalf("garbage token = %d %s", w.Code, w.Body)
+	}
+
+	// missing fkTableDefId entirely → 400
+	w = do(s, "POST", "/api/tables", strings.Replace(fkDefBody(s),
+		`"fkTableDefId":"`+s.ids.Encode("td", 1)+`",`, ``, 1), c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "fk needs fkTableDefId") {
+		t.Fatalf("missing fkTableDefId = %d %s", w.Code, w.Body)
+	}
+
+	// duplicate fkDisplayColumns → 400
+	w = do(s, "POST", "/api/tables", strings.Replace(fkDefBody(s),
+		`"fkDisplayColumns":["id","name"]`, `"fkDisplayColumns":["id","id"]`, 1), c)
+	if w.Code != 400 {
+		t.Fatalf("dup display col = %d %s", w.Code, w.Body)
+	}
+
+	// fkRefColumn not on target → 400
+	w = do(s, "POST", "/api/tables", strings.Replace(fkDefBody(s),
+		`"fkRefColumn":"id"`, `"fkRefColumn":"nope"`, 1), c)
+	if w.Code != 400 {
+		t.Fatalf("bad ref col = %d %s", w.Code, w.Body)
+	}
+
+	// display column not on target → 400
+	w = do(s, "POST", "/api/tables", strings.Replace(fkDefBody(s),
+		`"fkDisplayColumns":["id","name"]`, `"fkDisplayColumns":["zzz"]`, 1), c)
+	if w.Code != 400 {
+		t.Fatalf("bad display col = %d %s", w.Code, w.Body)
+	}
+
+	// fk without baseType → 400
+	w = do(s, "POST", "/api/tables", strings.Replace(fkDefBody(s),
+		`"baseType":"number",`, ``, 1), c)
+	if w.Code != 400 {
+		t.Fatalf("no baseType = %d %s", w.Code, w.Body)
+	}
+
+	// non-fk column carrying fk fields → 400
+	w = do(s, "POST", "/api/tables", strings.Replace(fkDefBody(s),
+		`"fieldType":"fk"`, `"fieldType":"number"`, 1), c)
+	if w.Code != 400 {
+		t.Fatalf("fk fields on non-fk = %d %s", w.Code, w.Body)
+	}
+
+	// self reference via "self" sentinel → 200
+	self := `{"datasourceId":"` + s.ids.Encode("ds", 1) + `","schemaName":"public","tableName":"cats",
+"label":"Cats","keyColumns":["id"],"pageSize":20,"columns":[
+ {"name":"id","label":"ID","fieldType":"number","editable":false,"required":true,
+  "visible":true,"searchable":true,"sortable":true,"position":0},
+ {"name":"parent_id","label":"Parent","fieldType":"fk","baseType":"number",
+  "fkTableDefId":"self","fkRefColumn":"id","fkDisplayColumns":["id"],
+  "editable":true,"visible":true,"position":1}]}`
+	w = do(s, "POST", "/api/tables", self, c)
+	if w.Code != 200 {
+		t.Fatalf("self ref = %d %s", w.Code, w.Body)
+	}
+	// stored def reports its own token back
+	if w = do(s, "GET", "/api/tables/"+tdTok(s, 3), "", c); !strings.Contains(w.Body.String(),
+		`"fkTableDefId":"`+tdTok(s, 3)+`"`) {
+		t.Fatalf("self token round-trip: %s", w.Body)
+	}
+}

@@ -37,3 +37,16 @@ func TestCompareDrift(t *testing.T) {
 		t.Fatalf("expected empty, got %+v", rep)
 	}
 }
+
+func TestEffectiveType(t *testing.T) {
+	c := meta.ColumnDef{FieldType: "fk", BaseType: "number"}
+	if EffectiveType(c) != "number" {
+		t.Fatalf("fk col should compare as base type, got %q", EffectiveType(c))
+	}
+	if EffectiveType(meta.ColumnDef{FieldType: "text"}) != "text" {
+		t.Fatal("non-fk passthrough")
+	}
+	if EffectiveType(meta.ColumnDef{FieldType: "fk"}) != "fk" {
+		t.Fatal("fk without base falls back to fk")
+	}
+}

@@ -209,3 +209,48 @@ func BuildFetchByKey(schema, table string, keyCols []string, columns []string) (
 	}
 	return "SELECT " + strings.Join(qs, ",") + " FROM " + tbl + kw, nil
 }
+
+// BuildFetchByRefValues selects refCol + displayCols (deduped) from table
+// where refCol IN ($1..$n). nValues must be > 0; the caller passes the args.
+func BuildFetchByRefValues(schema, table, refCol string, displayCols []string, nValues int) (string, error) {
+	if nValues <= 0 {
+		return "", fmt.Errorf("no ref values to look up")
+	}
+	tbl, err := qualify(schema, table)
+	if err != nil {
+		return "", err
+	}
+	qr, err := QuoteIdent(refCol)
+	if err != nil {
+		return "", err
+	}
+	names := []string{refCol}
+	for _, d := range displayCols {
+		if d != refCol {
+			names = append(names, d)
+		}
+	}
+	qs, err := quoteAll(names)
+	if err != nil {
+		return "", err
+	}
+	ph := make([]string, nValues)
+	for i := range ph {
+		ph[i] = fmt.Sprintf("$%d", i+1)
+	}
+	return "SELECT " + strings.Join(qs, ",") + " FROM " + tbl +
+		" WHERE " + qr + " IN (" + strings.Join(ph, ",") + ")", nil
+}
+
+// BuildCountByRefEq counts rows where col = $1 (delete-reference protection).
+func BuildCountByRefEq(schema, table, col string) (string, error) {
+	tbl, err := qualify(schema, table)
+	if err != nil {
+		return "", err
+	}
+	q, err := QuoteIdent(col)
+	if err != nil {
+		return "", err
+	}
+	return "SELECT COUNT(*) FROM " + tbl + " WHERE " + q + "=$1", nil
+}
