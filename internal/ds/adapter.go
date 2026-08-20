@@ -64,8 +64,3 @@ func rowValKeyOf(v any) string {
 		return fmt.Sprint(v)
 	}
 }
-
-// openMySQL arrives in Task 5.
-func openMySQL(d meta.Datasource) (Adapter, error) {
-	return nil, fmt.Errorf("mysql adapter not yet implemented")
-}
