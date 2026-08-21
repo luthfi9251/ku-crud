@@ -1,12 +1,41 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"ku-crud/internal/meta"
 )
+
+const importMetaMaxFile = 2 << 20 // 2 MB — metadata files are small
+
+type importPreviewRes struct {
+	Datasources []dsPreviewItem  `json:"datasources"`
+	Tables      []tblPreviewItem `json:"tables"`
+}
+
+type dsPreviewItem struct {
+	Ref       string   `json:"ref"`    // datasource name
+	Status    string   `json:"status"` // new | duplicate-identical | duplicate-conflicts
+	Conflicts []string `json:"conflicts,omitempty"`
+}
+
+type tblPreviewItem struct {
+	Ref          string    `json:"ref"` // "<datasourceRef>/<schema>/<table>"
+	Status       string    `json:"status"`
+	Dependencies []depItem `json:"dependencies"`
+	Invalid      bool      `json:"invalid,omitempty"`
+	Reason       string    `json:"reason,omitempty"`
+}
+
+type depItem struct {
+	Ref      string `json:"ref"`
+	Resolved bool   `json:"resolved"` // exists locally or inside the file
+}
 
 type metaTableRef struct {
 	DatasourceRef string `json:"datasourceRef"`
@@ -167,4 +196,164 @@ func (s *Server) handleMetaExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition",
 		fmt.Sprintf(`attachment; filename="ku-crud-meta-%s.json"`, time.Now().Format("20060102-150405")))
 	writeJSON(w, 200, f)
+}
+
+// parseMetaFile validates structure/format/version.
+func parseMetaFile(body []byte) (*metaFile, string) {
+	var f metaFile
+	if err := json.Unmarshal(body, &f); err != nil {
+		return nil, "file is not valid JSON: " + err.Error()
+	}
+	if f.Format != "ku-crud-meta" {
+		return nil, `file field "format" must be "ku-crud-meta"`
+	}
+	if f.Version != 1 {
+		return nil, "unsupported file version " + strconv.Itoa(f.Version)
+	}
+	if len(f.Tables) == 0 && len(f.Datasources) == 0 {
+		return nil, "file contains no datasources or tables"
+	}
+	return &f, ""
+}
+
+func dsEqual(a metaFileDatasource, d meta.Datasource) bool {
+	return a.Name == d.Name && a.Adapter == d.Driver && a.Host == d.Host &&
+		a.Port == d.Port && a.Database == d.DBName && a.User == d.Username && a.SSLMode == d.SSLMode
+}
+
+// tableRef builds the "<ds>/<schema>/<table>" display ref.
+func tableRef(ds, schema, table string) string { return ds + "/" + schema + "/" + table }
+
+func tblEqual(ft metaFileTable, def *meta.TableDef, cols []meta.ColumnDef, dsName, groupName string) bool {
+	if ft.DatasourceRef != dsName || ft.Schema != def.SchemaName || ft.Table != def.TableName ||
+		ft.Label != def.Label || ft.PageSize != def.PageSize ||
+		ft.DefaultSortCol != def.DefaultSortCol || ft.DefaultSortDir != def.DefaultSortDir ||
+		ft.GroupRef != groupName || len(ft.KeyColumns) != len(def.KeyColumns) {
+		return false
+	}
+	for i := range ft.KeyColumns {
+		if ft.KeyColumns[i] != def.KeyColumns[i] {
+			return false
+		}
+	}
+	if len(ft.Columns) != len(cols) {
+		return false
+	}
+	for i, c := range cols {
+		fc := ft.Columns[i]
+		if fc.Name != c.Name || fc.Label != c.Label || fc.FieldType != c.FieldType ||
+			fc.Editable != c.Editable || fc.Required != c.Required || fc.Visible != c.Visible ||
+			fc.Searchable != c.Searchable || fc.Sortable != c.Sortable || fc.Position != c.Position ||
+			len(fc.Validations) != len(c.Validations) {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Server) handleMetaImportPreview(w http.ResponseWriter, r *http.Request) {
+	file, msg := readMetaUpload(r)
+	if msg != "" {
+		writeErr(w, 400, "META_FILE_INVALID", msg, nil)
+		return
+	}
+	f, msg := parseMetaFile(file)
+	if msg != "" {
+		writeErr(w, 400, "META_FILE_INVALID", msg, nil)
+		return
+	}
+	res, msg := s.diffMeta(f)
+	if msg != "" {
+		writeErr(w, 400, "META_FILE_INVALID", msg, nil)
+		return
+	}
+	writeJSON(w, 200, res)
+}
+
+func readMetaUpload(r *http.Request) ([]byte, string) {
+	r.Body = http.MaxBytesReader(nil, r.Body, importMetaMaxFile)
+	f, _, err := r.FormFile("file")
+	if err != nil {
+		return nil, "multipart field 'file' is required (max 2 MB)"
+	}
+	defer f.Close()
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return nil, "read failed"
+	}
+	return b, ""
+}
+
+// diffMeta compares the file against local metadata and flags dependencies.
+// Also used (partially) by apply for re-validation.
+func (s *Server) diffMeta(f *metaFile) (*importPreviewRes, string) {
+	res := &importPreviewRes{Datasources: []dsPreviewItem{}, Tables: []tblPreviewItem{}}
+
+	localDS := map[string]meta.Datasource{}
+	dss, _ := s.store.ListDatasources()
+	for _, d := range dss {
+		localDS[d.Name] = d
+	}
+	fileTables := map[string]bool{} // "ds/schema/table" present in file
+	for _, ft := range f.Tables {
+		fileTables[tableRef(ft.DatasourceRef, ft.Schema, ft.Table)] = true
+	}
+	localTables := map[string]*meta.TableDef{}
+	defs, _ := s.store.ListTableDefs()
+	groupName := s.groupNameMap()
+	dsName := map[int64]string{}
+	for _, d := range dss {
+		dsName[d.ID] = d.Name
+	}
+	for i := range defs {
+		d := &defs[i]
+		localTables[tableRef(dsName[d.DatasourceID], d.SchemaName, d.TableName)] = d
+	}
+
+	for _, fds := range f.Datasources {
+		item := dsPreviewItem{Ref: fds.Name, Status: "new"}
+		if loc, ok := localDS[fds.Name]; ok {
+			if dsEqual(fds, loc) {
+				item.Status = "duplicate-identical"
+			} else {
+				item.Status = "duplicate-conflicts"
+			}
+		}
+		res.Datasources = append(res.Datasources, item)
+	}
+
+	for _, ft := range f.Tables {
+		ref := tableRef(ft.DatasourceRef, ft.Schema, ft.Table)
+		item := tblPreviewItem{Ref: ref, Status: "new", Dependencies: []depItem{}}
+		if loc, ok := localTables[ref]; ok {
+			_, cols, err := s.store.GetTableDef(loc.ID)
+			if err == nil && tblEqual(ft, loc, cols, ft.DatasourceRef, groupName[loc.GroupID]) {
+				item.Status = "duplicate-identical"
+			} else {
+				item.Status = "duplicate-conflicts"
+			}
+		}
+		// dependency refs: fkTableRef + m2mJunctionTableRef of every column
+		for _, c := range ft.Columns {
+			for _, refPtr := range []*metaTableRef{c.FKTableRef, c.M2MJunction} {
+				if refPtr == nil {
+					continue
+				}
+				dRef := tableRef(refPtr.DatasourceRef, refPtr.Schema, refPtr.Table)
+				_, inFile := fileTables[dRef]
+				_, local := localTables[dRef]
+				resolved := inFile || local
+				item.Dependencies = append(item.Dependencies, depItem{Ref: dRef, Resolved: resolved})
+				if !resolved {
+					item.Invalid = true
+					item.Reason = "dependency " + dRef + " is neither in the file nor defined locally"
+				}
+			}
+		}
+		if item.Invalid {
+			item.Status = "invalid-dependency"
+		}
+		res.Tables = append(res.Tables, item)
+	}
+	return res, ""
 }
