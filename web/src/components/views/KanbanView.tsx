@@ -4,6 +4,7 @@ import { api } from "../../lib/api";
 import { encodeRowKey } from "../../lib/rowkey";
 import type { ColumnDef, Row, RowsRes, TableDefPayload } from "../../lib/types";
 import { formatCell, enumColorClass } from "../../lib/format";
+import { useT } from "../../lib/i18n";
 import { Badge } from "@/components/ui/badge";
 
 const COL_CAP = 2000; // per-column safety cap (infinite scroll keeps going to a bound)
@@ -29,6 +30,7 @@ export function KanbanView({ def, boardCol, displayCol, search, filters, pageSiz
   onCreate: () => void;
 }) {
   const values = useMemo(() => boardCol.enumOptions ?? [], [boardCol]);
+  const t = useT();
   const [perCol, setPerCol] = useState<Record<string, ColState>>(() =>
     Object.fromEntries([...values, ""].map((v) => [v, { rows: [], page: 0, total: 0, loading: false }]))
   );
@@ -120,7 +122,7 @@ export function KanbanView({ def, boardCol, displayCol, search, filters, pageSiz
         return next;
       });
     } catch (e) {
-      alert(e instanceof Error ? e.message : "update failed");
+      alert(e instanceof Error ? e.message : t("kanban.updateFailed"));
       // re-sync source and target columns from server truth
       await Promise.all([refreshCol(from), refreshCol(to)]);
     } finally {
@@ -136,13 +138,13 @@ export function KanbanView({ def, boardCol, displayCol, search, filters, pageSiz
           <div key={v || "__null"} className="flex w-64 shrink-0 flex-col rounded-lg border bg-muted/20">
             <div className="flex items-center justify-between border-b px-3 py-2">
               <span className="flex items-center gap-1.5 text-xs font-semibold">
-                {v === "" ? <span className="italic text-muted-foreground">No value</span> : (
+                {v === "" ? <span className="italic text-muted-foreground">{t("kanban.noValue")}</span> : (
                   <Badge variant="outline" className={`text-[10px] ${enumColorClass(boardCol, v)}`}>{v}</Badge>
                 )}
                 <span className="text-muted-foreground">({st.rows.length})</span>
               </span>
               {v !== "" && (
-                <button onClick={() => onCreate()} title="Add record" className="text-muted-foreground hover:text-foreground">
+                <button onClick={() => onCreate()} title={t("kanban.addRecord")} className="text-muted-foreground hover:text-foreground">
                   <Plus className="h-3 w-3" />
                 </button>
               )}
@@ -163,22 +165,22 @@ export function KanbanView({ def, boardCol, displayCol, search, filters, pageSiz
                     <p className="text-xs font-medium break-words">{title}</p>
                     <div className="mt-1.5 flex items-center justify-between">
                       <span className="text-[10px] font-mono text-muted-foreground">{v === "" ? "—" : String(row[boardCol.name])}</span>
-                      <div className="flex gap-1">
-                        <button onClick={() => onEdit(row)} className="text-muted-foreground hover:text-foreground text-[10px]">Edit</button>
-                        {keyStr && <button onClick={() => onDelete(key as string[])} className="text-muted-foreground hover:text-destructive text-[10px]">Del</button>}
-                      </div>
+                       <div className="flex gap-1">
+                         <button onClick={() => onEdit(row)} className="text-muted-foreground hover:text-foreground text-[10px]">{t("btn.edit")}</button>
+                         {keyStr && <button onClick={() => onDelete(key as string[])} className="text-muted-foreground hover:text-destructive text-[10px]">{t("kanban.del")}</button>}
+                       </div>
                     </div>
                   </div>
                 );
               })}
-              {st.loading && <p className="py-2 text-center text-[10px] text-muted-foreground">Loading…</p>}
+              {st.loading && <p className="py-2 text-center text-[10px] text-muted-foreground">{t("btn.loading")}</p>}
               {!st.loading && st.rows.length >= COL_CAP && (
-                <p className="py-2 text-center text-[10px] text-muted-foreground">Board truncated ({COL_CAP} cards)</p>
+                <p className="py-2 text-center text-[10px] text-muted-foreground">{t("kanban.truncated", { count: String(COL_CAP) })}</p>
               )}
             </div>
             <button onClick={() => loadMore(v)} disabled={st.loading}
               className="border-t py-1.5 text-[10px] text-muted-foreground hover:bg-muted/40">
-              {st.loading ? "Loading…" : "Load more"}
+              {st.loading ? t("btn.loading") : t("kanban.loadMore")}
             </button>
           </div>
         );

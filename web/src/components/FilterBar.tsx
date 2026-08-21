@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { ColumnDef } from "../lib/types";
+import { useT } from "../lib/i18n";
 
 export type FilterOp = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "between" | "in" | "contains";
 export interface ActiveFilter { column: string; op: FilterOp; values: string[] }
@@ -17,11 +18,16 @@ const OPS_BY_TYPE: Record<string, FilterOp[]> = {
   enum: ["eq", "neq", "in"],
   fk: ["contains", "eq"],
 };
-const OP_LABEL: Record<FilterOp, string> = {
+// symbols stay untranslated; word operators go through the dictionary
+const OP_SYMBOL: Partial<Record<FilterOp, string>> = {
   eq: "=", neq: "≠", gt: ">", gte: "≥", lt: "<", lte: "≤",
-  between: "between", in: "in list", contains: "contains",
 };
-
+function opLabel(t: (key: string) => string, op: FilterOp): string {
+  if (op === "between") return t("filter.between");
+  if (op === "in") return t("filter.inList");
+  if (op === "contains") return t("filter.contains");
+  return OP_SYMBOL[op] ?? op;
+}
 function opsFor(c: ColumnDef): FilterOp[] { return OPS_BY_TYPE[c.fieldType] ?? []; }
 function needCount(op: FilterOp): number { return op === "between" ? 2 : op === "in" ? -1 : 1; }
 
@@ -44,6 +50,7 @@ export function FilterBar({ cols, filters, onChange }: {
   filters: ActiveFilter[];
   onChange: (fs: ActiveFilter[]) => void;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState<{ column: string; op: FilterOp } | null>(null);
   const [draftVals, setDraftVals] = useState<string[]>([]);
   const filterable = cols.filter((c) => c.visible && c.fieldType !== "m2m" && !c.isComputed && opsFor(c).length > 0);
@@ -64,7 +71,7 @@ export function FilterBar({ cols, filters, onChange }: {
     <div className="flex flex-wrap items-center gap-2">
       {filters.map((f) => (
         <span key={f.column} className="inline-flex items-center gap-1 rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-xs font-mono text-blue-600">
-          {(colByName(f.column)?.label ?? f.column)} {OP_LABEL[f.op]} {f.values.join(" … ")}
+          {(colByName(f.column)?.label ?? f.column)} {opLabel(t, f.op)} {f.values.join(" … ")}
           <button onClick={() => onChange(filters.filter((x) => x.column !== f.column))} className="text-blue-400 hover:text-blue-600">
             <X className="h-3 w-3" />
           </button>
@@ -78,26 +85,26 @@ export function FilterBar({ cols, filters, onChange }: {
           </Select>
           <Select value={draft.op} onValueChange={(v) => { setDraft({ ...draft, op: v as FilterOp }); setDraftVals(needCount(v as FilterOp) === 2 ? ["", ""] : [""]); }}>
             <SelectTrigger className="h-6 w-24 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>{opsFor(colByName(draft.column)!).map((o) => <SelectItem key={o} value={o}>{OP_LABEL[o]}</SelectItem>)}</SelectContent>
+            <SelectContent>{opsFor(colByName(draft.column)!).map((o) => <SelectItem key={o} value={o}>{opLabel(t, o)}</SelectItem>)}</SelectContent>
           </Select>
-          {renderValueInput(colByName(draft.column)!, draft.op, draftVals, setDraftVals)}
-          <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={commit}>OK</Button>
+          {renderValueInput(t, colByName(draft.column)!, draft.op, draftVals, setDraftVals)}
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={commit}>{t("filter.ok")}</Button>
           <button onClick={() => setDraft(null)} className="text-muted-foreground"><X className="h-3 w-3" /></button>
         </span>
       )}
       <Button size="sm" variant="outline" onClick={add} disabled={filterable.length === 0}>
-        <Filter className="h-3.5 w-3.5" /> Add Filter
+        <Filter className="h-3.5 w-3.5" /> {t("filter.add")}
       </Button>
     </div>
   );
 }
 
-function renderValueInput(c: ColumnDef, op: FilterOp, vals: string[], set: (v: string[]) => void) {
+function renderValueInput(t: (key: string) => string, c: ColumnDef, op: FilterOp, vals: string[], set: (v: string[]) => void) {
   const n = needCount(op);
   if (c.fieldType === "boolean") {
     return (
       <Select value={vals[0]} onValueChange={(v) => set([v])}>
-        <SelectTrigger className="h-6 w-24 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
+        <SelectTrigger className="h-6 w-24 text-xs"><SelectValue placeholder={t("filter.select")} /></SelectTrigger>
         <SelectContent>
           <SelectItem value="true">true</SelectItem>
           <SelectItem value="false">false</SelectItem>
@@ -108,7 +115,7 @@ function renderValueInput(c: ColumnDef, op: FilterOp, vals: string[], set: (v: s
   if (c.fieldType === "enum" && c.enumOptions) {
     return (
       <Select value={vals[0]} onValueChange={(v) => set([v])}>
-        <SelectTrigger className="h-6 w-32 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
+        <SelectTrigger className="h-6 w-32 text-xs"><SelectValue placeholder={t("filter.select")} /></SelectTrigger>
         <SelectContent>{c.enumOptions.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
       </Select>
     );
