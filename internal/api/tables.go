@@ -12,15 +12,17 @@ import (
 
 // tableDefInput accepts masked datasource ids from the client.
 type tableDefInput struct {
-	DatasourceID   string        `json:"datasourceId"`
-	SchemaName     string        `json:"schemaName"`
-	TableName      string        `json:"tableName"`
-	Label          string        `json:"label"`
-	KeyColumns     []string      `json:"keyColumns"`
-	PageSize       int           `json:"pageSize"`
-	DefaultSortCol string        `json:"defaultSortCol"`
-	DefaultSortDir string        `json:"defaultSortDir"`
-	Columns        []columnInput `json:"columns"`
+	DatasourceID   string          `json:"datasourceId"`
+	SchemaName     string          `json:"schemaName"`
+	TableName      string          `json:"tableName"`
+	Label          string          `json:"label"`
+	KeyColumns     []string        `json:"keyColumns"`
+	PageSize       int             `json:"pageSize"`
+	DefaultSortCol string          `json:"defaultSortCol"`
+	DefaultSortDir string          `json:"defaultSortDir"`
+	DefaultView    string          `json:"defaultView"`
+	ViewConfig     json.RawMessage `json:"viewConfig"`
+	Columns        []columnInput   `json:"columns"`
 }
 
 // columnInput mirrors meta.ColumnDef but takes the fk/m2m targets as masked
@@ -89,10 +91,14 @@ func (s *Server) toDef(in tableDefInput) (*meta.TableDef, error) {
 	if in.DefaultSortDir != "DESC" {
 		in.DefaultSortDir = "ASC"
 	}
+	if in.DefaultView != "kanban" && in.DefaultView != "calendar" {
+		in.DefaultView = "grid"
+	}
 	return &meta.TableDef{DatasourceID: dsID, SchemaName: in.SchemaName,
 		TableName: in.TableName, Label: in.Label, KeyColumns: in.KeyColumns,
 		PageSize:       in.PageSize,
-		DefaultSortCol: in.DefaultSortCol, DefaultSortDir: in.DefaultSortDir}, nil
+		DefaultSortCol: in.DefaultSortCol, DefaultSortDir: in.DefaultSortDir,
+		DefaultView: in.DefaultView, ViewConfig: string(in.ViewConfig)}, nil
 }
 
 type permsDTO struct {
@@ -169,19 +175,21 @@ func (s *Server) colToDTO(c meta.ColumnDef, m2mRefCache *map[string][2]string) c
 
 // tableDefDTO masks ids and carries the caller's grants.
 type tableDefDTO struct {
-	ID             string      `json:"id"`
-	DatasourceID   string      `json:"datasourceId"`
-	SchemaName     string      `json:"schemaName"`
-	TableName      string      `json:"tableName"`
-	Label          string      `json:"label"`
-	KeyColumns     []string    `json:"keyColumns"`
-	PageSize       int         `json:"pageSize"`
-	DefaultSortCol string      `json:"defaultSortCol"`
-	DefaultSortDir string      `json:"defaultSortDir"`
-	GroupID        string      `json:"groupId,omitempty"`
-	GroupName      string      `json:"groupName,omitempty"`
-	Columns        []columnDTO `json:"columns,omitempty"`
-	Permissions    permsDTO    `json:"permissions"`
+	ID             string          `json:"id"`
+	DatasourceID   string          `json:"datasourceId"`
+	SchemaName     string          `json:"schemaName"`
+	TableName      string          `json:"tableName"`
+	Label          string          `json:"label"`
+	KeyColumns     []string        `json:"keyColumns"`
+	PageSize       int             `json:"pageSize"`
+	DefaultSortCol string          `json:"defaultSortCol"`
+	DefaultSortDir string          `json:"defaultSortDir"`
+	DefaultView    string          `json:"defaultView,omitempty"`
+	ViewConfig     json.RawMessage `json:"viewConfig,omitempty"`
+	GroupID        string          `json:"groupId,omitempty"`
+	GroupName      string          `json:"groupName,omitempty"`
+	Columns        []columnDTO     `json:"columns,omitempty"`
+	Permissions    permsDTO        `json:"permissions"`
 }
 
 func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDTO, groups map[int64]string) tableDefDTO {
@@ -195,11 +203,15 @@ func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDT
 		PageSize:       def.PageSize,
 		DefaultSortCol: def.DefaultSortCol,
 		DefaultSortDir: def.DefaultSortDir,
+		DefaultView:    def.DefaultView,
 		Permissions:    p,
 	}
 	if def.GroupID > 0 {
 		dto.GroupID = s.ids.Encode("grp", def.GroupID)
 		dto.GroupName = groups[def.GroupID]
+	}
+	if def.ViewConfig != "" {
+		dto.ViewConfig = json.RawMessage(def.ViewConfig)
 	}
 	if dto.KeyColumns == nil {
 		dto.KeyColumns = []string{}
@@ -298,6 +310,58 @@ var (
 	errConn       = errors.New("connection failed")
 )
 
+type viewConfigJSON struct {
+	KanbanBoardColumn   string `json:"kanbanBoardColumn"`
+	KanbanDisplayColumn string `json:"kanbanDisplayColumn"`
+	CalendarStartColumn string `json:"calendarStartColumn"`
+	CalendarEndColumn   string `json:"calendarEndColumn"`
+}
+
+func (s *Server) checkViewConfig(def *meta.TableDef, cols []meta.ColumnDef) string {
+	if def.DefaultView != "grid" && def.DefaultView != "kanban" && def.DefaultView != "calendar" {
+		return "defaultView must be grid, kanban or calendar"
+	}
+	if def.ViewConfig == "" {
+		return ""
+	}
+	var vc viewConfigJSON
+	if err := json.Unmarshal([]byte(def.ViewConfig), &vc); err != nil {
+		return "viewConfig is not valid JSON"
+	}
+	byName := map[string]meta.ColumnDef{}
+	for _, c := range cols {
+		byName[c.Name] = c
+	}
+	board, boardOk := byName[vc.KanbanBoardColumn]
+	if vc.KanbanBoardColumn != "" {
+		if !boardOk || board.FieldType != "enum" || board.IsComputed {
+			return "viewConfig.kanbanBoardColumn must be a defined, non-computed enum column"
+		}
+	}
+	if vc.KanbanDisplayColumn != "" {
+		disp, ok := byName[vc.KanbanDisplayColumn]
+		if !ok || !disp.Visible {
+			return "viewConfig.kanbanDisplayColumn must be a defined, visible column"
+		}
+	}
+	if vc.CalendarStartColumn != "" {
+		start, ok := byName[vc.CalendarStartColumn]
+		if !ok || start.FieldType != "datetime" || !start.Visible {
+			return "viewConfig.calendarStartColumn must be a defined, visible datetime column"
+		}
+	}
+	if vc.CalendarEndColumn != "" {
+		end, ok := byName[vc.CalendarEndColumn]
+		if !ok || end.FieldType != "datetime" || !end.Visible {
+			return "viewConfig.calendarEndColumn must be a defined, visible datetime column"
+		}
+	}
+	if vc.CalendarEndColumn != "" && vc.CalendarStartColumn == "" {
+		return "viewConfig.calendarEndColumn requires calendarStartColumn"
+	}
+	return ""
+}
+
 func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 	if def.DatasourceID == 0 || def.SchemaName == "" || def.TableName == "" ||
 		def.Label == "" || len(def.KeyColumns) == 0 {
@@ -394,6 +458,9 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 	}
 	if def.DefaultSortCol != "" && !sortable[def.DefaultSortCol] {
 		return "defaultSortCol must be a defined, sortable column"
+	}
+	if msg := s.checkViewConfig(def, cols); msg != "" {
+		return msg
 	}
 	return ""
 }

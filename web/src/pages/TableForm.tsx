@@ -13,7 +13,7 @@ import {
   Key,
 } from "lucide-react";
 import { api } from "../lib/api";
-import type { BaseFieldType, ColumnDef, Datasource, LiveColumn, TableDefPayload } from "../lib/types";
+import type { BaseFieldType, ColumnDef, Datasource, LiveColumn, TableDefPayload, ViewConfig } from "../lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,6 +51,8 @@ export default function TableForm() {
   const [defaultSortDir, setDefaultSortDir] = useState<"ASC" | "DESC">("ASC");
   const [keys, setKeys] = useState<string[]>([]);
   const [cols, setCols] = useState<FormCol[]>([]);
+  const [defaultView, setDefaultView] = useState<"grid" | "kanban" | "calendar">("grid");
+  const [viewConfig, setViewConfig] = useState<ViewConfig>({});
 
   // Existing definition query for Edit mode
   const existingDef = useQuery({
@@ -96,6 +98,8 @@ export default function TableForm() {
       setPageSize(d.pageSize);
       setDefaultSortCol(d.defaultSortCol ?? "");
       setDefaultSortDir(d.defaultSortDir === "DESC" ? "DESC" : "ASC");
+      setDefaultView(d.defaultView ?? "grid");
+      setViewConfig(d.viewConfig ?? {});
       setKeys(d.keyColumns ?? []);
       setCols(d.columns);
     }
@@ -143,6 +147,8 @@ export default function TableForm() {
         pageSize,
         defaultSortCol,
         defaultSortDir,
+        defaultView,
+        viewConfig,
         columns: cols.map(({ livePk: _lp, origType: _ot, fkDs: _fd, ...c }) =>
           c.fieldType === "fk"
             ? { ...c, m2mJunctionDefId: undefined, m2mJunctionSrcCol: undefined, m2mJunctionTgtCol: undefined, m2mDisplayColumns: undefined, m2mRefColumn: undefined }
@@ -497,6 +503,14 @@ export default function TableForm() {
 
             <M2MRelationsEditor cols={cols} setCols={setCols} defs={defs.data ?? []} currentId={id} />
 
+            <ViewSettingsCard
+              cols={cols}
+              defaultView={defaultView}
+              setDefaultView={setDefaultView}
+              viewConfig={viewConfig}
+              setViewConfig={setViewConfig}
+            />
+
             {save.isError && (
               <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive">
                 {String((save.error as Error).message)}
@@ -520,6 +534,88 @@ export default function TableForm() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function ViewSettingsCard({ cols, defaultView, setDefaultView, viewConfig, setViewConfig }: {
+  cols: FormCol[]; defaultView: "grid" | "kanban" | "calendar";
+  setDefaultView: (v: "grid" | "kanban" | "calendar") => void;
+  viewConfig: ViewConfig; setViewConfig: (vc: ViewConfig) => void;
+}) {
+  const enums = cols.filter((c) => c.fieldType === "enum" && !c.isComputed);
+  const datetimes = cols.filter((c) => c.fieldType === "datetime" && !c.isComputed);
+  const visibleCols = cols.filter((c) => c.visible && !c.isComputed);
+  return (
+    <Card className="border-border/60">
+      <CardHeader className="pb-3 border-b">
+        <CardTitle className="text-sm font-semibold">View Settings (Grid / Kanban / Calendar)</CardTitle>
+        <CardDescription className="text-xs">Set the default view and how kanban &amp; calendar use the data</CardDescription>
+      </CardHeader>
+      <CardContent className="pt-4 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Default View</Label>
+            <Select value={defaultView} onValueChange={(v) => setDefaultView(v as "grid" | "kanban" | "calendar")}>
+              <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="grid" className="text-xs">Grid (data table)</SelectItem>
+                <SelectItem value="kanban" className="text-xs">Kanban board</SelectItem>
+                <SelectItem value="calendar" className="text-xs">Calendar</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Kanban Board Column</Label>
+            <Select value={viewConfig.kanbanBoardColumn ?? "none"}
+              onValueChange={(v) => setViewConfig({ ...viewConfig, kanbanBoardColumn: v === "none" ? undefined : v })}>
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="None (kanban hidden)" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none" className="text-xs">None (kanban hidden)</SelectItem>
+                {enums.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground">An enum column; each value becomes a board column.</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Kanban Card Title</Label>
+            <Select value={viewConfig.kanbanDisplayColumn ?? "none"}
+              onValueChange={(v) => setViewConfig({ ...viewConfig, kanbanDisplayColumn: v === "none" ? undefined : v })}>
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="None (key column)" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none" className="text-xs">None (key column)</SelectItem>
+                {visibleCols.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Calendar Start Column</Label>
+            <Select value={viewConfig.calendarStartColumn ?? "none"}
+              onValueChange={(v) => setViewConfig({ ...viewConfig, calendarStartColumn: v === "none" ? undefined : v })}>
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="None (calendar hidden)" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none" className="text-xs">None (calendar hidden)</SelectItem>
+                {datetimes.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Calendar End Column (optional)</Label>
+            <Select value={viewConfig.calendarEndColumn ?? "none"}
+              onValueChange={(v) => setViewConfig({ ...viewConfig, calendarEndColumn: v === "none" ? undefined : v })}>
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="None (single-day events)" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none" className="text-xs">None (single-day events)</SelectItem>
+                {datetimes.filter((c) => c.name !== viewConfig.calendarStartColumn)
+                  .map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <p className="text-[10px] text-muted-foreground">
+          Business users can switch views on the data page; your choice here is the default they land on.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
