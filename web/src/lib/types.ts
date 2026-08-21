@@ -9,11 +9,15 @@ export interface Datasource {
   dbname: string; username: string; sslmode: string;
 }
 
+export type ValidationRuleType = "email" | "min_len" | "max_len" | "number" | "text";
+export interface ValidationRule { type: ValidationRuleType; param?: number }
+
 export interface ColumnDef {
   name: string; label: string; fieldType: FieldType;
   enumOptions: string[] | null;
   editable: boolean; required: boolean; visible: boolean;
   searchable: boolean; sortable: boolean; position: number;
+  validations?: ValidationRule[] | null;
   baseType?: BaseFieldType;
   fkTableDefId?: string; // masked token or "self"
   fkRefColumn?: string;
