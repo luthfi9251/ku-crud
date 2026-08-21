@@ -90,10 +90,24 @@ func autoMap(headers []string, cols []meta.ColumnDef) map[string]string {
 	return out
 }
 
-// coerceValidate converts one CSV cell (string) into the typed value for the
-// column, applying the same per-type validation as the row write path. Empty
-// strings become nil (NULL); required-ness is checked separately.
+// coerceValidate converts one CSV cell into the typed value for the column,
+// then applies the column's optional validation rules (same rules as the row
+// write path).
 func coerceValidate(c meta.ColumnDef, raw string) (any, error) {
+	v, err := coerceValidateTyped(c, raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := applyColumnValidations(c, v); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// coerceValidateTyped converts one CSV cell (string) into the typed value for
+// the column, applying the same per-type validation as the row write path.
+// Empty strings become nil (NULL); required-ness is checked separately.
+func coerceValidateTyped(c meta.ColumnDef, raw string) (any, error) {
 	if raw == "" {
 		return nil, nil
 	}

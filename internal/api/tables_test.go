@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -246,5 +247,29 @@ func TestTableDefFKValidation(t *testing.T) {
 	if w = do(s, "GET", "/api/tables/"+tdTok(s, 3), "", c); !strings.Contains(w.Body.String(),
 		`"fkTableDefId":"`+tdTok(s, 3)+`"`) {
 		t.Fatalf("self token round-trip: %s", w.Body)
+	}
+}
+
+func TestTableValidationsRoundtripAndReject(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	seedDS(t, s)
+	var m map[string]any
+	json.Unmarshal([]byte(defBody(s)), &m)
+	col0 := m["columns"].([]any)[0].(map[string]any)
+
+	col0["validations"] = []map[string]any{{"type": "email"}, {"type": "max_len", "param": 50}}
+	w := do(s, "POST", "/api/tables", string(mustJSON(m)), c)
+	if w.Code != 200 {
+		t.Fatalf("create = %d %s", w.Code, w.Body)
+	}
+	if !strings.Contains(w.Body.String(), `"validations":[{"type":"email"},{"type":"max_len","param":50}]`) {
+		t.Fatalf("validations not roundtripped: %s", w.Body)
+	}
+
+	col0["validations"] = []map[string]any{{"type": "nope"}}
+	w = do(s, "POST", "/api/tables", string(mustJSON(m)), c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "invalid validation rule") {
+		t.Fatalf("bad rule not rejected: %d %s", w.Code, w.Body)
 	}
 }

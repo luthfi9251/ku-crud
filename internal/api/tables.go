@@ -25,24 +25,25 @@ type tableDefInput struct {
 // columnInput mirrors meta.ColumnDef but takes the fk/m2m targets as masked
 // tokens (fk target may also be the literal "self").
 type columnInput struct {
-	Name              string   `json:"name"`
-	Label             string   `json:"label"`
-	FieldType         string   `json:"fieldType"`
-	EnumOptions       []string `json:"enumOptions"`
-	Editable          bool     `json:"editable"`
-	Required          bool     `json:"required"`
-	Visible           bool     `json:"visible"`
-	Searchable        bool     `json:"searchable"`
-	Sortable          bool     `json:"sortable"`
-	Position          int      `json:"position"`
-	BaseType          string   `json:"baseType"`
-	FKTableDefID      string   `json:"fkTableDefId"`
-	FKRefColumn       string   `json:"fkRefColumn"`
-	FKDisplayColumns  []string `json:"fkDisplayColumns"`
-	M2MJunctionDefID  string   `json:"m2mJunctionDefId"`
-	M2MJunctionSrcCol string   `json:"m2mJunctionSrcCol"`
-	M2MJunctionTgtCol string   `json:"m2mJunctionTgtCol"`
-	M2MDisplayColumns []string `json:"m2mDisplayColumns"`
+	Name              string                `json:"name"`
+	Label             string                `json:"label"`
+	FieldType         string                `json:"fieldType"`
+	EnumOptions       []string              `json:"enumOptions"`
+	Editable          bool                  `json:"editable"`
+	Required          bool                  `json:"required"`
+	Visible           bool                  `json:"visible"`
+	Searchable        bool                  `json:"searchable"`
+	Sortable          bool                  `json:"sortable"`
+	Position          int                   `json:"position"`
+	Validations       []meta.ValidationRule `json:"validations"`
+	BaseType          string                `json:"baseType"`
+	FKTableDefID      string                `json:"fkTableDefId"`
+	FKRefColumn       string                `json:"fkRefColumn"`
+	FKDisplayColumns  []string              `json:"fkDisplayColumns"`
+	M2MJunctionDefID  string                `json:"m2mJunctionDefId"`
+	M2MJunctionSrcCol string                `json:"m2mJunctionSrcCol"`
+	M2MJunctionTgtCol string                `json:"m2mJunctionTgtCol"`
+	M2MDisplayColumns []string              `json:"m2mDisplayColumns"`
 }
 
 func (s *Server) toCols(in []columnInput) []meta.ColumnDef {
@@ -51,7 +52,7 @@ func (s *Server) toCols(in []columnInput) []meta.ColumnDef {
 		m := meta.ColumnDef{Name: c.Name, Label: c.Label, FieldType: c.FieldType,
 			EnumOptions: c.EnumOptions, Editable: c.Editable, Required: c.Required,
 			Visible: c.Visible, Searchable: c.Searchable, Sortable: c.Sortable,
-			Position: c.Position, BaseType: c.BaseType,
+			Position: c.Position, Validations: c.Validations, BaseType: c.BaseType,
 			FKRefColumn: c.FKRefColumn, FKDisplayColumns: c.FKDisplayColumns,
 			M2MJunctionSrcCol: c.M2MJunctionSrcCol, M2MJunctionTgtCol: c.M2MJunctionTgtCol,
 			M2MDisplayColumns: c.M2MDisplayColumns}
@@ -94,24 +95,25 @@ type permsDTO struct {
 }
 
 type columnDTO struct {
-	Name              string   `json:"name"`
-	Label             string   `json:"label"`
-	FieldType         string   `json:"fieldType"`
-	EnumOptions       []string `json:"enumOptions"`
-	Editable          bool     `json:"editable"`
-	Required          bool     `json:"required"`
-	Visible           bool     `json:"visible"`
-	Searchable        bool     `json:"searchable"`
-	Sortable          bool     `json:"sortable"`
-	Position          int      `json:"position"`
-	BaseType          string   `json:"baseType,omitempty"`
-	FKTableDefID      string   `json:"fkTableDefId,omitempty"`
-	FKRefColumn       string   `json:"fkRefColumn,omitempty"`
-	FKDisplayColumns  []string `json:"fkDisplayColumns,omitempty"`
-	M2MJunctionDefID  string   `json:"m2mJunctionDefId,omitempty"`
-	M2MJunctionSrcCol string   `json:"m2mJunctionSrcCol,omitempty"`
-	M2MJunctionTgtCol string   `json:"m2mJunctionTgtCol,omitempty"`
-	M2MDisplayColumns []string `json:"m2mDisplayColumns,omitempty"`
+	Name              string                `json:"name"`
+	Label             string                `json:"label"`
+	FieldType         string                `json:"fieldType"`
+	EnumOptions       []string              `json:"enumOptions"`
+	Editable          bool                  `json:"editable"`
+	Required          bool                  `json:"required"`
+	Visible           bool                  `json:"visible"`
+	Searchable        bool                  `json:"searchable"`
+	Sortable          bool                  `json:"sortable"`
+	Position          int                   `json:"position"`
+	Validations       []meta.ValidationRule `json:"validations,omitempty"`
+	BaseType          string                `json:"baseType,omitempty"`
+	FKTableDefID      string                `json:"fkTableDefId,omitempty"`
+	FKRefColumn       string                `json:"fkRefColumn,omitempty"`
+	FKDisplayColumns  []string              `json:"fkDisplayColumns,omitempty"`
+	M2MJunctionDefID  string                `json:"m2mJunctionDefId,omitempty"`
+	M2MJunctionSrcCol string                `json:"m2mJunctionSrcCol,omitempty"`
+	M2MJunctionTgtCol string                `json:"m2mJunctionTgtCol,omitempty"`
+	M2MDisplayColumns []string              `json:"m2mDisplayColumns,omitempty"`
 	// M2MRefColumn is the source-table column the junction references —
 	// resolved server-side so the grid can key m2mRels lookups.
 	M2MRefColumn string `json:"m2mRefColumn,omitempty"`
@@ -123,7 +125,7 @@ func (s *Server) colToDTO(c meta.ColumnDef, m2mRefCache *map[string][2]string) c
 	dto := columnDTO{Name: c.Name, Label: c.Label, FieldType: c.FieldType,
 		EnumOptions: c.EnumOptions, Editable: c.Editable, Required: c.Required,
 		Visible: c.Visible, Searchable: c.Searchable, Sortable: c.Sortable,
-		Position: c.Position, BaseType: c.BaseType,
+		Position: c.Position, Validations: c.Validations, BaseType: c.BaseType,
 		FKRefColumn: c.FKRefColumn, FKDisplayColumns: c.FKDisplayColumns,
 		M2MJunctionSrcCol: c.M2MJunctionSrcCol, M2MJunctionTgtCol: c.M2MJunctionTgtCol,
 		M2MDisplayColumns: c.M2MDisplayColumns}
@@ -230,6 +232,8 @@ var validFieldTypes = map[string]bool{
 	"uuid": true, "json": true, "fk": true, "m2m": true,
 }
 
+var validRules = map[string]bool{"email": true, "min_len": true, "max_len": true, "number": true, "text": true}
+
 var (
 	errDSNotFound = errors.New("datasource not found")
 	errConn       = errors.New("connection failed")
@@ -257,6 +261,19 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 		}
 		if c.FieldType == "enum" && len(c.EnumOptions) == 0 {
 			return "column " + c.Name + ": enum needs options"
+		}
+		ruleSeen := map[string]bool{}
+		for _, r := range c.Validations {
+			if !validRules[r.Type] {
+				return "column " + c.Name + ": invalid validation rule " + r.Type
+			}
+			if ruleSeen[r.Type] {
+				return "column " + c.Name + ": duplicate validation rule " + r.Type
+			}
+			ruleSeen[r.Type] = true
+			if (r.Type == "min_len" || r.Type == "max_len") && (r.Param < 1 || r.Param > 1000) {
+				return "column " + c.Name + ": validation rule param must be 1..1000"
+			}
 		}
 		if c.Name == "" || c.Label == "" {
 			return "column name and label are required"
