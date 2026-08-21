@@ -397,7 +397,14 @@ func (s *Server) handleMetaImportApply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "META_IMPORT_INVALID", "selections must be JSON", nil)
 		return
 	}
-	plan, msg := s.buildImportPlan(f, sel)
+	plan, msg, err := s.buildImportPlan(f, sel)
+	if err != nil {
+		// store read failed — server fault; never reach ApplyImport (it would
+		// silently create duplicates when overwrite-mode LocalID resolution
+		// finds nothing in an empty def list)
+		writeErr(w, 500, "INTERNAL", "server error", nil)
+		return
+	}
 	if msg != "" {
 		writeErr(w, 400, "META_IMPORT_INVALID", msg, nil)
 		return
@@ -414,15 +421,20 @@ func (s *Server) handleMetaImportApply(w http.ResponseWriter, r *http.Request) {
 
 // buildImportPlan turns the parsed file + user selections into an ImportPlan.
 // The multipart body is fully parsed by readMetaUpload before FormValue is
-// read, so selections lookup below is safe.
-func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.ImportPlan, string) {
+// read, so selections lookup below is safe. Validation rejections come back
+// as msg (caller maps to 400 META_IMPORT_INVALID); store read failures come
+// back as err (caller maps to 500 INTERNAL, mirroring diffMeta's split).
+func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.ImportPlan, string, error) {
 	plan := &meta.ImportPlan{Datasources: []meta.PlannedDatasource{}, Defs: []meta.PlannedDef{}}
 	if sel.Groups {
 		plan.Groups = f.Groups
 	}
 
 	localDS := map[string]bool{}
-	dss, _ := s.store.ListDatasources()
+	dss, err := s.store.ListDatasources()
+	if err != nil {
+		return nil, "", fmt.Errorf("list datasources failed: %w", err)
+	}
 	for _, d := range dss {
 		localDS[d.Name] = true
 	}
@@ -436,7 +448,7 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 			continue
 		}
 		if !localDS[fds.Name] && x.Password == "" {
-			return nil, "datasource " + fds.Name + " is new — a password is required for it"
+			return nil, "datasource " + fds.Name + " is new — a password is required for it", nil
 		}
 		plan.Datasources = append(plan.Datasources, meta.PlannedDatasource{
 			DS: meta.Datasource{Name: fds.Name, Host: fds.Host, Port: fds.Port,
@@ -451,7 +463,10 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 		fileTables[tableRef(ft.DatasourceRef, ft.Schema, ft.Table)] = ft
 	}
 	localRefs := map[string]bool{}
-	defs, _ := s.store.ListTableDefs()
+	defs, err := s.store.ListTableDefs()
+	if err != nil {
+		return nil, "", fmt.Errorf("list table defs failed: %w", err)
+	}
 	dsName := map[int64]string{}
 	for _, d := range dss {
 		dsName[d.ID] = d.Name
@@ -479,10 +494,10 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 				dRef := tableRef(rp.DatasourceRef, rp.Schema, rp.Table)
 				if !localRefs[dRef] {
 					if _, inFile := fileTables[dRef]; !inFile {
-						return nil, "table " + ref + " depends on " + dRef + " which is neither local nor in the file"
+						return nil, "table " + ref + " depends on " + dRef + " which is neither local nor in the file", nil
 					}
 					if _, selected := selTbl[dRef]; !selected {
-						return nil, "table " + ref + " depends on " + dRef + " — select that table too"
+						return nil, "table " + ref + " depends on " + dRef + " — select that table too", nil
 					}
 				}
 			}
@@ -490,12 +505,12 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 		// datasource of this table must exist locally or be selected
 		if !localDS[ft.DatasourceRef] {
 			if _, selected := selDS[ft.DatasourceRef]; !selected {
-				return nil, "table " + ref + " needs datasource " + ft.DatasourceRef + " — import it too"
+				return nil, "table " + ref + " needs datasource " + ft.DatasourceRef + " — import it too", nil
 			}
 		}
 		// bundle validation (structure — mirrors validateDef's core checks)
 		if msg := validateBundleTable(ft); msg != "" {
-			return nil, msg
+			return nil, msg, nil
 		}
 
 		pd := meta.PlannedDef{DsName: ft.DatasourceRef, GroupName: ft.GroupRef,
@@ -528,7 +543,7 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 		}
 		plan.Defs = append(plan.Defs, pd)
 	}
-	return plan, ""
+	return plan, "", nil
 }
 
 // validateBundleTable covers validateDef's structural core against a file
