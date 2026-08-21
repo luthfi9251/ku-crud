@@ -24,9 +24,12 @@ import {
 import { api, ApiError } from "../lib/api";
 import { encodeRowKey } from "../lib/rowkey";
 import { enumColorClass, formatCell } from "../lib/format";
-import type { ColumnDef, FkOptionsRes, Me, Row, RowsRes, TableDefPayload } from "../lib/types";
+import type { ColumnDef, FkOptionsRes, Me, Row, RowsRes, TableDefPayload, ViewConfig, ViewMode } from "../lib/types";
 import { HelpPopover } from "../components/ColumnListEditor";
 import { FilterBar, serializeFilters, type ActiveFilter } from "../components/FilterBar";
+import { KanbanView } from "../components/views/KanbanView";
+import { CalendarView } from "../components/views/CalendarView";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -58,6 +61,21 @@ export default function Data() {
   const [drift, setDrift] = useState<{ missing: string[]; added: string[]; typeChanged: string[] } | null>(null);
   const [connErr, setConnErr] = useState("");
   const [form, setForm] = useState<{ mode: "new" | "edit"; row: Row; initialKey?: string[] | null } | null>(null);
+  // bumped after any row mutation lands (save/delete/bulk/resync) so the
+  // kanban and calendar views re-fetch their data
+  const [dataVersion, setDataVersion] = useState(0);
+
+  // view chosen by the user this session; null = follow the definition's
+  // default view (re-derived whenever the definition changes)
+  const [view, setView] = useState<ViewMode | null>(null);
+  const vc: ViewConfig = def.data?.viewConfig ?? {};
+  const viewOk: Record<ViewMode, boolean> = {
+    grid: true,
+    kanban: !!vc.kanbanBoardColumn,
+    calendar: !!vc.calendarStartColumn,
+  };
+  const fallbackView: ViewMode = viewOk[def.data?.defaultView ?? "grid"] ? (def.data?.defaultView ?? "grid") : "grid";
+  const effectiveView: ViewMode = view !== null && viewOk[view] ? view : fallbackView;
 
   // Sync search & table state when table id or URL search changes
   useEffect(() => {
@@ -68,6 +86,7 @@ export default function Data() {
     setDir("ASC");
     setFilters([]);
     setForm(null);
+    setView(null);
     // eslint-disable-line react-hooks/exhaustive-deps
   }, [id, searchParam]);
 
@@ -208,6 +227,7 @@ export default function Data() {
     onSuccess: () => {
       setForm(null);
       rows.refetch();
+      setDataVersion((v) => v + 1);
     },
   });
 
@@ -256,6 +276,7 @@ export default function Data() {
     onSuccess: () => {
       setDelErr("");
       rows.refetch();
+      setDataVersion((v) => v + 1);
     },
     onError: (e) => {
       if (e instanceof ApiError && e.code === "CONFLICT") {
@@ -311,6 +332,7 @@ export default function Data() {
       );
       setSel(new Set());
       rows.refetch();
+      setDataVersion((v) => v + 1);
     } catch (e) {
       setBulkMsg(e instanceof Error ? e.message : "bulk delete failed");
     } finally {
@@ -324,6 +346,7 @@ export default function Data() {
       setDrift(null);
       qc.invalidateQueries({ queryKey: ["def", id] });
       rows.refetch();
+      setDataVersion((v) => v + 1);
     },
   });
 
@@ -350,6 +373,7 @@ export default function Data() {
   }
 
   const r = rows.data;
+  const d = def.data;
   const pages = r ? Math.max(1, Math.ceil(r.total / r.pageSize)) : 1;
 
   const rels = rows.data?.rels;
@@ -419,6 +443,15 @@ export default function Data() {
               </HelpPopover>
             </div>
           )}
+          <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-muted/40 p-0.5">
+            {(["grid", "kanban", "calendar"] as const).filter((v) => viewOk[v]).map((v) => (
+              <button key={v} onClick={() => setView(v)}
+                className={cn("rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  effectiveView === v ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                {v === "grid" ? "Grid" : v === "kanban" ? "Kanban" : "Calendar"}
+              </button>
+            ))}
+          </div>
           {me.data?.platformManage && (
             <Button
               variant="outline"
@@ -559,7 +592,37 @@ export default function Data() {
         </div>
       )}
 
-      {/* Main Data Table */}
+      {effectiveView === "kanban" && vc.kanbanBoardColumn && (() => {
+        const boardCol = d.columns.find((c) => c.name === vc.kanbanBoardColumn)!;
+        const displayCol = vc.kanbanDisplayColumn ? d.columns.find((c) => c.name === vc.kanbanDisplayColumn) : undefined;
+        return (
+          <KanbanView
+            def={d} boardCol={boardCol} displayCol={displayCol} dataVersion={dataVersion}
+            search={debounced} filters={serializeFilters(filters)} pageSize={d.pageSize}
+            lang={me.data?.language ?? "en"}
+            onEdit={(row) => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
+            onDelete={(key) => { if (confirm("Delete this record permanently?")) del.mutate(key); }}
+            onCreate={() => setForm({ mode: "new", row: {} })}
+          />
+        );
+      })()}
+
+      {effectiveView === "calendar" && vc.calendarStartColumn && (() => {
+        const startCol = d.columns.find((c) => c.name === vc.calendarStartColumn)!;
+        const endCol = vc.calendarEndColumn ? d.columns.find((c) => c.name === vc.calendarEndColumn) : undefined;
+        return (
+          <CalendarView
+            def={d} startCol={startCol} endCol={endCol} dataVersion={dataVersion}
+            filters={filters} search={debounced} pageSize={d.pageSize}
+            lang={me.data?.language ?? "en"}
+            onEdit={(row) => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
+            onDayCreate={(date) => setForm({ mode: "new", row: { [startCol.name]: date } })}
+          />
+        );
+      })()}
+
+      {/* Main Data Table (grid view) */}
+      {effectiveView === "grid" && (
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -753,6 +816,7 @@ export default function Data() {
           </div>
         </div>
       </Card>
+      )}
 
       {/* Row Editor Modal */}
       <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
