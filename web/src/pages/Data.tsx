@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { encodeRowKey } from "../lib/rowkey";
+import { enumColorClass, formatCell } from "../lib/format";
 import type { ColumnDef, FkOptionsRes, Me, Row, RowsRes, TableDefPayload } from "../lib/types";
 import { HelpPopover } from "../components/ColumnListEditor";
 import { FilterBar, serializeFilters, type ActiveFilter } from "../components/FilterBar";
@@ -173,7 +174,7 @@ export default function Data() {
 
   const modalFields = useMemo(() => {
     const allCols = def.data?.columns ?? [];
-    return allCols.filter((c) => c.editable || keyCols.includes(c.name) || c.fieldType === "m2m");
+    return allCols.filter((c) => c.editable || keyCols.includes(c.name) || c.fieldType === "m2m" || c.isComputed);
   }, [def.data?.columns, keyCols]);
 
   const save = useMutation({
@@ -662,6 +663,14 @@ export default function Data() {
                           >
                             {disp !== null ? (
                               <span className="font-sans">{disp}</span>
+                            ) : c.fieldType === "enum" ? (
+                              <Badge variant="outline" className={`text-[10px] ${enumColorClass(c, String(row[c.name]))}`}>
+                                {row[c.name] === null || row[c.name] === undefined ? <span className="italic text-muted-foreground/50">—</span> : String(row[c.name])}
+                              </Badge>
+                            ) : c.fieldType === "number" || c.fieldType === "datetime" ? (
+                              <span className="font-sans">
+                                {formatCell(c, row[c.name], me.data?.language ?? "en") || <span className="italic text-muted-foreground/50">—</span>}
+                              </span>
                             ) : (
                               renderValue(row[c.name], c.fieldType === "fk" ? "text" : c.fieldType)
                             )}
@@ -784,7 +793,14 @@ export default function Data() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
               {modalFields.map((c) => {
                 const isPkLockedInEdit = form.mode === "edit" && keyCols.includes(c.name);
-                return c.fieldType === "fk" ? (
+                return c.isComputed ? (
+                  <div key={c.name} className="space-y-1">
+                    <Label className="text-xs font-medium">{c.label} <Badge variant="outline" className="ml-1 text-[9px] font-mono text-emerald-600 border-emerald-500/30 bg-emerald-500/10">fx</Badge></Label>
+                    <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs font-mono">
+                      {formatCell(c, form!.row[c.name], me.data?.language ?? "en") || <span className="italic text-muted-foreground/50">—</span>}
+                    </div>
+                  </div>
+                ) : c.fieldType === "fk" ? (
                   <FkField
                     key={c.name}
                     col={c}

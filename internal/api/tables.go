@@ -255,6 +255,44 @@ var validFieldTypes = map[string]bool{
 
 var validRules = map[string]bool{"email": true, "min_len": true, "max_len": true, "number": true, "text": true}
 
+var validEnumColors = map[string]bool{
+	"gray": true, "blue": true, "green": true, "amber": true,
+	"red": true, "purple": true, "cyan": true, "orange": true,
+}
+
+// checkFormatting validates a column's raw formatting JSON.
+func checkFormatting(c meta.ColumnDef) string {
+	if c.Formatting == "" {
+		return ""
+	}
+	var f struct {
+		EnumColors map[string]string `json:"enumColors"`
+		Number     *struct {
+			Thousands *bool  `json:"thousands"`
+			Decimals  *int   `json:"decimals"`
+			Prefix    string `json:"prefix"`
+		} `json:"number"`
+	}
+	if err := json.Unmarshal([]byte(c.Formatting), &f); err != nil {
+		return "column " + c.Name + ": formatting is not valid JSON"
+	}
+	if len(f.EnumColors) > 0 && c.FieldType != "enum" {
+		return "column " + c.Name + ": enumColors requires an enum column"
+	}
+	for v, col := range f.EnumColors {
+		if !validEnumColors[col] {
+			return "column " + c.Name + ": unknown enum color " + col + " for value " + v
+		}
+	}
+	if f.Number != nil && c.FieldType != "number" {
+		return "column " + c.Name + ": number formatting requires a number column"
+	}
+	if f.Number != nil && f.Number.Decimals != nil && (*f.Number.Decimals < 0 || *f.Number.Decimals > 6) {
+		return "column " + c.Name + ": decimals must be 0..6"
+	}
+	return ""
+}
+
 var (
 	errDSNotFound = errors.New("datasource not found")
 	errConn       = errors.New("connection failed")
@@ -295,6 +333,9 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 			if (r.Type == "min_len" || r.Type == "max_len") && (r.Param < 1 || r.Param > 1000) {
 				return "column " + c.Name + ": validation rule param must be 1..1000"
 			}
+		}
+		if msg := checkFormatting(c); msg != "" {
+			return msg
 		}
 		if c.Name == "" || c.Label == "" {
 			return "column name and label are required"
