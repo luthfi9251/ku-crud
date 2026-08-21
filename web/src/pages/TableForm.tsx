@@ -484,6 +484,15 @@ export default function TableForm() {
               defs={defs.data ?? []}
               dsList={dsList.data ?? []}
               isLoadingCols={liveCols.isLoading}
+              onAddComputed={() =>
+                setCols((prev) => [
+                  ...prev,
+                  { name: `computed_${prev.length + 1}`, label: "Computed Column",
+                    fieldType: "number", enumOptions: null, editable: false, required: false,
+                    visible: true, searchable: false, sortable: false, position: 1000 + prev.length,
+                    isComputed: true, computedFormula: "" },
+                ])
+              }
             />
 
             <M2MRelationsEditor cols={cols} setCols={setCols} defs={defs.data ?? []} currentId={id} />

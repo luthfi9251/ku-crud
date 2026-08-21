@@ -20,12 +20,12 @@ func colNames(cols []meta.ColumnDef) []string {
 	return names
 }
 
-// realCols drops virtual m2m columns — they have no live counterpart and
-// must never reach SQL SELECT lists.
+// realCols drops virtual columns (m2m relations and computed) — they have no
+// live counterpart and must never reach SQL SELECT lists.
 func realCols(cols []meta.ColumnDef) []meta.ColumnDef {
 	out := make([]meta.ColumnDef, 0, len(cols))
 	for _, c := range cols {
-		if c.FieldType != "m2m" {
+		if c.FieldType != "m2m" && !c.IsComputed {
 			out = append(out, c)
 		}
 	}
@@ -107,6 +107,7 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "CONN", "query failed", err.Error())
 		return
 	}
+	applyComputed(cols, rows)
 	total, err := a.CountRows(lp)
 	if err != nil {
 		writeErr(w, 502, "CONN", "count failed", err.Error())
@@ -154,6 +155,7 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	row := rowsOut[0]
+	applyComputed(cols, []map[string]any{row})
 	rels := s.buildRels(userFrom(r), cols, []map[string]any{row})
 	writeJSON(w, 200, map[string]any{"row": row, "rels": rels})
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -44,6 +45,9 @@ type columnInput struct {
 	M2MJunctionSrcCol string                `json:"m2mJunctionSrcCol"`
 	M2MJunctionTgtCol string                `json:"m2mJunctionTgtCol"`
 	M2MDisplayColumns []string              `json:"m2mDisplayColumns"`
+	IsComputed        bool                  `json:"isComputed"`
+	ComputedFormula   string                `json:"computedFormula"`
+	Formatting        json.RawMessage       `json:"formatting"`
 }
 
 func (s *Server) toCols(in []columnInput) []meta.ColumnDef {
@@ -55,7 +59,11 @@ func (s *Server) toCols(in []columnInput) []meta.ColumnDef {
 			Position: c.Position, Validations: c.Validations, BaseType: c.BaseType,
 			FKRefColumn: c.FKRefColumn, FKDisplayColumns: c.FKDisplayColumns,
 			M2MJunctionSrcCol: c.M2MJunctionSrcCol, M2MJunctionTgtCol: c.M2MJunctionTgtCol,
-			M2MDisplayColumns: c.M2MDisplayColumns}
+			M2MDisplayColumns: c.M2MDisplayColumns,
+			IsComputed:        c.IsComputed, ComputedFormula: c.ComputedFormula}
+		if c.Formatting != nil {
+			m.Formatting = string(c.Formatting)
+		}
 		if c.FKTableDefID == "self" {
 			m.FKTableDefID = meta.SelfRef
 		} else if c.FKTableDefID != "" {
@@ -114,6 +122,9 @@ type columnDTO struct {
 	M2MJunctionSrcCol string                `json:"m2mJunctionSrcCol,omitempty"`
 	M2MJunctionTgtCol string                `json:"m2mJunctionTgtCol,omitempty"`
 	M2MDisplayColumns []string              `json:"m2mDisplayColumns,omitempty"`
+	IsComputed        bool                  `json:"isComputed,omitempty"`
+	ComputedFormula   string                `json:"computedFormula,omitempty"`
+	Formatting        json.RawMessage       `json:"formatting,omitempty"`
 	// M2MRefColumn is the source-table column the junction references —
 	// resolved server-side so the grid can key m2mRels lookups.
 	M2MRefColumn string `json:"m2mRefColumn,omitempty"`
@@ -128,7 +139,11 @@ func (s *Server) colToDTO(c meta.ColumnDef, m2mRefCache *map[string][2]string) c
 		Position: c.Position, Validations: c.Validations, BaseType: c.BaseType,
 		FKRefColumn: c.FKRefColumn, FKDisplayColumns: c.FKDisplayColumns,
 		M2MJunctionSrcCol: c.M2MJunctionSrcCol, M2MJunctionTgtCol: c.M2MJunctionTgtCol,
-		M2MDisplayColumns: c.M2MDisplayColumns}
+		M2MDisplayColumns: c.M2MDisplayColumns,
+		IsComputed:        c.IsComputed, ComputedFormula: c.ComputedFormula}
+	if c.Formatting != "" {
+		dto.Formatting = json.RawMessage(c.Formatting)
+	}
 	if c.FKTableDefID > 0 {
 		dto.FKTableDefID = s.ids.Encode("td", c.FKTableDefID)
 	}
@@ -286,6 +301,30 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 		}
 		if _, err := ds.QuoteIdent(c.Name); err != nil {
 			return "invalid identifier: " + c.Name
+		}
+		if c.IsComputed {
+			if c.FieldType != "number" && c.FieldType != "text" {
+				return "column " + c.Name + ": computed columns must be number or text"
+			}
+			if c.Editable || c.Searchable || c.Sortable {
+				return "column " + c.Name + ": computed columns cannot be editable/searchable/sortable"
+			}
+			for _, key := range def.KeyColumns {
+				if c.Name == key {
+					return "column " + c.Name + ": computed columns cannot be key columns"
+				}
+			}
+			if c.ComputedFormula == "" {
+				return "column " + c.Name + ": computed columns need computedFormula"
+			}
+			ft, _, err := compileComputed(c, cols)
+			if err != nil {
+				return "column " + c.Name + ": " + err.Error()
+			}
+			if ft != c.FieldType {
+				return "column " + c.Name + ": formula produces " + ft + " but the column type is " + c.FieldType
+			}
+			continue
 		}
 		if msg := s.validateFK(def, cols, c); msg != "" {
 			return msg
@@ -713,8 +752,8 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 
 	var out []meta.ColumnDef
 	for _, c := range cols {
-		if c.FieldType == "m2m" {
-			out = append(out, c) // virtual relation column — preserved on resync
+		if c.FieldType == "m2m" || c.IsComputed {
+			out = append(out, c) // virtual column — preserved on resync
 			continue
 		}
 		lc, ok := liveByName[c.Name]

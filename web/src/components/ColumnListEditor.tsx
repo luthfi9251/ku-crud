@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const fieldTypes = ["boolean", "text", "number", "datetime", "enum", "uuid", "json", "fk"] as const;
+const computedFieldTypes = ["number", "text"] as const;
 
 export interface FormCol extends ColumnDef {
   livePk?: boolean;
@@ -42,6 +43,7 @@ interface ColumnListEditorProps {
   defs: TableDefPayload[];
   dsList: Datasource[];
   isLoadingCols?: boolean;
+  onAddComputed?: () => void;
 }
 
 export function HelpPopover({
@@ -119,6 +121,7 @@ export function ColumnListEditor({
   defs,
   dsList,
   isLoadingCols = false,
+  onAddComputed,
 }: ColumnListEditorProps) {
   // Store expanded state per column name
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -176,7 +179,14 @@ export function ColumnListEditor({
             </p>
           </HelpPopover>
         </div>
-        <span>Click settings icon to configure Enum / Foreign Key relations</span>
+        <div className="flex items-center gap-2">
+          <span>Click settings icon to configure Enum / Foreign Key relations</span>
+          {onAddComputed && (
+            <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={onAddComputed}>
+              <Plus className="h-3.5 w-3.5" /> Add Computed Column
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -351,6 +361,10 @@ export function ColumnListEditor({
                     />
                   )}
 
+                  {c.isComputed && (
+                    <ComputedEditor col={c} index={i} setCol={setCol} />
+                  )}
+
                   {c.editable && c.fieldType !== "m2m" && c.fieldType !== "fk" && (
                     <ValidationsEditor col={c} index={i} setCol={setCol} />
                   )}
@@ -423,6 +437,45 @@ function ValidationsEditor({
             value={has(t) ? param(t) : ""} onChange={(e) => set(t, true, Number(e.target.value) || 1)} />
         </label>
       ))}
+    </div>
+  );
+}
+
+function ComputedEditor({ col, index, setCol }: {
+  col: FormCol; index: number; setCol: (i: number, patch: Partial<FormCol>) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3.5">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">Computed Column</span>
+        <HelpPopover title="Computed Column Guide" placement="bottom">
+          <p>Value is calculated at query time — never stored in the database.</p>
+          <p className="pt-1 text-[10px] font-mono">price * qty + 5 · CONCAT(first, " ", last)</p>
+          <p className="pt-1">Columns are referenced by name. Arithmetic uses number columns; CONCAT uses text columns. NULL in any operand yields NULL.</p>
+        </HelpPopover>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="w-28">
+          <Label className="text-[10px] text-muted-foreground">Result Type</Label>
+          <Select value={col.fieldType} onValueChange={(v) => setCol(index, { fieldType: v as FormCol["fieldType"] })}>
+            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {(computedFieldTypes as readonly string[]).map((t) => (
+                <SelectItem key={t} value={t} className="text-xs font-mono">{t}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex-1 min-w-[260px]">
+          <Label className="text-[10px] text-muted-foreground">Formula</Label>
+          <Input className="h-8 text-xs font-mono" value={col.computedFormula ?? ""}
+            placeholder={'e.g. price * qty + 5  or  CONCAT(first, " ", last)'}
+            onChange={(e) => setCol(index, { computedFormula: e.target.value })} />
+        </div>
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        Computed columns appear in grid, form and CSV export but cannot be sorted, filtered, or grouped server-side.
+      </p>
     </div>
   );
 }

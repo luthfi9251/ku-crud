@@ -90,6 +90,7 @@ func (s *Server) handleRowExport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "CONN", "query failed", err.Error())
 		return
 	}
+	applyComputed(cols, rows)
 
 	// resolve fk display values in bounded chunks (IN-lists stay small)
 	var visible []meta.ColumnDef

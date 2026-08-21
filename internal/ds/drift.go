@@ -30,7 +30,7 @@ func CompareDrift(defined []meta.ColumnDef, live []LiveColumn) DriftReport {
 	defNames := map[string]bool{}
 	for _, d := range defined {
 		defNames[d.Name] = true
-		if d.FieldType == "m2m" {
+		if d.FieldType == "m2m" || d.IsComputed {
 			continue // virtual column — nothing to compare against the live schema
 		}
 		lc, ok := liveByName[d.Name]
