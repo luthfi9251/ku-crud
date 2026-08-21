@@ -66,6 +66,10 @@ export interface TableDefPayload extends TableDef { columns: ColumnDef[] }
 
 export interface TableGroup { id: Id; name: string; position: number }
 
+// SavedFilter is a per-user named filter set for one table (filters is the
+// serialized ActiveFilter[] JSON produced by serializeFilters).
+export interface SavedFilter { id: Id; name: string; filters: string; createdAt: string }
+
 export interface LiveColumn {
   name: string; fieldType: FieldType; nullable: boolean;
   isPk: boolean; enumOptions: string[] | null;

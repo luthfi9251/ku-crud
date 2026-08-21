@@ -20,13 +20,15 @@ import {
   Download,
   Upload,
   Settings2,
+  Save,
+  Bookmark,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { encodeRowKey } from "../lib/rowkey";
 import { enumColorClass, formatCell } from "../lib/format";
-import type { ColumnDef, FkOptionsRes, Me, Row, RowsRes, TableDefPayload, ViewConfig, ViewMode } from "../lib/types";
+import type { ColumnDef, FkOptionsRes, Me, Row, RowsRes, SavedFilter, TableDefPayload, ViewConfig, ViewMode } from "../lib/types";
 import { HelpPopover } from "../components/ColumnListEditor";
-import { FilterBar, serializeFilters, type ActiveFilter } from "../components/FilterBar";
+import { FilterBar, serializeFilters, deserializeFilters, type ActiveFilter } from "../components/FilterBar";
 import { KanbanView } from "../components/views/KanbanView";
 import { CalendarView } from "../components/views/CalendarView";
 import { cn } from "@/lib/utils";
@@ -59,6 +61,7 @@ export default function Data() {
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
   const [groupBy, setGroupBy] = useState("");
+  const [filterMenu, setFilterMenu] = useState(false);
   const [drift, setDrift] = useState<{ missing: string[]; added: string[]; typeChanged: string[] } | null>(null);
   const [connErr, setConnErr] = useState("");
   const [form, setForm] = useState<{ mode: "new" | "edit"; row: Row; initialKey?: string[] | null } | null>(null);
@@ -89,6 +92,7 @@ export default function Data() {
     setGroupBy("");
     setForm(null);
     setView(null);
+    setFilterMenu(false);
     // eslint-disable-line react-hooks/exhaustive-deps
   }, [id, searchParam]);
 
@@ -394,6 +398,26 @@ export default function Data() {
     },
   });
 
+  // per-user saved filters: save the active filter set under a name, reload
+  // or delete it later from the dropdown next to the FilterBar
+  const savedF = useQuery({ queryKey: ["saved-filters", id], queryFn: () => api<SavedFilter[]>("/tables/" + id + "/saved-filters") });
+  const saveFilter = useMutation({
+    mutationFn: (name: string) =>
+      api<SavedFilter>(`/tables/${id}/saved-filters`, { method: "POST", body: JSON.stringify({ name, filters: serializeFilters(filters) }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["saved-filters", id] });
+    },
+    onError: (e) => {
+      alert(e instanceof Error ? e.message : "save filter failed");
+    },
+  });
+  const delFilter = useMutation({
+    mutationFn: (fid: string) => api(`/tables/${id}/saved-filters/${fid}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["saved-filters", id] });
+    },
+  });
+
   if (def.isLoading) {
     return (
       <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">
@@ -569,6 +593,35 @@ export default function Data() {
                 </SelectContent>
               </Select>
             )}
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px]"
+                disabled={filters.length === 0}
+                onClick={() => { const name = prompt("Save current filters as:"); if (name && name.trim()) saveFilter.mutate(name.trim()); }}>
+                <Save className="h-3 w-3" /> Save filter
+              </Button>
+              <div className="relative">
+                <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px]" onClick={() => setFilterMenu(!filterMenu)}>
+                  <Bookmark className="h-3 w-3" /> Saved ({savedF.data?.length ?? 0})
+                </Button>
+                {filterMenu && (
+                  <div className="absolute right-0 z-20 mt-1 w-56 rounded-md border bg-popover p-1 shadow text-xs text-popover-foreground">
+                    {(savedF.data ?? []).length === 0 && <p className="px-2 py-1 text-muted-foreground">No saved filters</p>}
+                    {(savedF.data ?? []).map((f) => (
+                      <div key={f.id} className="flex items-center justify-between rounded-sm px-2 py-1 hover:bg-accent">
+                        <button className="flex-1 text-left truncate"
+                          onClick={() => { setFilters(deserializeFilters(f.filters)); setPage(1); setFilterMenu(false); }}>
+                          {f.name}
+                        </button>
+                        <button className="text-muted-foreground hover:text-destructive" title="Delete"
+                          onClick={() => { if (confirm(`Delete saved filter "${f.name}"?`)) delFilter.mutate(f.id); }}>
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
           <div className="flex items-center gap-2">
           {cols.some((c) => c.searchable) && (
