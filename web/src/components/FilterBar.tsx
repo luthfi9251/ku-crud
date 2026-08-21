@@ -29,6 +29,16 @@ export function serializeFilters(fs: ActiveFilter[]): string {
   return fs.length ? JSON.stringify(fs.map((f) => ({ column: f.column, op: f.op, values: f.values }))) : "";
 }
 
+export function deserializeFilters(s: string): ActiveFilter[] {
+  try {
+    const parsed = JSON.parse(s) as { column: string; op: FilterOp; values: string[] }[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((f) => f && typeof f.column === "string" && f.op && Array.isArray(f.values));
+  } catch {
+    return [];
+  }
+}
+
 export function FilterBar({ cols, filters, onChange }: {
   cols: ColumnDef[];
   filters: ActiveFilter[];
