@@ -91,6 +91,7 @@ func (s *Server) Routes() *http.ServeMux {
 
 	mux.HandleFunc("GET /api/meta/export", s.RequirePlatform(s.handleMetaExport))
 	mux.HandleFunc("POST /api/meta/import/preview", s.RequirePlatform(s.handleMetaImportPreview))
+	mux.HandleFunc("POST /api/meta/import/apply", s.RequirePlatform(s.handleMetaImportApply))
 
 	mux.HandleFunc("GET /api/groups", s.RequireAuth(s.handleGroupList))
 	mux.HandleFunc("POST /api/groups", s.RequirePlatform(s.handleGroupCreate))

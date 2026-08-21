@@ -182,3 +182,54 @@ func multipartBody(t *testing.T, path, field, filename string, content []byte) *
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	return req
 }
+
+func applyMeta(t *testing.T, s *Server, c *string, file, selections string) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, _ := mw.CreateFormFile("file", "x.json")
+	fw.Write([]byte(file))
+	mw.WriteField("selections", selections)
+	mw.Close()
+	req, _ := http.NewRequest("POST", "/api/meta/import/apply", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if c != nil {
+		req.Header.Set("Cookie", *c)
+	}
+	resp := httptest.NewRecorder()
+	s.Routes().ServeHTTP(resp, req)
+	return resp
+}
+
+func TestMetaImportApplyEndToEnd(t *testing.T) {
+	src := newTestServer(t)
+	file := metaFileFor(t, src) // seeded + exported
+
+	dst := newTestServer(t)
+	c := login(dst)
+	resp := applyMeta(t, dst, c, file,
+		`{"datasources":[{"ref":"pg1","mode":"overwrite","password":"pw2"}],"tables":[],"groups":true}`)
+	if resp.Code != 200 {
+		t.Fatalf("ds-only apply = %d %s", resp.Code, resp.Body)
+	}
+	// now the full import (ds identical now; tables new) — deps to in-file targets must pass
+	resp = applyMeta(t, dst, c, file,
+		`{"datasources":[{"ref":"pg1","mode":"skip"}],
+		  "tables":[{"ref":"pg1/public/customers","mode":"overwrite"},{"ref":"pg1/public/orders","mode":"overwrite"}],
+		  "groups":true}`)
+	if resp.Code != 200 || !strings.Contains(resp.Body.String(), `"createdDefs":2`) {
+		t.Fatalf("full apply = %d %s", resp.Code, resp.Body)
+	}
+	// roundtrip: re-export from dst, orders fk must point at dst's customers
+	w := do(dst, "GET", "/api/meta/export", "", c)
+	if !strings.Contains(w.Body.String(), `"fkTableRef":{"datasourceRef":"pg1","schema":"public","table":"customers"}`) {
+		t.Fatalf("fk relation lost after import: %s", w.Body)
+	}
+	// password prompt required for a NEW ds with empty password
+	s3 := newTestServer(t)
+	c3 := login(s3)
+	resp = applyMeta(t, s3, c3, file, `{"datasources":[{"ref":"pg1","mode":"overwrite","password":""}],"tables":[],"groups":false}`)
+	if resp.Code != 400 || !strings.Contains(resp.Body.String(), "META_IMPORT_INVALID") {
+		t.Fatalf("missing password must be rejected: %d %s", resp.Code, resp.Body)
+	}
+}

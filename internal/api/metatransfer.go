@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"ku-crud/internal/ds"
 	"ku-crud/internal/meta"
 )
 
@@ -363,4 +364,207 @@ func (s *Server) diffMeta(f *metaFile) (*importPreviewRes, string) {
 		res.Tables = append(res.Tables, item)
 	}
 	return res, ""
+}
+
+type applySelectionDS struct {
+	Ref      string `json:"ref"`
+	Mode     string `json:"mode"` // skip | overwrite
+	Password string `json:"password"`
+}
+type applySelectionTable struct {
+	Ref  string `json:"ref"`
+	Mode string `json:"mode"` // skip | overwrite
+}
+type applySelections struct {
+	Datasources []applySelectionDS    `json:"datasources"`
+	Tables      []applySelectionTable `json:"tables"`
+	Groups      bool                  `json:"groups"`
+}
+
+func (s *Server) handleMetaImportApply(w http.ResponseWriter, r *http.Request) {
+	body, msg := readMetaUpload(r)
+	if msg != "" {
+		writeErr(w, 400, "META_FILE_INVALID", msg, nil)
+		return
+	}
+	f, msg := parseMetaFile(body)
+	if msg != "" {
+		writeErr(w, 400, "META_FILE_INVALID", msg, nil)
+		return
+	}
+	var sel applySelections
+	if err := json.Unmarshal([]byte(r.FormValue("selections")), &sel); err != nil {
+		writeErr(w, 400, "META_IMPORT_INVALID", "selections must be JSON", nil)
+		return
+	}
+	plan, msg := s.buildImportPlan(f, sel)
+	if msg != "" {
+		writeErr(w, 400, "META_IMPORT_INVALID", msg, nil)
+		return
+	}
+	created, updated, err := s.store.ApplyImport(*plan)
+	if err != nil {
+		writeErr(w, 400, "META_IMPORT_INVALID", "import failed: "+err.Error(), nil)
+		return
+	}
+	s.auditBestEffort(userFrom(r), 0, "meta_import", "",
+		nil, map[string]int{"createdDefs": created, "updatedDefs": updated, "groupsCreated": len(plan.Groups)})
+	writeJSON(w, 200, map[string]any{"createdDefs": created, "updatedDefs": updated, "groupsCreated": len(plan.Groups)})
+}
+
+// buildImportPlan turns the parsed file + user selections into an ImportPlan.
+// The multipart body is fully parsed by readMetaUpload before FormValue is
+// read, so selections lookup below is safe.
+func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.ImportPlan, string) {
+	plan := &meta.ImportPlan{Datasources: []meta.PlannedDatasource{}, Defs: []meta.PlannedDef{}}
+	if sel.Groups {
+		plan.Groups = f.Groups
+	}
+
+	localDS := map[string]bool{}
+	dss, _ := s.store.ListDatasources()
+	for _, d := range dss {
+		localDS[d.Name] = true
+	}
+	selDS := map[string]applySelectionDS{}
+	for _, x := range sel.Datasources {
+		selDS[x.Ref] = x
+	}
+	for _, fds := range f.Datasources {
+		x, ok := selDS[fds.Name]
+		if !ok || x.Mode == "skip" {
+			continue
+		}
+		if !localDS[fds.Name] && x.Password == "" {
+			return nil, "datasource " + fds.Name + " is new — a password is required for it"
+		}
+		plan.Datasources = append(plan.Datasources, meta.PlannedDatasource{
+			DS: meta.Datasource{Name: fds.Name, Host: fds.Host, Port: fds.Port,
+				DBName: fds.Database, Username: fds.User, SSLMode: fds.SSLMode, Driver: fds.Adapter},
+			Password: x.Password,
+		})
+	}
+
+	// index file tables + selected refs for dependency resolution
+	fileTables := map[string]metaFileTable{}
+	for _, ft := range f.Tables {
+		fileTables[tableRef(ft.DatasourceRef, ft.Schema, ft.Table)] = ft
+	}
+	localRefs := map[string]bool{}
+	defs, _ := s.store.ListTableDefs()
+	dsName := map[int64]string{}
+	for _, d := range dss {
+		dsName[d.ID] = d.Name
+	}
+	for _, d := range defs {
+		localRefs[tableRef(dsName[d.DatasourceID], d.SchemaName, d.TableName)] = true
+	}
+	selTbl := map[string]string{}
+	for _, x := range sel.Tables {
+		selTbl[x.Ref] = x.Mode
+	}
+
+	for _, ft := range f.Tables {
+		ref := tableRef(ft.DatasourceRef, ft.Schema, ft.Table)
+		mode, ok := selTbl[ref]
+		if !ok || mode == "skip" {
+			continue
+		}
+		// dependency check: every fk/m2m ref must be local or selected
+		for _, c := range ft.Columns {
+			for _, rp := range []*metaTableRef{c.FKTableRef, c.M2MJunction} {
+				if rp == nil {
+					continue
+				}
+				dRef := tableRef(rp.DatasourceRef, rp.Schema, rp.Table)
+				if !localRefs[dRef] {
+					if _, inFile := fileTables[dRef]; !inFile {
+						return nil, "table " + ref + " depends on " + dRef + " which is neither local nor in the file"
+					}
+					if _, selected := selTbl[dRef]; !selected {
+						return nil, "table " + ref + " depends on " + dRef + " — select that table too"
+					}
+				}
+			}
+		}
+		// datasource of this table must exist locally or be selected
+		if !localDS[ft.DatasourceRef] {
+			if _, selected := selDS[ft.DatasourceRef]; !selected {
+				return nil, "table " + ref + " needs datasource " + ft.DatasourceRef + " — import it too"
+			}
+		}
+		// bundle validation (structure — mirrors validateDef's core checks)
+		if msg := validateBundleTable(ft); msg != "" {
+			return nil, msg
+		}
+
+		pd := meta.PlannedDef{DsName: ft.DatasourceRef, GroupName: ft.GroupRef,
+			Def: meta.TableDef{SchemaName: ft.Schema, TableName: ft.Table, Label: ft.Label,
+				KeyColumns: ft.KeyColumns, PageSize: ft.PageSize,
+				DefaultSortCol: ft.DefaultSortCol, DefaultSortDir: ft.DefaultSortDir}}
+		if mode == "overwrite" {
+			for i := range defs {
+				if tableRef(dsName[defs[i].DatasourceID], defs[i].SchemaName, defs[i].TableName) == ref {
+					pd.LocalID = defs[i].ID
+					break
+				}
+			}
+		}
+		for _, fc := range ft.Columns {
+			pc := meta.PlannedColumn{Col: meta.ColumnDef{
+				Name: fc.Name, Label: fc.Label, FieldType: fc.FieldType, EnumOptions: fc.EnumOptions,
+				Editable: fc.Editable, Required: fc.Required, Visible: fc.Visible,
+				Searchable: fc.Searchable, Sortable: fc.Sortable, Position: fc.Position,
+				BaseType: fc.BaseType, Validations: fc.Validations,
+				FKRefColumn: fc.FKRefColumn, FKDisplayColumns: fc.FKDisplay,
+				M2MJunctionSrcCol: fc.M2MSrcCol, M2MJunctionTgtCol: fc.M2MTgtCol, M2MDisplayColumns: fc.M2MDisplay}}
+			if fc.FKTableRef != nil {
+				pc.FKRef = meta.DefRef{DsName: fc.FKTableRef.DatasourceRef, Schema: fc.FKTableRef.Schema, Table: fc.FKTableRef.Table}
+			}
+			if fc.M2MJunction != nil {
+				pc.M2MJRef = meta.DefRef{DsName: fc.M2MJunction.DatasourceRef, Schema: fc.M2MJunction.Schema, Table: fc.M2MJunction.Table}
+			}
+			pd.Columns = append(pd.Columns, pc)
+		}
+		plan.Defs = append(plan.Defs, pd)
+	}
+	return plan, ""
+}
+
+// validateBundleTable covers validateDef's structural core against a file
+// table (identifier safety, keys exist, enum options, pageSize).
+func validateBundleTable(ft metaFileTable) string {
+	if ft.Schema == "" || ft.Table == "" || ft.Label == "" || len(ft.KeyColumns) == 0 {
+		return "table " + ft.Table + ": schema/table/label/keyColumns are required"
+	}
+	if ft.PageSize < 1 || ft.PageSize > 200 {
+		return "table " + ft.Table + ": pageSize must be 1..200"
+	}
+	for _, name := range append([]string{ft.Schema, ft.Table}, ft.KeyColumns...) {
+		if _, err := ds.QuoteIdent(name); err != nil {
+			return "table " + ft.Table + ": invalid identifier " + name
+		}
+	}
+	names := map[string]bool{}
+	for _, c := range ft.Columns {
+		if c.Name == "" || c.Label == "" {
+			return "table " + ft.Table + ": column name and label are required"
+		}
+		if _, err := ds.QuoteIdent(c.Name); err != nil {
+			return "table " + ft.Table + ": invalid identifier " + c.Name
+		}
+		if !validFieldTypes[c.FieldType] {
+			return "table " + ft.Table + ": column " + c.Name + " has invalid fieldType"
+		}
+		if c.FieldType == "enum" && len(c.EnumOptions) == 0 {
+			return "table " + ft.Table + ": column " + c.Name + " enum needs options"
+		}
+		names[c.Name] = true
+	}
+	for _, k := range ft.KeyColumns {
+		if !names[k] {
+			return "table " + ft.Table + ": key column " + k + " must be one of the columns"
+		}
+	}
+	return ""
 }
