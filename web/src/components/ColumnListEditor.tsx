@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { api } from "../lib/api";
 import type { BaseFieldType, ColumnDef, ColumnFormatting, Datasource, TableDefPayload, ValidationRuleType } from "../lib/types";
+import { useT } from "../lib/i18n";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,6 +57,7 @@ export function HelpPopover({
   placement?: "top" | "bottom" | "bottom-start";
 }) {
   const [open, setOpen] = useState(false);
+  const t = useT();
 
   const getPositionClasses = () => {
     switch (placement) {
@@ -80,7 +82,7 @@ export function HelpPopover({
           e.preventDefault();
           setOpen((prev) => !prev);
         }}
-        aria-label="Help information"
+        aria-label={t("col.helpAria")}
         title={title}
       >
         <HelpCircle className="h-3.5 w-3.5" />
@@ -125,6 +127,7 @@ export function ColumnListEditor({
 }: ColumnListEditorProps) {
   // Store expanded state per column name
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const t = useT();
 
   const toggleExpand = (colName: string) => {
     setExpanded((prev) => ({ ...prev, [colName]: !prev[colName] }));
@@ -151,7 +154,7 @@ export function ColumnListEditor({
   if (isLoadingCols) {
     return (
       <div className="flex h-32 items-center justify-center rounded-lg border bg-card text-xs text-muted-foreground">
-        Inspecting live table columns...
+        {t("col.inspecting")}
       </div>
     );
   }
@@ -159,7 +162,7 @@ export function ColumnListEditor({
   if (cols.length === 0) {
     return (
       <div className="flex h-32 items-center justify-center rounded-lg border bg-card text-xs text-muted-foreground">
-        No column mappings populated
+        {t("col.noMappings")}
       </div>
     );
   }
@@ -169,21 +172,21 @@ export function ColumnListEditor({
       {/* Step 3 Header Help & Counter */}
       <div className="flex items-center justify-between px-1 text-xs text-muted-foreground font-medium">
         <div className="flex items-center gap-1.5">
-          <span>Column Configuration List ({cols.length} columns)</span>
-          <HelpPopover title="Column Configuration Guide">
+          <span>{t("col.listTitle", { count: String(cols.length) })}</span>
+          <HelpPopover title={t("col.guideTitle")}>
             <p>
-              Configure display properties and behaviors for each database column mapped to Ku-CRUD.
+              {t("col.guide1")}
             </p>
             <p className="pt-1">
-              Each column allows setting a Display Label, Primary Key status, UI field type, and feature switches (Editable, Required, Visible, Searchable, Sortable).
+              {t("col.guide2")}
             </p>
           </HelpPopover>
         </div>
         <div className="flex items-center gap-2">
-          <span>Click settings icon to configure Enum / Foreign Key relations</span>
+          <span>{t("col.clickSettings")}</span>
           {onAddComputed && (
             <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={onAddComputed}>
-              <Plus className="h-3.5 w-3.5" /> Add Computed Column
+              <Plus className="h-3.5 w-3.5" /> {t("col.addComputed")}
             </Button>
           )}
         </div>
@@ -212,9 +215,9 @@ export function ColumnListEditor({
                       id={`key-${c.name}`}
                       className="h-4 w-4 accent-amber-500 rounded cursor-pointer shrink-0"
                       checked={isKey}
-                      onChange={() => toggleKey(c.name)}
-                      title="Use as Primary / Composite Key"
-                    />
+                       onChange={() => toggleKey(c.name)}
+                       title={t("col.useAsKey")}
+                     />
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <label htmlFor={`key-${c.name}`} className="font-mono text-xs font-bold tracking-tight cursor-pointer">
                         {c.name}
@@ -230,17 +233,17 @@ export function ColumnListEditor({
                         </Badge>
                       )}
                       {/* Tooltip Composite Key Logic */}
-                      <HelpPopover title="Composite Key & Query Logic">
-                        <p>
-                          <strong>Primary / Composite Key</strong> serves as the unique record identifier.
-                        </p>
-                        <p className="pt-1">
-                          <strong>Backend Logic:</strong> Key column values are used in <code>WHERE</code> clauses for <code>UPDATE</code> and <code>DELETE</code> queries.
-                        </p>
-                        <p className="pt-1 text-[10px] italic">
-                          Check multiple columns if the table uses a Composite Key (e.g. <code>dept_id + emp_id</code>).
-                        </p>
-                      </HelpPopover>
+                       <HelpPopover title={t("col.keyTitle")}>
+                         <p>
+                           <strong>{t("col.keyTerm")}</strong> {t("col.keyDesc")}
+                         </p>
+                         <p className="pt-1">
+                           <strong>{t("col.keyBackendLabel")}</strong> {t("col.keyBackendDesc")}
+                         </p>
+                         <p className="pt-1 text-[10px] italic">
+                           {t("col.keyGuide3")}
+                         </p>
+                       </HelpPopover>
                     </div>
                   </div>
 
@@ -249,32 +252,32 @@ export function ColumnListEditor({
                     {/* Display Label Input */}
                     <div className="space-y-1 flex-1 min-w-[150px]">
                       <div className="flex items-center gap-1">
-                        <Label className="text-[10px] text-muted-foreground font-medium">Display Label</Label>
-                        <HelpPopover title="Display Label">
-                          Human-readable name shown on table headers and CRUD form labels instead of raw database column names.
+                        <Label className="text-[10px] text-muted-foreground font-medium">{t("col.displayLabel")}</Label>
+                        <HelpPopover title={t("col.displayLabel")}>
+                          {t("col.displayLabelHelp")}
                         </HelpPopover>
                       </div>
                       <Input
                         value={c.label}
                         onChange={(e) => setCol(i, { label: e.target.value })}
                         className="h-8 text-xs bg-muted/20"
-                        placeholder="Column label"
+                        placeholder={t("col.labelPh")}
                       />
                     </div>
 
                     {/* Field Type Select */}
                     <div className="space-y-1 w-36">
                       <div className="flex items-center gap-1">
-                        <Label className="text-[10px] text-muted-foreground font-medium">Field Type</Label>
-                        <HelpPopover title="Field Type Guide">
-                          <p className="mb-1">Form input component types:</p>
+                        <Label className="text-[10px] text-muted-foreground font-medium">{t("col.fieldType")}</Label>
+                        <HelpPopover title={t("col.fieldTypeTitle")}>
+                          <p className="mb-1">{t("col.fieldTypeIntro")}</p>
                           <ul className="space-y-1 list-disc pl-3 text-[10px]">
-                            <li><strong>boolean</strong>: True/False toggle switch.</li>
-                            <li><strong>text</strong>: Standard text input (string).</li>
-                            <li><strong>number</strong>: Numeric input (int/float).</li>
-                            <li><strong>datetime</strong>: Date & Time picker.</li>
-                            <li><strong>enum</strong>: Dropdown of predefined options.</li>
-                            <li><strong>fk</strong>: Foreign Key relation with search modal.</li>
+                            <li><strong>boolean</strong>: {t("col.ftBoolDesc")}</li>
+                            <li><strong>text</strong>: {t("col.ftTextDesc")}</li>
+                            <li><strong>number</strong>: {t("col.ftNumberDesc")}</li>
+                            <li><strong>datetime</strong>: {t("col.ftDatetimeDesc")}</li>
+                            <li><strong>enum</strong>: {t("col.ftEnumDesc")}</li>
+                            <li><strong>fk</strong>: {t("col.ftFkDesc")}</li>
                           </ul>
                         </HelpPopover>
                       </div>
@@ -300,23 +303,23 @@ export function ColumnListEditor({
                   <div className="flex items-center justify-between lg:justify-end gap-3 pt-2 lg:pt-0 border-t lg:border-t-0 border-border/40">
                     <div className="flex items-center gap-1">
                       <div className="grid grid-cols-5 gap-2 text-center">
-                        <PropertyToggle label="Edit" checked={c.editable} onChange={(v) => handleColPatch(i, { editable: v })} />
-                        <PropertyToggle label="Req" checked={c.required} onChange={(v) => handleColPatch(i, { required: v })} />
-                        <PropertyToggle label="Vis" checked={c.visible} onChange={(v) => handleColPatch(i, { visible: v })} />
-                        <PropertyToggle label="Srch" checked={c.searchable} onChange={(v) => handleColPatch(i, { searchable: v })} />
-                        <PropertyToggle label="Sort" checked={c.sortable} onChange={(v) => handleColPatch(i, { sortable: v })} />
+                        <PropertyToggle label={t("col.swEdit")} checked={c.editable} onChange={(v) => handleColPatch(i, { editable: v })} />
+                        <PropertyToggle label={t("col.swReq")} checked={c.required} onChange={(v) => handleColPatch(i, { required: v })} />
+                        <PropertyToggle label={t("col.swVis")} checked={c.visible} onChange={(v) => handleColPatch(i, { visible: v })} />
+                        <PropertyToggle label={t("col.swSrch")} checked={c.searchable} onChange={(v) => handleColPatch(i, { searchable: v })} />
+                        <PropertyToggle label={t("col.swSort")} checked={c.sortable} onChange={(v) => handleColPatch(i, { sortable: v })} />
                       </div>
                       {/* Property Switch Tooltip */}
-                      <HelpPopover title="Column Switches & Form Policy">
+                      <HelpPopover title={t("col.switchesTitle")}>
                         <ul className="space-y-1.5 text-[10px]">
-                          <li><strong>Edit (Editable)</strong>: Controls form field availability. Turn on for PK columns if manual ID input is required.</li>
-                          <li><strong>Req (Required)</strong>: Mandatory field (cannot be empty or NULL).</li>
-                          <li><strong>Vis (Visible)</strong>: Displayed as a column on the Data CRUD grid.</li>
-                          <li><strong>Srch (Searchable)</strong>: Included in search bar text queries.</li>
-                          <li><strong>Sort (Sortable)</strong>: Can be sorted (ASC/DESC) when column header is clicked.</li>
+                          <li><strong>{t("col.swEditLabel")}</strong>: {t("col.swEditDesc")}</li>
+                          <li><strong>{t("col.swReqLabel")}</strong>: {t("col.swReqDesc")}</li>
+                          <li><strong>{t("col.swVisLabel")}</strong>: {t("col.swVisDesc")}</li>
+                          <li><strong>{t("col.swSrchLabel")}</strong>: {t("col.swSrchDesc")}</li>
+                          <li><strong>{t("col.swSortLabel")}</strong>: {t("col.swSortDesc")}</li>
                         </ul>
                         <div className="pt-1.5 mt-1 border-t border-border/40 text-[10px] text-muted-foreground">
-                          💡 <strong>PK Form Policy:</strong> Primary Key fields appear on the Insert Form for manual ID entry, and are automatically displayed as Read-Only on the Edit Form to protect record identity.
+                          💡 <strong>{t("col.pkPolicyLabel")}</strong> {t("col.pkPolicy")}
                         </div>
                       </HelpPopover>
                     </div>
@@ -327,7 +330,7 @@ export function ColumnListEditor({
                       size="sm"
                       className={`h-8 px-2 text-xs gap-1 shrink-0 ${hasCustomConfig ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`}
                       onClick={() => toggleExpand(c.name)}
-                      title="Toggle detailed column configuration"
+                      title={t("col.toggleConfig")}
                     >
                       <Settings2 className="h-3.5 w-3.5" />
                       {hasCustomConfig && (
@@ -375,7 +378,7 @@ export function ColumnListEditor({
 
                   {c.fieldType !== "enum" && c.fieldType !== "fk" && (
                     <div className="text-xs text-muted-foreground flex items-center gap-2 italic">
-                      <span>Standard properties for <strong className="font-mono">{c.fieldType}</strong> type are configured in controls above. No additional configuration needed.</span>
+                      <span>{t("col.standardProps1")} <strong className="font-mono">{c.fieldType}</strong> {t("col.standardProps2")}</span>
                     </div>
                   )}
                 </div>
@@ -399,8 +402,9 @@ function PropertyToggle({
   disabled?: boolean;
   onChange: (v: boolean) => void;
 }) {
+  const t = useT();
   return (
-    <div className="flex flex-col items-center gap-1" title={disabled ? "Disabled" : undefined}>
+    <div className="flex flex-col items-center gap-1" title={disabled ? t("col.disabled") : undefined}>
       <span className="text-[9px] text-muted-foreground font-mono uppercase tracking-wider">{label}</span>
       <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} className="scale-75 origin-center" />
     </div>
@@ -416,6 +420,7 @@ function ValidationsEditor({
   index: number;
   setCol: (i: number, patch: Partial<FormCol>) => void;
 }) {
+  const t = useT();
   const rules = col.validations ?? [];
   const has = (t: ValidationRuleType) => rules.some((r) => r.type === t);
   const param = (t: ValidationRuleType) => rules.find((r) => r.type === t)?.param ?? 0;
@@ -426,19 +431,19 @@ function ValidationsEditor({
   };
   return (
     <div className="flex flex-wrap items-center gap-3 pt-1">
-      <span className="text-[11px] font-medium text-muted-foreground">Validations:</span>
-      {(["email", "number", "text"] as const).map((t) => (
-        <label key={t} className="flex items-center gap-1 text-xs">
-          <Checkbox checked={has(t)} onChange={(e) => set(t, e.target.checked)} />
-          {t === "email" ? "Email" : t === "number" ? "Number only" : "Text only"}
+      <span className="text-[11px] font-medium text-muted-foreground">{t("col.validations")}</span>
+      {(["email", "number", "text"] as const).map((t2) => (
+        <label key={t2} className="flex items-center gap-1 text-xs">
+          <Checkbox checked={has(t2)} onChange={(e) => set(t2, e.target.checked)} />
+          {t2 === "email" ? t("col.vEmail") : t2 === "number" ? t("col.vNumber") : t("col.vText")}
         </label>
       ))}
-      {(["min_len", "max_len"] as const).map((t) => (
-        <label key={t} className="flex items-center gap-1 text-xs">
-          <Checkbox checked={has(t)} onChange={(e) => set(t, e.target.checked, param(t) || 1)} />
-          {t === "min_len" ? "Min" : "Max"} len
-          <Input type="number" className="h-6 w-16" min={1} max={1000} disabled={!has(t)}
-            value={has(t) ? param(t) : ""} onChange={(e) => set(t, true, Number(e.target.value) || 1)} />
+      {(["min_len", "max_len"] as const).map((t2) => (
+        <label key={t2} className="flex items-center gap-1 text-xs">
+          <Checkbox checked={has(t2)} onChange={(e) => set(t2, e.target.checked, param(t2) || 1)} />
+          {t2 === "min_len" ? t("col.vMin") : t("col.vMax")} {t("col.vLen")}
+          <Input type="number" className="h-6 w-16" min={1} max={1000} disabled={!has(t2)}
+            value={has(t2) ? param(t2) : ""} onChange={(e) => set(t2, true, Number(e.target.value) || 1)} />
         </label>
       ))}
     </div>
@@ -448,6 +453,7 @@ function ValidationsEditor({
 function FormattingEditor({ col, index, setCol }: {
   col: FormCol; index: number; setCol: (i: number, patch: Partial<FormCol>) => void;
 }) {
+  const t = useT();
   const fmt = col.formatting ?? {};
   const setFmt = (next: ColumnFormatting) => setCol(index, { formatting: next });
 
@@ -456,7 +462,7 @@ function FormattingEditor({ col, index, setCol }: {
     const PICK = ["gray", "blue", "green", "amber", "red", "purple", "cyan", "orange"];
     return (
       <div className="space-y-2 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3.5">
-        <Label className="text-xs font-semibold text-sky-700 dark:text-sky-300">Enum Badge Colors</Label>
+        <Label className="text-xs font-semibold text-sky-700 dark:text-sky-300">{t("col.enumColors")}</Label>
         <div className="flex flex-wrap gap-2">
           {(col.enumOptions ?? []).map((o) => (
             <div key={o} className="flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1">
@@ -475,21 +481,21 @@ function FormattingEditor({ col, index, setCol }: {
   const nf = fmt.number ?? {};
   return (
     <div className="space-y-2 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3.5">
-      <Label className="text-xs font-semibold text-sky-700 dark:text-sky-300">Number Formatting (display only)</Label>
+      <Label className="text-xs font-semibold text-sky-700 dark:text-sky-300">{t("col.numberFmt")}</Label>
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-1 text-xs">
           <Checkbox checked={!!nf.thousands}
             onChange={(e) => setFmt({ ...fmt, number: { ...nf, thousands: e.target.checked } })} />
-          Thousands separator
+          {t("col.thousands")}
         </label>
         <label className="flex items-center gap-1 text-xs">
-          Decimals
+          {t("col.decimals")}
           <Input type="number" min={0} max={6} className="h-7 w-14 text-xs"
             value={nf.decimals ?? 0}
             onChange={(e) => setFmt({ ...fmt, number: { ...nf, decimals: Number(e.target.value) || 0 } })} />
         </label>
         <label className="flex items-center gap-1 text-xs">
-          Prefix
+          {t("col.prefix")}
           <Input className="h-7 w-24 text-xs" value={nf.prefix ?? ""} placeholder="Rp "
             onChange={(e) => setFmt({ ...fmt, number: { ...nf, prefix: e.target.value } })} />
         </label>
@@ -501,19 +507,20 @@ function FormattingEditor({ col, index, setCol }: {
 function ComputedEditor({ col, index, setCol }: {
   col: FormCol; index: number; setCol: (i: number, patch: Partial<FormCol>) => void;
 }) {
+  const t = useT();
   return (
     <div className="space-y-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3.5">
       <div className="flex items-center gap-2">
-        <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">Computed Column</span>
-        <HelpPopover title="Computed Column Guide" placement="bottom">
-          <p>Value is calculated at query time — never stored in the database.</p>
+        <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">{t("col.computed")}</span>
+        <HelpPopover title={t("col.computedTitle")} placement="bottom">
+          <p>{t("col.computed1")}</p>
           <p className="pt-1 text-[10px] font-mono">price * qty + 5 · CONCAT(first, " ", last)</p>
-          <p className="pt-1">Columns are referenced by name. Arithmetic uses number columns; CONCAT uses text columns. NULL in any operand yields NULL.</p>
+          <p className="pt-1">{t("col.computed2")}</p>
         </HelpPopover>
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <div className="w-28">
-          <Label className="text-[10px] text-muted-foreground">Result Type</Label>
+          <Label className="text-[10px] text-muted-foreground">{t("col.resultType")}</Label>
           <Select value={col.fieldType} onValueChange={(v) => setCol(index, { fieldType: v as FormCol["fieldType"] })}>
             <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -524,14 +531,14 @@ function ComputedEditor({ col, index, setCol }: {
           </Select>
         </div>
         <div className="flex-1 min-w-[260px]">
-          <Label className="text-[10px] text-muted-foreground">Formula</Label>
+          <Label className="text-[10px] text-muted-foreground">{t("col.formula")}</Label>
           <Input className="h-8 text-xs font-mono" value={col.computedFormula ?? ""}
             placeholder={'e.g. price * qty + 5  or  CONCAT(first, " ", last)'}
             onChange={(e) => setCol(index, { computedFormula: e.target.value })} />
         </div>
       </div>
       <p className="text-[10px] text-muted-foreground">
-        Computed columns appear in grid, form and CSV export but cannot be sorted, filtered, or grouped server-side.
+        {t("col.computed3")}
       </p>
     </div>
   );
@@ -546,6 +553,7 @@ function EnumConfigPanel({
   index: number;
   setCol: (i: number, patch: Partial<FormCol>) => void;
 }) {
+  const t = useT();
   const options = col.enumOptions ?? [];
   const rawInput = options.join(", ");
 
@@ -554,14 +562,14 @@ function EnumConfigPanel({
       <div className="flex items-center gap-2">
         <ListFilter className="h-4 w-4 text-purple-600 dark:text-purple-400" />
         <Label className="text-xs font-semibold text-purple-900 dark:text-purple-300">
-          Enum Options Configuration ({col.name})
+          {t("col.enumConfig", { name: col.name })}
         </Label>
-        <HelpPopover title="Enum Type Guide">
-          Enum options restrict form inputs to specified values. Enter a list of values separated by commas (e.g., <code>ACTIVE, INACTIVE, PENDING</code>).
+        <HelpPopover title={t("col.enumGuide")}>
+          {t("col.enumGuideBody")}
         </HelpPopover>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        Enter allowed enum option values for this column (comma-separated).
+        {t("col.enumHint")}
       </p>
       <Input
         className="h-8 text-xs font-mono bg-background"
@@ -575,7 +583,7 @@ function EnumConfigPanel({
       />
       {options.length > 0 && (
         <div className="flex items-center gap-1.5 flex-wrap pt-1">
-          <span className="text-[10px] text-muted-foreground font-medium">Parsed options:</span>
+          <span className="text-[10px] text-muted-foreground font-medium">{t("col.parsedOptions")}</span>
           {options.map((o) => (
             <Badge key={o} variant="outline" className="text-[10px] font-mono bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20">
               {o}
@@ -606,6 +614,7 @@ function FKConfigInline({
   cols: FormCol[];
   setCol: (i: number, patch: Partial<FormCol>) => void;
 }) {
+  const t = useT();
   const fkDs = col.fkDs ?? dsId;
   const targetDefs = defs.filter((d) => d.datasourceId === fkDs);
   const isSelf = col.fkTableDefId === "self" || (!!currentId && col.fkTableDefId === currentId);
@@ -639,19 +648,19 @@ function FKConfigInline({
         <div className="flex items-center gap-2">
           <Link2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
           <Label className="text-xs font-semibold text-blue-900 dark:text-blue-300">
-            Foreign Key Relation Configuration ({col.name})
+            {t("col.fkConfig", { name: col.name })}
           </Label>
-          <HelpPopover title="Foreign Key (FK) Guide">
+          <HelpPopover title={t("col.fkGuide")}>
             <p>
-              Foreign Key links this column to records in another defined table.
+              {t("col.fkGuide1")}
             </p>
             <p className="pt-1">
-              Users can select related records via an interactive search modal when inserting or editing.
+              {t("col.fkGuide2")}
             </p>
           </HelpPopover>
         </div>
         <Badge variant="outline" className="text-[10px] font-mono bg-blue-500/10 text-blue-600 border-blue-500/20">
-          Target Ref: {col.fkRefColumn || "—"}
+          {t("col.targetRef", { ref: col.fkRefColumn || "—" })}
         </Badge>
       </div>
 
@@ -659,7 +668,7 @@ function FKConfigInline({
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {/* Target Datasource */}
         <div className="space-y-1">
-          <Label className="text-[11px] text-muted-foreground font-medium">Target Datasource</Label>
+          <Label className="text-[11px] text-muted-foreground font-medium">{t("col.fkTargetDs")}</Label>
           <Select
             value={fkDs}
             onValueChange={(v) =>
@@ -681,7 +690,7 @@ function FKConfigInline({
 
         {/* Related Table */}
         <div className="space-y-1">
-          <Label className="text-[11px] text-muted-foreground font-medium">Related Table</Label>
+          <Label className="text-[11px] text-muted-foreground font-medium">{t("col.fkRelatedTable")}</Label>
           <Select
             value={col.fkTableDefId ?? ""}
             onValueChange={(v) =>
@@ -689,12 +698,12 @@ function FKConfigInline({
             }
           >
             <SelectTrigger className="h-9 text-xs bg-background">
-              <SelectValue placeholder="Choose related table..." />
+              <SelectValue placeholder={t("col.fkChooseTable")} />
             </SelectTrigger>
             <SelectContent>
               {fkDs === dsId && (
                 <SelectItem value="self" className="text-xs">
-                  This table (self)
+                  {t("col.fkSelf")}
                 </SelectItem>
               )}
               {targetDefs
@@ -710,14 +719,14 @@ function FKConfigInline({
 
         {/* Reference Column */}
         <div className="space-y-1">
-          <Label className="text-[11px] text-muted-foreground font-medium">Reference Column (Target PK / Key Column)</Label>
+          <Label className="text-[11px] text-muted-foreground font-medium">{t("col.fkRefColumn")}</Label>
           <Select
             value={col.fkRefColumn ?? ""}
             onValueChange={(v) => setCol(index, { fkRefColumn: v, fkDisplayColumns: undefined })}
             disabled={!col.fkTableDefId}
           >
             <SelectTrigger className="h-9 text-xs bg-background font-mono">
-              <SelectValue placeholder="Select reference column..." />
+              <SelectValue placeholder={t("col.fkSelectRef")} />
             </SelectTrigger>
             <SelectContent>
               {targetCols.map((tc) => (
@@ -733,48 +742,48 @@ function FKConfigInline({
       {/* Full Width Display Columns Selector */}
       <div className="space-y-2 pt-2 border-t border-blue-500/10">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Label className="text-xs font-medium text-foreground">
-              Display Columns (UI fields shown when relation is picked)
-            </Label>
-            <Badge variant="secondary" className="text-[10px] font-mono bg-blue-500/10 text-blue-600 border-blue-500/20">
-              {selectedDisplayCols.length} of {availableDisplayCols.length} selected
-            </Badge>
-          </div>
+           <div className="flex items-center gap-2">
+             <Label className="text-xs font-medium text-foreground">
+               {t("col.fkDisplayCols")}
+             </Label>
+             <Badge variant="secondary" className="text-[10px] font-mono bg-blue-500/10 text-blue-600 border-blue-500/20">
+               {t("col.nOfMSelected", { selected: String(selectedDisplayCols.length), total: String(availableDisplayCols.length) })}
+             </Badge>
+           </div>
 
-          {col.fkTableDefId && availableDisplayCols.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 text-[11px] px-2 bg-background hover:bg-muted"
-                onClick={handleSelectAll}
-              >
-                Select All
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 text-[11px] px-2 text-muted-foreground hover:text-destructive"
-                onClick={handleClearAll}
-              >
-                Clear All
-              </Button>
-            </div>
-          )}
-        </div>
+           {col.fkTableDefId && availableDisplayCols.length > 0 && (
+             <div className="flex items-center gap-2">
+               <Button
+                 type="button"
+                 variant="outline"
+                 size="sm"
+                 className="h-7 text-[11px] px-2 bg-background hover:bg-muted"
+                 onClick={handleSelectAll}
+               >
+                 {t("col.selectAll")}
+               </Button>
+               <Button
+                 type="button"
+                 variant="ghost"
+                 size="sm"
+                 className="h-7 text-[11px] px-2 text-muted-foreground hover:text-destructive"
+                 onClick={handleClearAll}
+               >
+                 {t("col.clearAll")}
+               </Button>
+             </div>
+           )}
+         </div>
 
-        {!col.fkTableDefId ? (
-          <div className="p-3 text-center text-xs text-muted-foreground italic rounded-md border border-dashed bg-background/50">
-            Please select a <strong>Related Table</strong> first to pick display columns.
-          </div>
-        ) : availableDisplayCols.length === 0 ? (
-          <div className="p-3 text-center text-xs text-muted-foreground italic rounded-md border border-dashed bg-background/50">
-            No additional columns available on this table.
-          </div>
-        ) : (
+         {!col.fkTableDefId ? (
+           <div className="p-3 text-center text-xs text-muted-foreground italic rounded-md border border-dashed bg-background/50">
+             {t("col.fkPickTableFirst")}
+           </div>
+         ) : availableDisplayCols.length === 0 ? (
+           <div className="p-3 text-center text-xs text-muted-foreground italic rounded-md border border-dashed bg-background/50">
+             {t("col.fkNoMoreCols")}
+           </div>
+         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 pt-1">
             {availableDisplayCols.map((tc) => {
               const sel = selectedDisplayCols.includes(tc.name);
@@ -824,6 +833,7 @@ export function M2MRelationsEditor({
   defs: TableDefPayload[];
   currentId?: string;
 }) {
+  const t = useT();
   const relations = cols.filter((c) => c.fieldType === "m2m");
   const candidates = defs.filter((d) => String(d.id) !== currentId);
 
@@ -839,7 +849,7 @@ export function M2MRelationsEditor({
       ...prev,
       {
         name: `m2m_${prev.length}`,
-        label: "New Relation",
+        label: t("col.newRelation"),
         fieldType: "m2m",
         enumOptions: null,
         editable: true, required: false, visible: true, searchable: false, sortable: false,
@@ -858,21 +868,21 @@ export function M2MRelationsEditor({
         <div className="flex items-center gap-2">
           <Layers className="h-4 w-4 text-violet-600 dark:text-violet-400" />
           <Label className="text-xs font-semibold text-violet-900 dark:text-violet-300">
-            Many-to-Many Relations
+            {t("col.m2mTitle")}
           </Label>
-          <HelpPopover title="Many-to-Many Guide">
-            <p>A relation connects this table to another through a <strong>junction table</strong>.</p>
-            <p className="pt-1">The junction must already be defined as a table definition with two fk columns: one pointing at this table, one at the target.</p>
-            <p className="pt-1 text-[10px]">💡 Save this table definition first — relations reference it by id, so they can only be configured when editing an existing definition.</p>
+          <HelpPopover title={t("col.m2mGuide")}>
+            <p>{t("col.m2mGuide1")}</p>
+            <p className="pt-1">{t("col.m2mGuide2")}</p>
+            <p className="pt-1 text-[10px]">💡 {t("col.m2mGuide3")}</p>
           </HelpPopover>
         </div>
         <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={addRel} disabled={!currentId}>
-          <Plus className="h-3.5 w-3.5" /> Add Relation
+          <Plus className="h-3.5 w-3.5" /> {t("col.addRelation")}
         </Button>
       </div>
       {!currentId && (
         <p className="text-[11px] text-muted-foreground">
-          Save the definition first, then edit it to add many-to-many relations.
+          {t("col.m2mSaveFirst")}
         </p>
       )}
       {relations.map((rel, i) => (
@@ -898,6 +908,7 @@ function M2MRelationCard({
   candidates: TableDefPayload[];
   currentId?: string;
 }) {
+  const t = useT();
   const junctionQ = useQuery({
     queryKey: ["def", rel.m2mJunctionDefId],
     enabled: !!rel.m2mJunctionDefId,
@@ -923,28 +934,28 @@ function M2MRelationCard({
     <div className="space-y-3 rounded-md border bg-background p-3">
       <div className="flex items-center gap-2">
         <div className="flex-1 flex items-center gap-1.5">
-          <Input
-            className="h-8 flex-1 text-xs"
-            value={rel.label}
-            onChange={(e) => setRel({ label: e.target.value })}
-            placeholder="Relation label (e.g. Tags)"
-          />
-          <HelpPopover title="Relation Display Label" placement="bottom-start">
-            <p>The human-readable label used in data grids and entry forms for this Many-to-Many field (e.g. "Tags" or "Roles").</p>
-          </HelpPopover>
-        </div>
-        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={remove} title="Remove relation">
+           <Input
+             className="h-8 flex-1 text-xs"
+             value={rel.label}
+             onChange={(e) => setRel({ label: e.target.value })}
+             placeholder={t("col.relLabelPh")}
+           />
+           <HelpPopover title={t("col.relLabelTitle")} placement="bottom-start">
+             <p>{t("col.relLabelDesc")}</p>
+           </HelpPopover>
+         </div>
+         <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={remove} title={t("col.removeRelation")}>
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="space-y-1">
-          <div className="flex items-center gap-1">
-            <Label className="text-[11px] text-muted-foreground font-medium">Junction Table</Label>
-            <HelpPopover title="Junction Table" placement="bottom">
-              <p>Select the bridge table connecting this table to the target. The junction must already be registered as a table definition with two <code>fk</code> columns.</p>
-            </HelpPopover>
-          </div>
+           <div className="flex items-center gap-1">
+             <Label className="text-[11px] text-muted-foreground font-medium">{t("col.junctionTable")}</Label>
+             <HelpPopover title={t("col.junctionTable")} placement="bottom">
+               <p>{t("col.junctionHelp")}</p>
+             </HelpPopover>
+           </div>
           <Select
             value={rel.m2mJunctionDefId ?? ""}
             onValueChange={(v) =>
@@ -957,9 +968,9 @@ function M2MRelationCard({
               })
             }
           >
-            <SelectTrigger className="h-8 text-xs bg-background">
-              <SelectValue placeholder="Choose junction table..." />
-            </SelectTrigger>
+             <SelectTrigger className="h-8 text-xs bg-background">
+               <SelectValue placeholder={t("col.chooseJunction")} />
+             </SelectTrigger>
             <SelectContent>
               {candidates.map((d) => (
                 <SelectItem key={d.id} value={String(d.id)} className="text-xs">
@@ -970,20 +981,20 @@ function M2MRelationCard({
           </Select>
         </div>
         <div className="space-y-1">
-          <div className="flex items-center gap-1">
-            <Label className="text-[11px] text-muted-foreground font-medium">Link to this table via</Label>
-            <HelpPopover title="Source FK Link Column" placement="bottom">
-              <p>Select the <code>fk</code> column in the junction table that references <strong>this table</strong>.</p>
-            </HelpPopover>
-          </div>
+           <div className="flex items-center gap-1">
+             <Label className="text-[11px] text-muted-foreground font-medium">{t("col.linkVia")}</Label>
+             <HelpPopover title={t("col.srcFkTitle")} placement="bottom">
+               <p>{t("col.srcFkHelp")}</p>
+             </HelpPopover>
+           </div>
           <Select
             value={rel.m2mJunctionSrcCol ?? ""}
             onValueChange={(v) => setRel({ m2mJunctionSrcCol: v, m2mJunctionTgtCol: undefined, m2mDisplayColumns: [] })}
             disabled={!rel.m2mJunctionDefId}
           >
-            <SelectTrigger className="h-8 text-xs bg-background">
-              <SelectValue placeholder="Junction fk column → this table" />
-            </SelectTrigger>
+             <SelectTrigger className="h-8 text-xs bg-background">
+               <SelectValue placeholder={t("col.junctionToThis")} />
+             </SelectTrigger>
             <SelectContent>
               {srcOptions.map((c) => (
                 <SelectItem key={c.name} value={c.name} className="text-xs">
@@ -992,17 +1003,17 @@ function M2MRelationCard({
               ))}
             </SelectContent>
           </Select>
-          {rel.m2mJunctionDefId && srcOptions.length === 0 && (
-            <p className="text-[10px] text-amber-600">No junction fk column points at this table yet.</p>
-          )}
+           {rel.m2mJunctionDefId && srcOptions.length === 0 && (
+             <p className="text-[10px] text-amber-600">{t("col.noJunctionFk")}</p>
+           )}
         </div>
         <div className="space-y-1">
-          <div className="flex items-center gap-1">
-            <Label className="text-[11px] text-muted-foreground font-medium">Related table via</Label>
-            <HelpPopover title="Target FK Link Column" placement="bottom">
-              <p>Select the <code>fk</code> column in the junction table that references the <strong>target related table</strong>.</p>
-            </HelpPopover>
-          </div>
+           <div className="flex items-center gap-1">
+             <Label className="text-[11px] text-muted-foreground font-medium">{t("col.relatedVia")}</Label>
+             <HelpPopover title={t("col.tgtFkTitle")} placement="bottom">
+               <p>{t("col.tgtFkHelp")}</p>
+             </HelpPopover>
+           </div>
           <Select
             value={rel.m2mJunctionTgtCol ?? ""}
             onValueChange={(v) => {
@@ -1016,9 +1027,9 @@ function M2MRelationCard({
             }}
             disabled={!rel.m2mJunctionSrcCol}
           >
-            <SelectTrigger className="h-8 text-xs bg-background">
-              <SelectValue placeholder="Junction fk column → target" />
-            </SelectTrigger>
+             <SelectTrigger className="h-8 text-xs bg-background">
+               <SelectValue placeholder={t("col.junctionToTarget")} />
+             </SelectTrigger>
             <SelectContent>
               {tgtOptions.map((c) => (
                 <SelectItem key={c.name} value={c.name} className="text-xs">
@@ -1031,22 +1042,22 @@ function M2MRelationCard({
       </div>
       {rel.m2mJunctionTgtCol && (
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1">
-              <Label className="text-[11px] text-muted-foreground font-medium">Display columns on target table</Label>
-              <HelpPopover title="Target Display Columns" placement="bottom-start">
-                <p>Choose which columns from the target table are rendered in grid cells and form selection chips.</p>
-              </HelpPopover>
-            </div>
-            <div className="flex gap-1">
-              <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setRel({ m2mDisplayColumns: targetCols.map((c) => c.name) })}>
-                Select All
-              </Button>
-              <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setRel({ m2mDisplayColumns: [] })}>
-                Clear
-              </Button>
-            </div>
-          </div>
+           <div className="flex items-center justify-between">
+             <div className="flex items-center gap-1">
+               <Label className="text-[11px] text-muted-foreground font-medium">{t("col.targetDisplayCols")}</Label>
+               <HelpPopover title={t("col.targetDisplayTitle")} placement="bottom-start">
+                 <p>{t("col.targetDisplayHelp")}</p>
+               </HelpPopover>
+             </div>
+             <div className="flex gap-1">
+               <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setRel({ m2mDisplayColumns: targetCols.map((c) => c.name) })}>
+                 {t("col.selectAll")}
+               </Button>
+               <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setRel({ m2mDisplayColumns: [] })}>
+                 {t("col.clear")}
+               </Button>
+             </div>
+           </div>
           <div className="flex flex-wrap gap-1.5">
             {targetCols.map((c) => {
               const on = selectedDisplay.includes(c.name);
