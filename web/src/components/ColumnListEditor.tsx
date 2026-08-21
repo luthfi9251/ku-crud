@@ -15,7 +15,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { api } from "../lib/api";
-import type { BaseFieldType, ColumnDef, Datasource, TableDefPayload, ValidationRuleType } from "../lib/types";
+import type { BaseFieldType, ColumnDef, ColumnFormatting, Datasource, TableDefPayload, ValidationRuleType } from "../lib/types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -365,6 +365,10 @@ export function ColumnListEditor({
                     <ComputedEditor col={c} index={i} setCol={setCol} />
                   )}
 
+                  {(c.fieldType === "enum" || c.fieldType === "number") && !c.isComputed && (
+                    <FormattingEditor col={c} index={i} setCol={setCol} />
+                  )}
+
                   {c.editable && c.fieldType !== "m2m" && c.fieldType !== "fk" && (
                     <ValidationsEditor col={c} index={i} setCol={setCol} />
                   )}
@@ -437,6 +441,59 @@ function ValidationsEditor({
             value={has(t) ? param(t) : ""} onChange={(e) => set(t, true, Number(e.target.value) || 1)} />
         </label>
       ))}
+    </div>
+  );
+}
+
+function FormattingEditor({ col, index, setCol }: {
+  col: FormCol; index: number; setCol: (i: number, patch: Partial<FormCol>) => void;
+}) {
+  const fmt = col.formatting ?? {};
+  const setFmt = (next: ColumnFormatting) => setCol(index, { formatting: next });
+
+  if (col.fieldType === "enum") {
+    const colors = fmt.enumColors ?? {};
+    const PICK = ["gray", "blue", "green", "amber", "red", "purple", "cyan", "orange"];
+    return (
+      <div className="space-y-2 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3.5">
+        <Label className="text-xs font-semibold text-sky-700 dark:text-sky-300">Enum Badge Colors</Label>
+        <div className="flex flex-wrap gap-2">
+          {(col.enumOptions ?? []).map((o) => (
+            <div key={o} className="flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1">
+              <span className="text-[10px] font-mono">{o}</span>
+              <Select value={colors[o] ?? "gray"} onValueChange={(v) => setFmt({ ...fmt, enumColors: { ...colors, [o]: v } })}>
+                <SelectTrigger className="h-6 w-20 text-[10px]"><SelectValue /></SelectTrigger>
+                <SelectContent>{PICK.map((p) => <SelectItem key={p} value={p} className="text-[10px]">{p}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const nf = fmt.number ?? {};
+  return (
+    <div className="space-y-2 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3.5">
+      <Label className="text-xs font-semibold text-sky-700 dark:text-sky-300">Number Formatting (display only)</Label>
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-1 text-xs">
+          <Checkbox checked={!!nf.thousands}
+            onChange={(e) => setFmt({ ...fmt, number: { ...nf, thousands: e.target.checked } })} />
+          Thousands separator
+        </label>
+        <label className="flex items-center gap-1 text-xs">
+          Decimals
+          <Input type="number" min={0} max={6} className="h-7 w-14 text-xs"
+            value={nf.decimals ?? 0}
+            onChange={(e) => setFmt({ ...fmt, number: { ...nf, decimals: Number(e.target.value) || 0 } })} />
+        </label>
+        <label className="flex items-center gap-1 text-xs">
+          Prefix
+          <Input className="h-7 w-24 text-xs" value={nf.prefix ?? ""} placeholder="Rp "
+            onChange={(e) => setFmt({ ...fmt, number: { ...nf, prefix: e.target.value } })} />
+        </label>
+      </div>
     </div>
   );
 }

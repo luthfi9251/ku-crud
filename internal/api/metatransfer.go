@@ -66,6 +66,7 @@ type metaFileColumn struct {
 	M2MDisplay  []string              `json:"m2mDisplayColumns"`
 	IsComputed  bool                  `json:"isComputed,omitempty"`
 	ComputedFml string                `json:"computedFormula,omitempty"`
+	Formatting  json.RawMessage       `json:"formatting,omitempty"`
 }
 
 type metaFileTable struct {
@@ -184,6 +185,9 @@ func (s *Server) buildMetaFile() (*metaFile, error) {
 			if c.M2MJunctionDefID > 0 {
 				fc.M2MJunction = refOf(c.M2MJunctionDefID)
 			}
+			if c.Formatting != "" {
+				fc.Formatting = json.RawMessage(c.Formatting)
+			}
 			ft.Columns = append(ft.Columns, fc)
 		}
 		f.Tables = append(f.Tables, ft)
@@ -249,6 +253,7 @@ func tblEqual(ft metaFileTable, def *meta.TableDef, cols []meta.ColumnDef, dsNam
 			fc.Editable != c.Editable || fc.Required != c.Required || fc.Visible != c.Visible ||
 			fc.Searchable != c.Searchable || fc.Sortable != c.Sortable || fc.Position != c.Position ||
 			fc.IsComputed != c.IsComputed || fc.ComputedFml != c.ComputedFormula ||
+			string(fc.Formatting) != c.Formatting ||
 			len(fc.Validations) != len(c.Validations) {
 			return false
 		}
@@ -537,7 +542,8 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 				BaseType: fc.BaseType, Validations: fc.Validations,
 				FKRefColumn: fc.FKRefColumn, FKDisplayColumns: fc.FKDisplay,
 				M2MJunctionSrcCol: fc.M2MSrcCol, M2MJunctionTgtCol: fc.M2MTgtCol, M2MDisplayColumns: fc.M2MDisplay,
-				IsComputed: fc.IsComputed, ComputedFormula: fc.ComputedFml}}
+				IsComputed: fc.IsComputed, ComputedFormula: fc.ComputedFml,
+				Formatting: string(fc.Formatting)}}
 			if fc.FKTableRef != nil {
 				pc.FKRef = meta.DefRef{DsName: fc.FKTableRef.DatasourceRef, Schema: fc.FKTableRef.Schema, Table: fc.FKTableRef.Table}
 			}

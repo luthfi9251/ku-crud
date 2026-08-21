@@ -12,6 +12,12 @@ export interface Datasource {
 export type ValidationRuleType = "email" | "min_len" | "max_len" | "number" | "text";
 export interface ValidationRule { type: ValidationRuleType; param?: number }
 
+// ColumnFormatting is display-only config (never written to DB or CSV export).
+export interface ColumnFormatting {
+  enumColors?: Record<string, string> | null;
+  number?: { thousands?: boolean; decimals?: number; prefix?: string } | null;
+}
+
 export interface ColumnDef {
   name: string; label: string; fieldType: FieldType;
   enumOptions: string[] | null;
@@ -20,6 +26,7 @@ export interface ColumnDef {
   validations?: ValidationRule[] | null;
   isComputed?: boolean;
   computedFormula?: string;
+  formatting?: ColumnFormatting | null;
   baseType?: BaseFieldType;
   fkTableDefId?: string; // masked token or "self"
   fkRefColumn?: string;
@@ -73,6 +80,7 @@ export interface AuditEntry {
 
 export interface Me {
   username: string; isAdmin: boolean; platformManage: boolean;
+  language?: string; // populated by the i18n task; defaults to "en" until then
 }
 
 export interface User {
