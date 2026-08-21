@@ -64,6 +64,15 @@ and CRUD away.
     forms and grids, validated before submit), datasource passwords encrypted
     at rest (AES-256-GCM using `dsn_crypt_key`), login/setup rate limiting (5 failures / 15 min per
     username+IP), and default sort configuration (`defaultSortColumn`, `defaultSortDir`) per table definition.
+12. **Exploration & portability (v1.4)** — advanced per-column filtering on the
+    grid and CSV export (per-type operators for text/number/datetime/uuid/
+    boolean/enum/fk, inclusive/exclusive ranges, `in` lists, filter chips);
+    metadata **definition export/import** (password-free natural-key JSON, with
+    a preview of new / duplicate / conflicting definitions before applying);
+    per-column **validation rules** (email, min/max length, number-only,
+    text-only) enforced on create/update and CSV import; sidebar table
+    **grouping** (drag-to-group, nested menus) and a data-page shortcut to the
+    definition editor.
 
 Supported column types: `boolean`, `number` (int/float/numeric), `text`,
 `datetime` (date/time/timestamp), native Postgres `enum`, `uuid`, `json`
@@ -159,6 +168,9 @@ single-PK definitions are migrated to the new `keyColumns` form (no change
 in behavior). From v1.2 the datasource driver defaults to `postgres`.
 v1.3 adds default-sort + relation columns and encrypts stored datasource
 passwords in place (one-way: the metadata file then requires v1.3+).
+v1.4 runs migration 7 (table_groups, table_defs.group_id, columns.validations)
+on first start. Metadata import files never contain datasource passwords —
+re-enter them in the import wizard.
 
 ## Security notes
 
