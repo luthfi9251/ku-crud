@@ -115,3 +115,82 @@ func TestScanHelpers(t *testing.T) {
 		t.Fatal("map")
 	}
 }
+
+func TestFilterBuildPG(t *testing.T) {
+	p := ListParams{Schema: "app", Table: "users", Columns: []string{"id", "age", "name"},
+		SortCol: "id", SortDir: "ASC", Limit: 20, Offset: 0,
+		Filters: []ColumnFilter{
+			{Column: "age", Op: "between", Values: []any{float64(18), float64(30)}},
+			{Column: "name", Op: "contains", Values: []any{"jo"}},
+			{Column: "id", Op: "in", Values: []any{float64(1), float64(2), float64(3)}},
+		}}
+	sql, args, err := pgDialect.buildList(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `SELECT "id","age","name" FROM "app"."users" WHERE ("age" >= $1 AND "age" <= $2)` +
+		` AND ("name"::text ILIKE $3 ESCAPE '\') AND ("id" IN ($4,$5,$6))` +
+		` ORDER BY "id" ASC LIMIT $7 OFFSET $8`
+	if sql != want {
+		t.Fatalf("sql:\n%s\nwant:\n%s", sql, want)
+	}
+	if len(args) != 8 || args[0] != 18.0 || args[1] != 30.0 || args[2] != "%jo%" ||
+		args[3] != 1.0 || args[4] != 2.0 || args[5] != 3.0 ||
+		args[6] != 20 || args[7] != 0 {
+		t.Fatalf("args = %#v", args)
+	}
+}
+
+func TestFilterBuildFKJoin(t *testing.T) {
+	p := ListParams{Schema: "app", Table: "orders", Columns: []string{"id", "customer_id"},
+		SortCol: "id", SortDir: "ASC", Limit: 10, Offset: 0,
+		Filters: []ColumnFilter{{
+			Column: "customer_id", Op: "contains", Values: []any{"acme"},
+			Join: &FKJoin{Schema: "app", Table: "customers", RefColumn: "id", DisplayColumns: []string{"name"}},
+		}}}
+	sql, args, err := pgDialect.buildList(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, `LEFT JOIN "app"."customers" "f_customer_id" ON "f_customer_id"."id" = "customer_id"`) ||
+		!strings.Contains(sql, `"f_customer_id"."name"::text ILIKE $1 ESCAPE '\'`) {
+		t.Fatalf("fk join sql wrong:\n%s", sql)
+	}
+	if len(args) != 3 || args[0] != "%acme%" {
+		t.Fatalf("args = %#v", args)
+	}
+	// eq variant matches the raw display column
+	p.Filters[0].Op = "eq"
+	p.Filters[0].Values = []any{"Acme Corp"}
+	sql, _, _ = pgDialect.buildList(p)
+	if !strings.Contains(sql, `"f_customer_id"."name" = $1`) {
+		t.Fatalf("fk eq sql wrong:\n%s", sql)
+	}
+	// count joins too, so totals stay consistent
+	csql, _, err := pgDialect.buildCount(p)
+	if err != nil || !strings.Contains(csql, "LEFT JOIN") {
+		t.Fatalf("count join missing: %s err=%v", csql, err)
+	}
+}
+
+func TestFilterBuildSearchCombinedMySQL(t *testing.T) {
+	p := ListParams{Schema: "app", Table: "users", Columns: []string{"id"}, Searchable: []string{"name"},
+		Search: "x", SortCol: "id", SortDir: "ASC", Limit: 1, Offset: 0,
+		Filters: []ColumnFilter{{Column: "id", Op: "eq", Values: []any{float64(5)}}}}
+	sql, _, err := mysqlDialect.buildList(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := "SELECT `id` FROM `app`.`users` WHERE (CAST(`name` AS CHAR) LIKE ? ESCAPE '\\\\') AND (`id` = ?)"
+	if !strings.HasPrefix(sql, prefix) {
+		t.Fatalf("combined where wrong:\n%s\nwant prefix:\n%s", sql, prefix)
+	}
+}
+
+func TestFilterBadColumnRejected(t *testing.T) {
+	p := ListParams{Schema: "app", Table: "users", Columns: []string{"id"}, SortCol: "id", SortDir: "ASC",
+		Filters: []ColumnFilter{{Column: "id; DROP TABLE users", Op: "eq", Values: []any{float64(1)}}}}
+	if _, _, err := pgDialect.buildList(p); err == nil {
+		t.Fatal("injection-like column must be rejected")
+	}
+}

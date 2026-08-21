@@ -84,7 +84,8 @@ func (dt sqlDialect) quoteAll(cols []string) ([]string, error) {
 	return out, nil
 }
 
-// searchWhere builds " WHERE (expr LIKE $n ESCAPE '\' OR ...)" plus args.
+// searchWhere builds the search predicate group "(expr LIKE $n ESCAPE '\' OR
+// ...)" plus args; composition of the WHERE keyword is left to the caller.
 func (dt sqlDialect) searchWhere(searchable []string, search string, start int) (string, []any, int) {
 	if search == "" || len(searchable) == 0 {
 		return "", nil, start
@@ -99,7 +100,99 @@ func (dt sqlDialect) searchWhere(searchable []string, search string, start int) 
 		likes[i] = fmt.Sprintf("%s %s %s ESCAPE %s", dt.searchExpr(q), dt.likeOp, dt.placeholder(start+i), dt.likeEscape)
 		args[i] = "%" + escapeLike(search) + "%"
 	}
-	return " WHERE (" + strings.Join(likes, " OR ") + ")", args, start + len(qs)
+	return "(" + strings.Join(likes, " OR ") + ")", args, start + len(qs)
+}
+
+// filterParts builds LEFT JOIN clauses and AND-able predicate groups for the
+// request's column filters. The api layer has already validated columns,
+// ops and values; identifiers are re-checked here (defense in depth).
+func (dt sqlDialect) filterParts(filters []ColumnFilter, start int) (joins, conds string, args []any, next int, err error) {
+	next = start
+	var condList []string
+	for _, f := range filters {
+		if f.Join != nil {
+			alias, e := dt.quoteIdent("f_" + f.Column)
+			if e != nil {
+				return "", "", nil, start, e
+			}
+			tbl, e := dt.qualify(f.Join.Schema, f.Join.Table)
+			if e != nil {
+				return "", "", nil, start, e
+			}
+			qref, e := dt.quoteIdent(f.Join.RefColumn)
+			if e != nil {
+				return "", "", nil, start, e
+			}
+			base, e := dt.quoteIdent(f.Column)
+			if e != nil {
+				return "", "", nil, start, e
+			}
+			if len(f.Join.DisplayColumns) == 0 {
+				return "", "", nil, start, fmt.Errorf("fk filter %q has no display columns", f.Column)
+			}
+			joins += fmt.Sprintf(" LEFT JOIN %s %s ON %s.%s = %s", tbl, alias, alias, qref, base)
+			var one []string
+			switch f.Op {
+			case "contains":
+				for _, d := range f.Join.DisplayColumns {
+					qd, e := dt.quoteIdent(d)
+					if e != nil {
+						return "", "", nil, start, e
+					}
+					one = append(one, fmt.Sprintf("%s %s %s ESCAPE %s",
+						dt.searchExpr(alias+"."+qd), dt.likeOp, dt.placeholder(next), dt.likeEscape))
+					args = append(args, "%"+escapeLike(fmt.Sprint(f.Values[0]))+"%")
+					next++
+				}
+			case "eq":
+				for _, d := range f.Join.DisplayColumns {
+					qd, e := dt.quoteIdent(d)
+					if e != nil {
+						return "", "", nil, start, e
+					}
+					one = append(one, fmt.Sprintf("%s.%s = %s", alias, qd, dt.placeholder(next)))
+					args = append(args, f.Values[0])
+					next++
+				}
+			default:
+				return "", "", nil, start, fmt.Errorf("fk filter supports eq/contains only, got %q", f.Op)
+			}
+			condList = append(condList, "("+strings.Join(one, " OR ")+")")
+			continue
+		}
+		qc, e := dt.quoteIdent(f.Column)
+		if e != nil {
+			return "", "", nil, start, e
+		}
+		switch f.Op {
+		case "eq", "neq", "gt", "gte", "lt", "lte":
+			sqlOp := map[string]string{"eq": "=", "neq": "<>", "gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[f.Op]
+			condList = append(condList, fmt.Sprintf("(%s %s %s)", qc, sqlOp, dt.placeholder(next)))
+			args = append(args, f.Values[0])
+			next++
+		case "between":
+			condList = append(condList, fmt.Sprintf("(%s >= %s AND %s <= %s)",
+				qc, dt.placeholder(next), qc, dt.placeholder(next+1)))
+			args = append(args, f.Values[0], f.Values[1])
+			next += 2
+		case "in":
+			ph := make([]string, len(f.Values))
+			for i, v := range f.Values {
+				ph[i] = dt.placeholder(next)
+				args = append(args, v)
+				next++
+			}
+			condList = append(condList, fmt.Sprintf("(%s IN (%s))", qc, strings.Join(ph, ",")))
+		case "contains":
+			condList = append(condList, fmt.Sprintf("(%s %s %s ESCAPE %s)",
+				dt.searchExpr(qc), dt.likeOp, dt.placeholder(next), dt.likeEscape))
+			args = append(args, "%"+escapeLike(fmt.Sprint(f.Values[0]))+"%")
+			next++
+		default:
+			return "", "", nil, start, fmt.Errorf("unsupported filter op %q", f.Op)
+		}
+	}
+	return joins, strings.Join(condList, " AND "), args, next, nil
 }
 
 func (dt sqlDialect) buildList(p ListParams) (string, []any, error) {
@@ -125,10 +218,26 @@ func (dt sqlDialect) buildList(p ListParams) (string, []any, error) {
 	if p.SortDir != "ASC" && p.SortDir != "DESC" {
 		return "", nil, fmt.Errorf("invalid sort direction %q", p.SortDir)
 	}
-	where, args, next := dt.searchWhere(p.Searchable, p.Search, 1)
-	sql := "SELECT " + strings.Join(cols, ",") + " FROM " + tbl + where +
+	sCond, sArgs, next := dt.searchWhere(p.Searchable, p.Search, 1)
+	joins, fCond, fArgs, next2, err := dt.filterParts(p.Filters, next)
+	if err != nil {
+		return "", nil, err
+	}
+	var conds []string
+	if sCond != "" {
+		conds = append(conds, sCond)
+	}
+	if fCond != "" {
+		conds = append(conds, fCond)
+	}
+	whereAll := ""
+	if len(conds) > 0 {
+		whereAll = " WHERE " + strings.Join(conds, " AND ")
+	}
+	args := append(sArgs, fArgs...)
+	sql := "SELECT " + strings.Join(cols, ",") + " FROM " + tbl + joins + whereAll +
 		" ORDER BY " + qsort + " " + p.SortDir +
-		fmt.Sprintf(" LIMIT %s OFFSET %s", dt.placeholder(next), dt.placeholder(next+1))
+		fmt.Sprintf(" LIMIT %s OFFSET %s", dt.placeholder(next2), dt.placeholder(next2+1))
 	args = append(args, p.Limit, p.Offset)
 	return sql, args, nil
 }
@@ -138,8 +247,23 @@ func (dt sqlDialect) buildCount(p ListParams) (string, []any, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	where, args, _ := dt.searchWhere(p.Searchable, p.Search, 1)
-	return "SELECT COUNT(*) FROM " + tbl + where, args, nil
+	sCond, sArgs, next := dt.searchWhere(p.Searchable, p.Search, 1)
+	joins, fCond, fArgs, _, err := dt.filterParts(p.Filters, next)
+	if err != nil {
+		return "", nil, err
+	}
+	var conds []string
+	if sCond != "" {
+		conds = append(conds, sCond)
+	}
+	if fCond != "" {
+		conds = append(conds, fCond)
+	}
+	whereAll := ""
+	if len(conds) > 0 {
+		whereAll = " WHERE " + strings.Join(conds, " AND ")
+	}
+	return "SELECT COUNT(*) FROM " + tbl + joins + whereAll, append(sArgs, fArgs...), nil
 }
 
 func (dt sqlDialect) buildInsert(schema, table string, cols []string, vals []any) (string, error) {
