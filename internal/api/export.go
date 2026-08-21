@@ -65,9 +65,15 @@ func (s *Server) handleRowExport(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	sortCol, sortDir := resolveSort(def, cols, q.Get("sort"), q.Get("dir"))
+	filters, fmsg := s.parseFilters(def, cols, u, q.Get("filters"))
+	if fmsg != "" {
+		writeErr(w, 400, "FILTER_INVALID", fmsg, nil)
+		return
+	}
 	lp := ds.ListParams{Schema: def.SchemaName, Table: def.TableName, Columns: realColNames(cols),
 		Searchable: searchable, Search: q.Get("search"),
-		SortCol: sortCol, SortDir: sortDir, Limit: exportRowCap + 1, Offset: 0}
+		SortCol: sortCol, SortDir: sortDir, Filters: filters,
+		Limit: exportRowCap + 1, Offset: 0}
 
 	total, err := a.CountRows(lp)
 	if err != nil {

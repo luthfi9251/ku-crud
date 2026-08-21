@@ -86,13 +86,18 @@ func (dt sqlDialect) quoteAll(cols []string) ([]string, error) {
 
 // searchWhere builds the search predicate group "(expr LIKE $n ESCAPE '\' OR
 // ...)" plus args; composition of the WHERE keyword is left to the caller.
-func (dt sqlDialect) searchWhere(searchable []string, search string, start int) (string, []any, int) {
+// baseRef (pre-quoted table name, "" when no fk join) qualifies each column.
+func (dt sqlDialect) searchWhere(searchable []string, search string, start int, baseRef string) (string, []any, int) {
 	if search == "" || len(searchable) == 0 {
 		return "", nil, start
 	}
-	qs, err := dt.quoteAll(searchable)
-	if err != nil {
-		return "", nil, start // unreachable: handler pre-validates
+	qs := make([]string, len(searchable))
+	for i, c := range searchable {
+		q, err := dt.colRef(baseRef, c)
+		if err != nil {
+			return "", nil, start // unreachable: handler pre-validates
+		}
+		qs[i] = q
 	}
 	likes := make([]string, len(qs))
 	args := make([]any, len(qs))
@@ -103,10 +108,36 @@ func (dt sqlDialect) searchWhere(searchable []string, search string, start int) 
 	return "(" + strings.Join(likes, " OR ") + ")", args, start + len(qs)
 }
 
+// hasFKJoin reports whether any filter joins a target table. When true every
+// base-table column reference must be table-qualified — the joined alias
+// would otherwise make shared column names ambiguous.
+func hasFKJoin(filters []ColumnFilter) bool {
+	for _, f := range filters {
+		if f.Join != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// colRef renders one base-table column reference; baseRef is the pre-quoted
+// base table name ("" = no join, keep bare identifiers).
+func (dt sqlDialect) colRef(baseRef, col string) (string, error) {
+	q, err := dt.quoteIdent(col)
+	if err != nil {
+		return "", err
+	}
+	if baseRef != "" {
+		return baseRef + "." + q, nil
+	}
+	return q, nil
+}
+
 // filterParts builds LEFT JOIN clauses and AND-able predicate groups for the
 // request's column filters. The api layer has already validated columns,
 // ops and values; identifiers are re-checked here (defense in depth).
-func (dt sqlDialect) filterParts(filters []ColumnFilter, start int) (joins, conds string, args []any, next int, err error) {
+// baseRef (pre-quoted table name, "" when no fk join) qualifies base columns.
+func (dt sqlDialect) filterParts(filters []ColumnFilter, start int, baseRef string) (joins, conds string, args []any, next int, err error) {
 	next = start
 	var condList []string
 	for _, f := range filters {
@@ -123,7 +154,7 @@ func (dt sqlDialect) filterParts(filters []ColumnFilter, start int) (joins, cond
 			if e != nil {
 				return "", "", nil, start, e
 			}
-			base, e := dt.quoteIdent(f.Column)
+			base, e := dt.colRef(baseRef, f.Column)
 			if e != nil {
 				return "", "", nil, start, e
 			}
@@ -160,7 +191,7 @@ func (dt sqlDialect) filterParts(filters []ColumnFilter, start int) (joins, cond
 			condList = append(condList, "("+strings.Join(one, " OR ")+")")
 			continue
 		}
-		qc, e := dt.quoteIdent(f.Column)
+		qc, e := dt.colRef(baseRef, f.Column)
 		if e != nil {
 			return "", "", nil, start, e
 		}
@@ -200,9 +231,17 @@ func (dt sqlDialect) buildList(p ListParams) (string, []any, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	cols, err := dt.quoteAll(p.Columns)
-	if err != nil {
-		return "", nil, err
+	baseRef := ""
+	if hasFKJoin(p.Filters) {
+		if baseRef, err = dt.quoteIdent(p.Table); err != nil {
+			return "", nil, err
+		}
+	}
+	cols := make([]string, len(p.Columns))
+	for i, c := range p.Columns {
+		if cols[i], err = dt.colRef(baseRef, c); err != nil {
+			return "", nil, err
+		}
 	}
 	valid := map[string]bool{}
 	for _, c := range p.Columns {
@@ -211,15 +250,15 @@ func (dt sqlDialect) buildList(p ListParams) (string, []any, error) {
 	if !valid[p.SortCol] {
 		return "", nil, fmt.Errorf("sort column %q not selectable", p.SortCol)
 	}
-	qsort, err := dt.quoteIdent(p.SortCol)
+	qsort, err := dt.colRef(baseRef, p.SortCol)
 	if err != nil {
 		return "", nil, err
 	}
 	if p.SortDir != "ASC" && p.SortDir != "DESC" {
 		return "", nil, fmt.Errorf("invalid sort direction %q", p.SortDir)
 	}
-	sCond, sArgs, next := dt.searchWhere(p.Searchable, p.Search, 1)
-	joins, fCond, fArgs, next2, err := dt.filterParts(p.Filters, next)
+	sCond, sArgs, next := dt.searchWhere(p.Searchable, p.Search, 1, baseRef)
+	joins, fCond, fArgs, next2, err := dt.filterParts(p.Filters, next, baseRef)
 	if err != nil {
 		return "", nil, err
 	}
@@ -247,8 +286,14 @@ func (dt sqlDialect) buildCount(p ListParams) (string, []any, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	sCond, sArgs, next := dt.searchWhere(p.Searchable, p.Search, 1)
-	joins, fCond, fArgs, _, err := dt.filterParts(p.Filters, next)
+	baseRef := ""
+	if hasFKJoin(p.Filters) {
+		if baseRef, err = dt.quoteIdent(p.Table); err != nil {
+			return "", nil, err
+		}
+	}
+	sCond, sArgs, next := dt.searchWhere(p.Searchable, p.Search, 1, baseRef)
+	joins, fCond, fArgs, _, err := dt.filterParts(p.Filters, next, baseRef)
 	if err != nil {
 		return "", nil, err
 	}

@@ -152,7 +152,13 @@ func TestFilterBuildFKJoin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(sql, `LEFT JOIN "app"."customers" "f_customer_id" ON "f_customer_id"."id" = "customer_id"`) ||
+	if !strings.HasPrefix(sql, `SELECT "orders"."id","orders"."customer_id" FROM "app"."orders"`) {
+		t.Fatalf("base columns must be qualified under a join:\n%s", sql)
+	}
+	if !strings.Contains(sql, `ORDER BY "orders"."id" ASC`) {
+		t.Fatalf("sort must be qualified under a join:\n%s", sql)
+	}
+	if !strings.Contains(sql, `LEFT JOIN "app"."customers" "f_customer_id" ON "f_customer_id"."id" = "orders"."customer_id"`) ||
 		!strings.Contains(sql, `"f_customer_id"."name"::text ILIKE $1 ESCAPE '\'`) {
 		t.Fatalf("fk join sql wrong:\n%s", sql)
 	}
