@@ -1,6 +1,10 @@
 package api
 
-import "testing"
+import (
+	"testing"
+
+	"ku-crud/internal/meta"
+)
 
 func TestValidateValueUUID(t *testing.T) {
 	ok := []any{
@@ -71,5 +75,33 @@ func TestNormalizeJSONValue(t *testing.T) {
 	sl, err := normalizeJSONValue([]any{1, "x"})
 	if err != nil || sl != `[1,"x"]` {
 		t.Fatalf("array marshal: %q %v", sl, err)
+	}
+}
+
+func TestApplyColumnValidations(t *testing.T) {
+	cases := []struct {
+		name  string
+		rules []meta.ValidationRule
+		v     any
+		ok    bool
+	}{
+		{"email ok", []meta.ValidationRule{{Type: "email"}}, "a@b.co", true},
+		{"email bad", []meta.ValidationRule{{Type: "email"}}, "nope", false},
+		{"min_len ok", []meta.ValidationRule{{Type: "min_len", Param: 3}}, "abc", true},
+		{"min_len fail", []meta.ValidationRule{{Type: "min_len", Param: 3}}, "ab", false},
+		{"max_len fail", []meta.ValidationRule{{Type: "max_len", Param: 2}}, "abc", false},
+		{"number ok", []meta.ValidationRule{{Type: "number"}}, "-12.5", true},
+		{"number bad", []meta.ValidationRule{{Type: "number"}}, "12a", false},
+		{"text ok", []meta.ValidationRule{{Type: "text"}}, "Héllo World", true},
+		{"text bad digit", []meta.ValidationRule{{Type: "text"}}, "abc1", false},
+		{"empty skipped", []meta.ValidationRule{{Type: "email"}}, "", true},
+		{"nil skipped", []meta.ValidationRule{{Type: "email"}}, nil, true},
+		{"float stringForm", []meta.ValidationRule{{Type: "number"}}, 3.5, true},
+	}
+	for _, c := range cases {
+		err := applyColumnValidations(meta.ColumnDef{Name: "c", FieldType: "text", Validations: c.rules}, c.v)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err=%v want ok=%v", c.name, err, c.ok)
+		}
 	}
 }

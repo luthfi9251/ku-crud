@@ -192,6 +192,9 @@ func editablePayload(body map[string]any, cols []meta.ColumnDef, keyCols []strin
 			if err := validateValue(ft, v, c.EnumOptions); err != nil {
 				return nil, nil, fmt.Errorf("%s: %w", c.Name, err)
 			}
+			if err := applyColumnValidations(c, v); err != nil {
+				return nil, nil, err
+			}
 			if c.FieldType == "json" {
 				s, err := normalizeJSONValue(v)
 				if err != nil {

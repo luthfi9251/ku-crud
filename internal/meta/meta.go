@@ -96,6 +96,14 @@ ALTER TABLE columns ADD COLUMN m2m_junction_def_id INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE columns ADD COLUMN m2m_junction_src_col TEXT NOT NULL DEFAULT '';
 ALTER TABLE columns ADD COLUMN m2m_junction_tgt_col TEXT NOT NULL DEFAULT '';
 ALTER TABLE columns ADD COLUMN m2m_display_cols TEXT NOT NULL DEFAULT '';`,
+	// v1.4: sidebar table groups + per-column validation rules.
+	`CREATE TABLE table_groups (
+	id       INTEGER PRIMARY KEY AUTOINCREMENT,
+	name     TEXT NOT NULL UNIQUE,
+	position INTEGER NOT NULL DEFAULT 0
+);
+ALTER TABLE table_defs ADD COLUMN group_id INTEGER REFERENCES table_groups(id) ON DELETE SET NULL;
+ALTER TABLE columns ADD COLUMN validations TEXT NOT NULL DEFAULT '';`,
 }
 
 func Open(path string) (*Store, error) {

@@ -15,7 +15,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { api } from "../lib/api";
-import type { BaseFieldType, ColumnDef, Datasource, TableDefPayload } from "../lib/types";
+import type { BaseFieldType, ColumnDef, Datasource, TableDefPayload, ValidationRuleType } from "../lib/types";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -350,6 +351,10 @@ export function ColumnListEditor({
                     />
                   )}
 
+                  {c.editable && c.fieldType !== "m2m" && c.fieldType !== "fk" && (
+                    <ValidationsEditor col={c} index={i} setCol={setCol} />
+                  )}
+
                   {c.fieldType !== "enum" && c.fieldType !== "fk" && (
                     <div className="text-xs text-muted-foreground flex items-center gap-2 italic">
                       <span>Standard properties for <strong className="font-mono">{c.fieldType}</strong> type are configured in controls above. No additional configuration needed.</span>
@@ -380,6 +385,44 @@ function PropertyToggle({
     <div className="flex flex-col items-center gap-1" title={disabled ? "Disabled" : undefined}>
       <span className="text-[9px] text-muted-foreground font-mono uppercase tracking-wider">{label}</span>
       <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} className="scale-75 origin-center" />
+    </div>
+  );
+}
+
+function ValidationsEditor({
+  col,
+  index,
+  setCol,
+}: {
+  col: FormCol;
+  index: number;
+  setCol: (i: number, patch: Partial<FormCol>) => void;
+}) {
+  const rules = col.validations ?? [];
+  const has = (t: ValidationRuleType) => rules.some((r) => r.type === t);
+  const param = (t: ValidationRuleType) => rules.find((r) => r.type === t)?.param ?? 0;
+  const set = (t: ValidationRuleType, on: boolean, p?: number) => {
+    let next = rules.filter((r) => r.type !== t);
+    if (on) next = [...next, { type: t, ...(p != null ? { param: p } : {}) }];
+    setCol(index, { validations: next.length ? next : null });
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-3 pt-1">
+      <span className="text-[11px] font-medium text-muted-foreground">Validations:</span>
+      {(["email", "number", "text"] as const).map((t) => (
+        <label key={t} className="flex items-center gap-1 text-xs">
+          <Checkbox checked={has(t)} onChange={(e) => set(t, e.target.checked)} />
+          {t === "email" ? "Email" : t === "number" ? "Number only" : "Text only"}
+        </label>
+      ))}
+      {(["min_len", "max_len"] as const).map((t) => (
+        <label key={t} className="flex items-center gap-1 text-xs">
+          <Checkbox checked={has(t)} onChange={(e) => set(t, e.target.checked, param(t) || 1)} />
+          {t === "min_len" ? "Min" : "Max"} len
+          <Input type="number" className="h-6 w-16" min={1} max={1000} disabled={!has(t)}
+            value={has(t) ? param(t) : ""} onChange={(e) => set(t, true, Number(e.target.value) || 1)} />
+        </label>
+      ))}
     </div>
   );
 }
