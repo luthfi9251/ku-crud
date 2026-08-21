@@ -15,6 +15,22 @@ type ListParams struct {
 	Search           string
 	SortCol, SortDir string
 	Limit, Offset    int
+	Filters          []ColumnFilter
+}
+
+// FKJoin describes a LEFT JOIN target used to filter an fk column by the
+// target table's display value.
+type FKJoin struct {
+	Schema, Table, RefColumn string
+	DisplayColumns           []string
+}
+
+// ColumnFilter is one validated per-column filter (AND-combined).
+type ColumnFilter struct {
+	Column string  // definition column name (validated by the api layer)
+	Op     string  // eq|neq|gt|gte|lt|lte|between|in|contains
+	Values []any   // coerced: float64 (number), bool (boolean), string otherwise
+	Join   *FKJoin // set only for fk display-value filters
 }
 
 // TableInfo names one introspectable table.
