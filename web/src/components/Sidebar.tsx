@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Database,
   Table2,
@@ -8,15 +8,21 @@ import {
   ShieldCheck,
   LogOut,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Sparkles,
   Layers,
   PanelLeftClose,
   PanelLeft,
+  Pencil,
+  Plus,
+  MoreVertical,
+  Trash2,
   Users as UsersIcon,
   KeyRound,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { Me, TableDef } from "@/lib/types";
+import type { Me, TableDef, TableGroup } from "@/lib/types";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -42,6 +48,43 @@ export function Sidebar({ className }: SidebarProps) {
     queryFn: () => api<TableDef[]>("/tables"),
   });
 
+  const groups = useQuery({
+    queryKey: ["groups"],
+    queryFn: () => api<TableGroup[]>("/groups"),
+  });
+
+  const groupMut = useMutation({
+    mutationFn: ({
+      method,
+      path,
+      body,
+    }: {
+      method: string;
+      path: string;
+      body?: unknown;
+    }) =>
+      api(path, {
+        method,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["groups"] });
+      queryClient.invalidateQueries({ queryKey: ["defs"] });
+    },
+  });
+
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+    new Set(),
+  );
+  const toggleGroup = (id: string) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+
   const handleLogout = async () => {
     try {
       await api("/auth/logout", { method: "POST" });
@@ -55,6 +98,87 @@ export function Sidebar({ className }: SidebarProps) {
 
   const isAdmin = !!me.data?.isAdmin;
   const canPlatform = !!me.data?.platformManage;
+  const all = (defs.data ?? []).filter((t) => t.permissions?.read);
+  const byGroup = (gid?: string) =>
+    all.filter((t) => (t.groupId ?? "") === (gid ?? ""));
+
+  const renderTable = (t: TableDef) => {
+    const tablePath = `/data/${t.id}`;
+    const isActive = location.pathname === tablePath;
+    return (
+      <div key={t.id} className="relative">
+        <Link
+          to={tablePath}
+          className={cn(
+            "flex items-center justify-between rounded-lg px-3 py-2 text-xs transition-all group",
+            isActive
+              ? "bg-sidebar-accent text-sidebar-primary-foreground font-semibold"
+              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
+          )}
+          title={
+            collapsed ? t.label : `${t.schemaName}.${t.tableName}`
+          }
+        >
+          <div className="flex items-center gap-2.5 truncate">
+            <Layers
+              className={cn(
+                "h-3.5 w-3.5 shrink-0",
+                isActive ? "text-blue-400" : "text-sidebar-foreground/50",
+              )}
+            />
+            {!collapsed && <span className="truncate">{t.label}</span>}
+          </div>
+          {!collapsed && !canPlatform && (
+            <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-sidebar-foreground/40 shrink-0" />
+          )}
+        </Link>
+        {canPlatform && !collapsed && (
+          <div className="absolute right-1 top-1/2 -translate-y-1/2 z-10">
+            <button
+              onClick={() => setOpenMenu(openMenu === t.id ? null : t.id)}
+              className="flex h-3.5 w-3.5 items-center justify-center rounded text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+              title="Move to group"
+            >
+              <MoreVertical className="h-3 w-3" />
+            </button>
+            {openMenu === t.id && (
+              <div className="absolute right-0 z-10 mt-1 w-40 rounded-md border bg-popover p-1 shadow text-xs text-popover-foreground">
+                {(groups.data ?? []).map((g) => (
+                  <button
+                    key={g.id}
+                    className="block w-full px-2 py-1 text-left hover:bg-accent rounded-sm"
+                    onClick={() => {
+                      setOpenMenu(null);
+                      groupMut.mutate({
+                        method: "PATCH",
+                        path: `/tables/${t.id}`,
+                        body: { groupId: g.id },
+                      });
+                    }}
+                  >
+                    {g.name}
+                  </button>
+                ))}
+                <button
+                  className="block w-full px-2 py-1 text-left hover:bg-accent rounded-sm"
+                  onClick={() => {
+                    setOpenMenu(null);
+                    groupMut.mutate({
+                      method: "PATCH",
+                      path: `/tables/${t.id}`,
+                      body: { groupId: null },
+                    });
+                  }}
+                >
+                  No group
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
   const navItems = [
     ...(canPlatform
       ? [{ label: "Datasources", path: "/datasources", icon: Server }]
@@ -172,46 +296,118 @@ export function Sidebar({ className }: SidebarProps) {
               Loading tables...
             </div>
           )}
-          {(defs.data ?? [])
-            .filter((t) => t.permissions?.read)
-            .map((table) => {
-              const tablePath = `/data/${table.id}`;
-              const isActive = location.pathname === tablePath;
-              return (
-                <Link
-                  key={table.id}
-                  to={tablePath}
-                  className={cn(
-                    "flex items-center justify-between rounded-lg px-3 py-2 text-xs transition-all group",
-                    isActive
-                      ? "bg-sidebar-accent text-sidebar-primary-foreground font-semibold"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
-                  )}
-                  title={
-                    collapsed
-                      ? table.label
-                      : `${table.schemaName}.${table.tableName}`
-                  }
-                >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <Layers
-                      className={cn(
-                        "h-3.5 w-3.5 shrink-0",
-                        isActive
-                          ? "text-blue-400"
-                          : "text-sidebar-foreground/50",
+          {collapsed ? (
+            all.map(renderTable)
+          ) : (
+            <>
+              {(groups.data ?? []).map((g) => (
+                <div key={g.id}>
+                  <div className="flex items-center gap-1 px-2 py-1">
+                    <button
+                      onClick={() => toggleGroup(g.id)}
+                      className="flex h-4 w-4 shrink-0 items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground"
+                      title={
+                        collapsedGroups.has(g.id)
+                          ? "Expand group"
+                          : "Collapse group"
+                      }
+                    >
+                      {collapsedGroups.has(g.id) ? (
+                        <ChevronRight className="h-3 w-3" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" />
                       )}
-                    />
-                    {!collapsed && (
-                      <span className="truncate">{table.label}</span>
+                    </button>
+                    <span className="flex-1 truncate text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+                      {g.name}
+                    </span>
+                    {canPlatform && (
+                      <>
+                        <button
+                          onClick={() =>
+                            groupMut.mutate({
+                              method: "PATCH",
+                              path: `/groups/${g.id}`,
+                              body: { move: "up" },
+                            })
+                          }
+                          className="flex h-4 w-4 items-center justify-center rounded text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                          title="Move group up"
+                        >
+                          <ChevronUp className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() =>
+                            groupMut.mutate({
+                              method: "PATCH",
+                              path: `/groups/${g.id}`,
+                              body: { move: "down" },
+                            })
+                          }
+                          className="flex h-4 w-4 items-center justify-center rounded text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                          title="Move group down"
+                        >
+                          <ChevronDown className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            const name = prompt("Group name", g.name);
+                            if (name)
+                              groupMut.mutate({
+                                method: "PATCH",
+                                path: `/groups/${g.id}`,
+                                body: { name },
+                              });
+                          }}
+                          className="flex h-4 w-4 items-center justify-center rounded text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                          title="Rename group"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (
+                              confirm(
+                                `Delete group "${g.name}"? Its tables stay, just ungrouped.`,
+                              )
+                            )
+                              groupMut.mutate({
+                                method: "DELETE",
+                                path: `/groups/${g.id}`,
+                              });
+                          }}
+                          className="flex h-4 w-4 items-center justify-center rounded text-sidebar-foreground/40 hover:text-red-400 hover:bg-red-500/10"
+                          title="Delete group"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </>
                     )}
                   </div>
-                  {!collapsed && (
-                    <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-sidebar-foreground/40 shrink-0" />
-                  )}
-                </Link>
-              );
-            })}
+                  {!collapsedGroups.has(g.id) && byGroup(g.id).map(renderTable)}
+                </div>
+              ))}
+              {canPlatform && (
+                <button
+                  onClick={() => {
+                    const name = prompt("Group name");
+                    if (name)
+                      groupMut.mutate({
+                        method: "POST",
+                        path: "/groups",
+                        body: { name },
+                      });
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-sidebar-foreground/50 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-all"
+                  title="Create a new table group"
+                >
+                  <Plus className="h-3 w-3" />
+                  New group
+                </button>
+              )}
+              {byGroup(undefined).map(renderTable)}
+            </>
+          )}
           {!defs.isLoading && (defs.data ?? []).length === 0 && !collapsed && (
             <div className="px-3 py-2 text-xs text-sidebar-foreground/40 italic">
               No tables defined yet

@@ -39,10 +39,13 @@ export interface TableDef {
   id: Id; datasourceId: Id; schemaName: string; tableName: string;
   label: string; keyColumns: string[]; pageSize: number;
   defaultSortCol: string; defaultSortDir: "ASC" | "DESC";
+  groupId?: string; groupName?: string;
   permissions: Permissions;
 }
 
 export interface TableDefPayload extends TableDef { columns: ColumnDef[] }
+
+export interface TableGroup { id: Id; name: string; position: number }
 
 export interface LiveColumn {
   name: string; fieldType: FieldType; nullable: boolean;
