@@ -399,7 +399,7 @@ export default function Data() {
 
         <div>
           <div className="mb-2">
-            <FilterBar cols={cols} filters={filters} onChange={(fs) => { setFilters(fs); setPage(1); }} />
+            <FilterBar key={id} cols={cols} filters={filters} onChange={(fs) => { setFilters(fs); setPage(1); }} />
           </div>
           <div className="flex items-center gap-2">
           {cols.some((c) => c.searchable) && (
