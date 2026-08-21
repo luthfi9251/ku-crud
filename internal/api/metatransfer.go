@@ -264,7 +264,8 @@ func (s *Server) handleMetaImportPreview(w http.ResponseWriter, r *http.Request)
 	}
 	res, msg := s.diffMeta(f)
 	if msg != "" {
-		writeErr(w, 400, "META_FILE_INVALID", msg, nil)
+		// file already parsed OK — any failure here is a server fault
+		writeErr(w, 500, "INTERNAL", "server error", nil)
 		return
 	}
 	writeJSON(w, 200, res)
@@ -290,7 +291,10 @@ func (s *Server) diffMeta(f *metaFile) (*importPreviewRes, string) {
 	res := &importPreviewRes{Datasources: []dsPreviewItem{}, Tables: []tblPreviewItem{}}
 
 	localDS := map[string]meta.Datasource{}
-	dss, _ := s.store.ListDatasources()
+	dss, err := s.store.ListDatasources()
+	if err != nil {
+		return nil, "list datasources failed: " + err.Error()
+	}
 	for _, d := range dss {
 		localDS[d.Name] = d
 	}
@@ -299,7 +303,10 @@ func (s *Server) diffMeta(f *metaFile) (*importPreviewRes, string) {
 		fileTables[tableRef(ft.DatasourceRef, ft.Schema, ft.Table)] = true
 	}
 	localTables := map[string]*meta.TableDef{}
-	defs, _ := s.store.ListTableDefs()
+	defs, err := s.store.ListTableDefs()
+	if err != nil {
+		return nil, "list table defs failed: " + err.Error()
+	}
 	groupName := s.groupNameMap()
 	dsName := map[int64]string{}
 	for _, d := range dss {
