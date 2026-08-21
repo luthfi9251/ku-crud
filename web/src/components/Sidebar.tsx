@@ -21,7 +21,7 @@ import {
   Users as UsersIcon,
   KeyRound,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import type { Me, TableDef, TableGroup } from "@/lib/types";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -71,6 +71,12 @@ export function Sidebar({ className }: SidebarProps) {
       queryClient.invalidateQueries({ queryKey: ["groups"] });
       queryClient.invalidateQueries({ queryKey: ["defs"] });
     },
+    onError: (e) =>
+      alert(
+        e instanceof ApiError
+          ? `${e.message}: ${String(e.detail ?? "")}`
+          : "Group action failed",
+      ),
   });
 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
@@ -99,8 +105,13 @@ export function Sidebar({ className }: SidebarProps) {
   const isAdmin = !!me.data?.isAdmin;
   const canPlatform = !!me.data?.platformManage;
   const all = (defs.data ?? []).filter((t) => t.permissions?.read);
+  const knownGroupIds = new Set((groups.data ?? []).map((g) => g.id));
   const byGroup = (gid?: string) =>
-    all.filter((t) => (t.groupId ?? "") === (gid ?? ""));
+    all.filter((t) => {
+      const eff =
+        t.groupId && knownGroupIds.has(t.groupId) ? t.groupId : undefined;
+      return (eff ?? "") === (gid ?? "");
+    });
 
   const renderTable = (t: TableDef) => {
     const tablePath = `/data/${t.id}`;
