@@ -6,6 +6,7 @@ import {
   Table2,
   Server,
   ShieldCheck,
+  ArrowLeftRight,
   LogOut,
   ChevronRight,
   ChevronDown,
@@ -192,7 +193,10 @@ export function Sidebar({ className }: SidebarProps) {
   };
   const navItems = [
     ...(canPlatform
-      ? [{ label: "Datasources", path: "/datasources", icon: Server }]
+      ? [
+          { label: "Datasources", path: "/datasources", icon: Server },
+          { label: "Definitions Transfer", path: "/meta", icon: ArrowLeftRight },
+        ]
       : []),
     { label: "Tables & Schema", path: "/", icon: Table2 },
     ...(isAdmin
