@@ -46,21 +46,24 @@ and CRUD away.
    audit trail) plus independent read/create/update/delete grants per table.
    User & role management is admin-only; the first user is immutable.
 8. **CSV import/export (v1.3)** — export the grid as CSV (active search/sort
-   applied, all pages, fk/m2m relations resolved to display values); import
-   CSV with server-side parsing (comma/semicolon/tab auto-detected), editable
-   column mapping, per-row validation preview and batch insert (valid-only or
-   all), every insert audited.
+   applied, all pages, fk/m2m relations resolved to display values, BOM-prefixed
+   UTF-8 format up to 100,000 rows via `GET /api/tables/{id}/rows/export`); import
+   CSV with server-side parsing (comma/semicolon/tab auto-detected, 5MB / 10,000
+   rows caps), editable column mapping, per-row validation preview (`POST
+   /api/tables/{id}/rows/import/preview`) and batch insert (`POST
+   /api/tables/{id}/rows/import` with `valid` or `all` mode), every insert audited.
 9. **Bulk operations (v1.3)** — multi-select rows on the grid and delete them
-   in one confirmed action; per-row conflict reporting and audit entries.
-10. **Many-to-many (v1.3)** — a virtual `m2m` column models a junction table
+   in one confirmed action (up to 1,000 keys per request via `POST
+   /api/tables/{id}/rows/bulk-delete`); per-row conflict reporting and audit entries.
+10. **Many-to-Many (v1.3)** — a virtual `m2m` column models a junction table
     (a defined table with two fk columns: one → this table, one → target).
     Grids show joined display values; forms manage links through a
     multi-select picker (requires create+delete grants on the junction;
     every link change is audited; deleting linked rows is blocked).
 11. **Quick wins (v1.3)** — UUID and JSON column types (JSON pretty-printed in
     forms and grids, validated before submit), datasource passwords encrypted
-    at rest (AES-256-GCM), login/setup rate limiting (5 failures / 15 min per
-    username+IP), and a default sort per table definition.
+    at rest (AES-256-GCM using `dsn_crypt_key`), login/setup rate limiting (5 failures / 15 min per
+    username+IP), and default sort configuration (`defaultSortColumn`, `defaultSortDir`) per table definition.
 
 Supported column types: `boolean`, `number` (int/float/numeric), `text`,
 `datetime` (date/time/timestamp), native Postgres `enum`, `uuid`, `json`
@@ -75,6 +78,54 @@ The server has two flags and no config file:
 |---------|--------------|------------------------------------------|
 | `-addr` | `:8080`      | Listen address (`host:port` or `:port`)  |
 | `-data` | `ku-crud.db` | Path to the SQLite metadata file         |
+
+## API Endpoints
+
+All API endpoints are under `/api` and return JSON. Authenticated endpoints require a valid session cookie (`ku_session`).
+
+### Setup & Authentication
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/setup/status` | Check if initial setup is needed |
+| POST | `/api/setup` | Create initial Admin user (only works when no users exist, rate limited) |
+| POST | `/api/auth/login` | Log in with username/password (rate limited: 5 failures / 15 min per user+IP) |
+| GET | `/api/auth/me` | Get current user profile and permissions |
+| POST | `/api/auth/logout` | End session |
+
+### Datasources & Table Definitions
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET / POST | `/api/datasources` | List or register datasources |
+| GET / PUT / DELETE | `/api/datasources/{id}` | Manage a datasource |
+| POST | `/api/datasources/{id}/test` | Test database connection |
+| POST | `/api/datasources/{id}/introspect` | Inspect tables in a database |
+| GET / POST | `/api/tables` | List or create table definitions |
+| GET / PUT / DELETE | `/api/tables/{id}` | Manage a table definition |
+| GET | `/api/tables/{id}/verify` | Verify definition against live database schema (drift detection) |
+| POST | `/api/tables/{id}/resync` | Re-sync table definition columns with live schema |
+
+### Data Rows & Bulk Operations (v1.3)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/tables/{id}/rows` | List rows with search (`search=`), sort (`sort=`, `dir=`), and pagination (`page=`, `limit=`) |
+| POST | `/api/tables/{id}/rows` | Insert a new row |
+| GET / PUT / DELETE | `/api/tables/{id}/rows/{rowKey}` | View, update, or delete a specific row by composite key |
+| GET | `/api/tables/{id}/rows/export` | Export filtered/sorted rows to BOM UTF-8 CSV (up to 100,000 rows) |
+| POST | `/api/tables/{id}/rows/import/preview` | Upload and preview CSV file with column auto-mapping and validation |
+| POST | `/api/tables/{id}/rows/import` | Batch insert records from CSV (`mode=valid` or `mode=all`) |
+| POST | `/api/tables/{id}/rows/bulk-delete` | Bulk delete rows by array of keys (up to 1,000 keys per request) |
+| GET | `/api/tables/{id}/rows/m2m-options` | Fetch target table options for Many-to-Many relation field picker |
+| GET | `/api/tables/{id}/rows/{rowKey}/m2m-links` | Get current linked keys for a row's Many-to-Many field |
+
+### Administration & Audit
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET / POST | `/api/users` | List or create users (Admin only) |
+| PUT / DELETE | `/api/users/{id}` | Manage users (Admin only; first user is immutable) |
+| GET / POST | `/api/roles` | List or create custom roles (Admin only) |
+| PUT / DELETE | `/api/roles/{id}` | Manage roles (Admin only) |
+| GET | `/api/audit` | View audit trail records (Platform management grant) |
+
 
 ## First user
 

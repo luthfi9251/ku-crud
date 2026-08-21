@@ -812,19 +812,29 @@ function M2MRelationCard({
   return (
     <div className="space-y-3 rounded-md border bg-background p-3">
       <div className="flex items-center gap-2">
-        <Input
-          className="h-8 flex-1 text-xs"
-          value={rel.label}
-          onChange={(e) => setRel({ label: e.target.value })}
-          placeholder="Relation label (e.g. Tags)"
-        />
+        <div className="flex-1 flex items-center gap-1.5">
+          <Input
+            className="h-8 flex-1 text-xs"
+            value={rel.label}
+            onChange={(e) => setRel({ label: e.target.value })}
+            placeholder="Relation label (e.g. Tags)"
+          />
+          <HelpPopover title="Relation Display Label" placement="bottom-start">
+            <p>The human-readable label used in data grids and entry forms for this Many-to-Many field (e.g. "Tags" or "Roles").</p>
+          </HelpPopover>
+        </div>
         <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={remove} title="Remove relation">
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="space-y-1">
-          <Label className="text-[11px] text-muted-foreground font-medium">Junction Table</Label>
+          <div className="flex items-center gap-1">
+            <Label className="text-[11px] text-muted-foreground font-medium">Junction Table</Label>
+            <HelpPopover title="Junction Table" placement="bottom">
+              <p>Select the bridge table connecting this table to the target. The junction must already be registered as a table definition with two <code>fk</code> columns.</p>
+            </HelpPopover>
+          </div>
           <Select
             value={rel.m2mJunctionDefId ?? ""}
             onValueChange={(v) =>
@@ -850,7 +860,12 @@ function M2MRelationCard({
           </Select>
         </div>
         <div className="space-y-1">
-          <Label className="text-[11px] text-muted-foreground font-medium">Link to this table via</Label>
+          <div className="flex items-center gap-1">
+            <Label className="text-[11px] text-muted-foreground font-medium">Link to this table via</Label>
+            <HelpPopover title="Source FK Link Column" placement="bottom">
+              <p>Select the <code>fk</code> column in the junction table that references <strong>this table</strong>.</p>
+            </HelpPopover>
+          </div>
           <Select
             value={rel.m2mJunctionSrcCol ?? ""}
             onValueChange={(v) => setRel({ m2mJunctionSrcCol: v, m2mJunctionTgtCol: undefined, m2mDisplayColumns: [] })}
@@ -872,7 +887,12 @@ function M2MRelationCard({
           )}
         </div>
         <div className="space-y-1">
-          <Label className="text-[11px] text-muted-foreground font-medium">Related table via</Label>
+          <div className="flex items-center gap-1">
+            <Label className="text-[11px] text-muted-foreground font-medium">Related table via</Label>
+            <HelpPopover title="Target FK Link Column" placement="bottom">
+              <p>Select the <code>fk</code> column in the junction table that references the <strong>target related table</strong>.</p>
+            </HelpPopover>
+          </div>
           <Select
             value={rel.m2mJunctionTgtCol ?? ""}
             onValueChange={(v) => {
@@ -902,7 +922,12 @@ function M2MRelationCard({
       {rel.m2mJunctionTgtCol && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <Label className="text-[11px] text-muted-foreground font-medium">Display columns on target table</Label>
+            <div className="flex items-center gap-1">
+              <Label className="text-[11px] text-muted-foreground font-medium">Display columns on target table</Label>
+              <HelpPopover title="Target Display Columns" placement="bottom-start">
+                <p>Choose which columns from the target table are rendered in grid cells and form selection chips.</p>
+              </HelpPopover>
+            </div>
             <div className="flex gap-1">
               <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setRel({ m2mDisplayColumns: targetCols.map((c) => c.name) })}>
                 Select All
