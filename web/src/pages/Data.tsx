@@ -58,6 +58,7 @@ export default function Data() {
   const [dir, setDir] = useState<"ASC" | "DESC">("ASC");
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
+  const [groupBy, setGroupBy] = useState("");
   const [drift, setDrift] = useState<{ missing: string[]; added: string[]; typeChanged: string[] } | null>(null);
   const [connErr, setConnErr] = useState("");
   const [form, setForm] = useState<{ mode: "new" | "edit"; row: Row; initialKey?: string[] | null } | null>(null);
@@ -85,6 +86,7 @@ export default function Data() {
     setSort("");
     setDir("ASC");
     setFilters([]);
+    setGroupBy("");
     setForm(null);
     setView(null);
     // eslint-disable-line react-hooks/exhaustive-deps
@@ -143,7 +145,39 @@ export default function Data() {
     },
   });
 
+  // grouped grid fetch: pulls ALL matching rows in chunks (capped) so the
+  // client can bucket them by the chosen column's value (grid view only).
+  // keyed on dataVersion so save/delete/bulk/resync refresh the groups too.
+  const groupedRows = useQuery({
+    queryKey: ["rows-grouped", id, debounced, sort, dir, filters, groupBy, dataVersion],
+    enabled: !!def.data && !!groupBy && effectiveView === "grid",
+    queryFn: async () => {
+      const all: Row[] = [];
+      const CAP = 2000;
+      for (let page = 1; ; page++) {
+        const p = new URLSearchParams();
+        if (debounced) p.set("search", debounced);
+        const fs = serializeFilters(filters);
+        if (fs) p.set("filters", fs);
+        if (sort) {
+          p.set("sort", sort);
+          p.set("dir", dir);
+        }
+        p.set("page", String(page));
+        p.set("limit", String(Math.min(200, CAP)));
+        const res = await api<RowsRes>(`/tables/${id}/rows?${p}`);
+        all.push(...res.rows);
+        if (all.length >= res.total || res.rows.length === 0 || all.length >= CAP) break;
+      }
+      return { rows: all, truncated: all.length >= CAP };
+    },
+  });
+
   const cols = useMemo(() => (def.data?.columns ?? []).filter((c) => c.visible), [def.data]);
+  // columns the grid can group by: plain stored values only (no computed,
+  // m2m or fk — those have no single raw value to bucket on)
+  const groupable = cols.filter((c) => !c.isComputed && c.fieldType !== "m2m" && c.fieldType !== "fk");
+  const groupByLabel = cols.find((c) => c.name === groupBy)?.label ?? groupBy;
   const editable = cols.filter((c) => c.editable);
   const keyCols = def.data?.keyColumns ?? [];
   const perms = def.data?.permissions ?? { read: false, create: false, update: false, delete: false };
@@ -375,6 +409,8 @@ export default function Data() {
   const r = rows.data;
   const d = def.data;
   const pages = r ? Math.max(1, Math.ceil(r.total / r.pageSize)) : 1;
+  // total grid columns: optional bulk-select checkbox + data cols + actions
+  const colsLen = cols.length + (perms.delete ? 2 : 1);
 
   const rels = rows.data?.rels;
   const m2mRels = rows.data?.m2mRels;
@@ -401,6 +437,90 @@ export default function Data() {
     return parts.length ? parts.join(" — ") : null;
   };
 
+  // single grid row, shared by the flat paginated body and the grouped body
+  // (the react key is applied at the call site)
+  const RowRow = ({ row }: { row: Row }) => {
+    const rowKeyStr = rowKey(row) ? encodeRowKey(rowKey(row) as string[]) : "";
+    return (
+      <TableRow className="hover:bg-muted/20">
+        {perms.delete && (
+          <TableCell className="w-10">
+            {rowKeyStr && (
+              <Checkbox
+                aria-label="Select row"
+                checked={sel.has(rowKeyStr)}
+                onChange={() => toggleSel(rowKeyStr)}
+              />
+            )}
+          </TableCell>
+        )}
+        {cols.map((c) => {
+          const disp = fkDisplay(c, row);
+          return (
+            <TableCell
+              key={c.name}
+              className={`text-xs font-mono max-w-xs ${c.fieldType === "json" ? "align-top" : "truncate"}`}
+            >
+              {disp !== null ? (
+                <span className="font-sans">{disp}</span>
+              ) : c.fieldType === "enum" ? (
+                <Badge variant="outline" className={`text-[10px] ${enumColorClass(c, String(row[c.name]))}`}>
+                  {row[c.name] === null || row[c.name] === undefined ? <span className="italic text-muted-foreground/50">—</span> : String(row[c.name])}
+                </Badge>
+              ) : c.fieldType === "number" || c.fieldType === "datetime" ? (
+                <span className="font-sans">
+                  {formatCell(c, row[c.name], me.data?.language ?? "en") || <span className="italic text-muted-foreground/50">—</span>}
+                </span>
+              ) : (
+                renderValue(row[c.name], c.fieldType === "fk" ? "text" : c.fieldType)
+              )}
+            </TableCell>
+          );
+        })}
+        <TableCell className="text-right">
+          <div className="flex items-center justify-end gap-1">
+            {perms.create && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-blue-600"
+                onClick={() => handleCopy(row)}
+                title="Copy / Duplicate record"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            {rowKey(row) && perms.update && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={() => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
+                title="Edit row"
+              >
+                <Edit className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            {rowKey(row) && perms.delete && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                onClick={() => {
+                  const key = rowKey(row);
+                  if (key && confirm("Delete this record permanently?")) del.mutate(key);
+                }}
+                title="Delete row"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        </TableCell>
+      </TableRow>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Header & Search Bar */}
@@ -423,8 +543,17 @@ export default function Data() {
         </div>
 
         <div>
-          <div className="mb-2">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
             <FilterBar key={id} cols={cols} filters={filters} onChange={(fs) => { setFilters(fs); setPage(1); }} />
+            {effectiveView === "grid" && groupable.length > 0 && (
+              <Select value={groupBy || "none"} onValueChange={(v) => { setGroupBy(v === "none" ? "" : v); setPage(1); }}>
+                <SelectTrigger className="h-8 w-36 text-xs"><SelectValue placeholder="Group by…" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none" className="text-xs">No grouping</SelectItem>
+                  {groupable.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <div className="flex items-center gap-2">
           {cols.some((c) => c.searchable) && (
@@ -686,15 +815,53 @@ export default function Data() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.isLoading ? (
+                {groupBy ? (
+                  !groupedRows.data ? (
+                    <TableRow>
+                      <TableCell colSpan={colsLen} className="h-24 text-center text-xs text-muted-foreground">
+                        Fetching records...
+                      </TableCell>
+                    </TableRow>
+                  ) : groupedRows.data.rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={colsLen} className="h-32 text-center">
+                        <div className="flex flex-col items-center justify-center space-y-1">
+                          <Database className="h-7 w-7 text-muted-foreground/30" />
+                          <p className="text-xs font-medium text-muted-foreground">No records found</p>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : (() => {
+                    const groups = new Map<string, Row[]>();
+                    for (const row of groupedRows.data.rows) {
+                      const v = row[groupBy] === null || row[groupBy] === undefined ? "" : String(row[groupBy]);
+                      if (!groups.has(v)) groups.set(v, []);
+                      groups.get(v)!.push(row);
+                    }
+                    const sections: React.ReactNode[] = [];
+                    let gi = 0;
+                    for (const [gv, rowsInGroup] of groups) {
+                      sections.push(
+                        <TableRow key={`g${gi++}`} className="bg-muted/60">
+                          <TableCell colSpan={colsLen} className="px-4 py-1.5 text-xs font-semibold">
+                            {gv || <span className="italic text-muted-foreground">—</span>}
+                            <span className="ml-2 text-[10px] font-normal text-muted-foreground">({rowsInGroup.length})</span>
+                          </TableCell>
+                        </TableRow>
+                      );
+                      sections.push(...rowsInGroup.map((row, i) => <RowRow key={`r${gi}-${i}`} row={row} />));
+                    }
+                    return sections;
+                  })()
+                ) : rows.isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={cols.length + (perms.delete ? 2 : 1)} className="h-24 text-center text-xs text-muted-foreground">
+                    <TableCell colSpan={colsLen} className="h-24 text-center text-xs text-muted-foreground">
                       Fetching records...
                     </TableCell>
                   </TableRow>
                 ) : (r?.rows ?? []).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={cols.length + (perms.delete ? 2 : 1)} className="h-32 text-center">
+                    <TableCell colSpan={colsLen} className="h-32 text-center">
                       <div className="flex flex-col items-center justify-center space-y-1">
                         <Database className="h-7 w-7 text-muted-foreground/30" />
                         <p className="text-xs font-medium text-muted-foreground">No records found</p>
@@ -702,94 +869,23 @@ export default function Data() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  (r?.rows ?? []).map((row, i) => {
-                    const rowKeyStr = rowKey(row) ? encodeRowKey(rowKey(row) as string[]) : "";
-                    return (
-                    <TableRow key={(rowKey(row) ?? []).join("\u0000") + i} className="hover:bg-muted/20">
-                      {perms.delete && (
-                        <TableCell className="w-10">
-                          {rowKeyStr && (
-                            <Checkbox
-                              aria-label="Select row"
-                              checked={sel.has(rowKeyStr)}
-                              onChange={() => toggleSel(rowKeyStr)}
-                            />
-                          )}
-                        </TableCell>
-                      )}
-                      {cols.map((c) => {
-                        const disp = fkDisplay(c, row);
-                        return (
-                          <TableCell
-                            key={c.name}
-                            className={`text-xs font-mono max-w-xs ${c.fieldType === "json" ? "align-top" : "truncate"}`}
-                          >
-                            {disp !== null ? (
-                              <span className="font-sans">{disp}</span>
-                            ) : c.fieldType === "enum" ? (
-                              <Badge variant="outline" className={`text-[10px] ${enumColorClass(c, String(row[c.name]))}`}>
-                                {row[c.name] === null || row[c.name] === undefined ? <span className="italic text-muted-foreground/50">—</span> : String(row[c.name])}
-                              </Badge>
-                            ) : c.fieldType === "number" || c.fieldType === "datetime" ? (
-                              <span className="font-sans">
-                                {formatCell(c, row[c.name], me.data?.language ?? "en") || <span className="italic text-muted-foreground/50">—</span>}
-                              </span>
-                            ) : (
-                              renderValue(row[c.name], c.fieldType === "fk" ? "text" : c.fieldType)
-                            )}
-                          </TableCell>
-                        );
-                      })}
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {perms.create && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-blue-600"
-                              onClick={() => handleCopy(row)}
-                              title="Copy / Duplicate record"
-                            >
-                              <Copy className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          {rowKey(row) && perms.update && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                              onClick={() => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
-                              title="Edit row"
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          {rowKey(row) && perms.delete && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                              onClick={() => {
-                                const key = rowKey(row);
-                                if (key && confirm("Delete this record permanently?")) del.mutate(key);
-                              }}
-                              title="Delete row"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    );
-                  })
+                  (r?.rows ?? []).map((row, i) => <RowRow key={i} row={row} />)
                 )}
               </TableBody>
             </Table>
           </div>
         </CardContent>
 
-        {/* Footer Pagination */}
+        {/* Footer: grouped banner or pagination */}
+        {groupBy ? (
+          <div className="flex items-center justify-between border-t bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+            <span>
+              Grouped {groupedRows.data?.rows.length ?? 0} rows by <strong className="text-foreground">{groupByLabel}</strong>
+              {groupedRows.data?.truncated && <span className="ml-2 text-amber-600">— grouping truncated at 2,000 rows</span>}
+            </span>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setGroupBy("")}>Clear grouping</Button>
+          </div>
+        ) : (
         <div className="flex items-center justify-between border-t bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
           <span>
             Page <strong className="text-foreground">{page}</strong> of <strong className="text-foreground">{pages}</strong> &bull; Total {r?.total ?? 0} rows
@@ -815,6 +911,7 @@ export default function Data() {
             </Button>
           </div>
         </div>
+        )}
       </Card>
       )}
 
