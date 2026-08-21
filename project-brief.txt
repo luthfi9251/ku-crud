@@ -84,7 +84,7 @@ Saat ini UUID dan JSON/JSONB di exclude padahal UUID sering digunakan sebagai PK
 - Default sort didefinisikan pada table definition saja, sehingga setiap user membuka halaman table langsung dengan urutan default yang sudah diset
 
 Fitur V1.4
-Versi ini fokus pada advanced exploration dan portability, yaitu kemampuan menemukan data dengan lebih presisi serta memindahkan definisi antar environment dengan mudah. Berikut adalah fitur yang akan dideliver:
+Versi ini fokus pada advanced exploration, portability, dan perapian navigasi, yaitu kemampuan menemukan data dengan lebih presisi, memindahkan definisi antar environment dengan mudah, serta menstrukturkan menu table yang semakin banyak. Berikut adalah fitur yang akan dideliver:
 
 1. Advanced Filtering
 Menambahkan kemampuan filter per kolom pada halaman grid, dengan operator yang disesuaikan tipe kolom: equals, not equals, greater than, less than, between, in list, contains (untuk text), dan date range (untuk datetime). Beberapa filter kolom dapat dikombinasikan sekaligus (AND). Seluruh nama kolom dan operator tetap wajib divalidasi terhadap table definition yang tersimpan di metadata, sama seperti mekanisme anti SQL Injection yang sudah ada. Filter yang aktif juga ikut diterapkan pada export CSV.
@@ -92,16 +92,19 @@ Menambahkan kemampuan filter per kolom pada halaman grid, dengan operator yang d
 2. Export & Import Metadata Definition
 Kemampuan mengekspor definisi (datasource dan table definition) menjadi satu file JSON, untuk keperluan transfer antar environment (misal dev ke prod). Password datasource TIDAK ikut diekspor demi keamanan, sehingga di environment tujuan user hanya perlu memasukkan password kembali. Saat import, sistem akan memvalidasi struktur file, membolehkan user memilih definisi mana saja yang ingin dimasukkan, dan menangani kondisi duplikat (skip atau overwrite). Relasi antar table definition tetap terjaga saat import (referensi table tujuan ikut dipetakan).
 
-3. Keyset / Cursor Pagination
-Mengganti offset pagination pada halaman grid dengan pendekatan keyset/cursor, agar navigasi pada table berukuran besar tetap cepat dan konsisten (offset pagination makin lambat di halaman akhir dan bisa skip row saat data berubah). Cursor dibangun dari nilai kolom sort yang sedang aktif (dan key columns sebagai tie breaker), berbentuk opaque token yang divalidasi server. Tombol previous/next tetap tersedia di UI, dan parameter cursor ini juga berlaku pada export CSV.
-
-4. Validasi Per Kolom
+3. Validasi Per Kolom
 Pada table definition, user dapat (opsional) mendefinisikan validasi untuk setiap kolom. Validasi dijalankan di backend pada saat insert maupun update, sebelum query ke database dijalankan; jika tidak lolos maka request ditolak beserta pesan error yang jelas per kolom. Validasi yang disediakan adalah:
 - Format email (memastikan value sesuai format email yang valid)
 - Panjang minimal dan maksimal (min length / max length)
 - Number only (value hanya boleh berisi angka)
 - Text only (value hanya boleh berisi huruf/huruf dan spasi)
 Sebuah kolom dapat memiliki lebih dari satu validasi sekaligus (misal: format email dan panjang maksimal). Validasi ini juga diterapkan pada import CSV v1.3, sehingga baris yang tidak lolos validasi ditandai invalid pada preview.
+
+4. Grouping Table pada Sidebar
+Seiring bertambahnya table definition, menu table di sidebar akan semakin panjang dan sulit dinavigasi. Pada fitur ini, user dapat mengelompokkan table-table ke dalam group (mirip folder) langsung dari sisi sidebar, sehingga menu menjadi lebih terstruktur. Sebuah table dapat dipindahkan antar group, dan table tanpa group tetap tampil seperti sebelumnya. Group juga dapat di-rename, di-reorder, dan di-delete (table di dalamnya tidak ikut terhapus, hanya kembali menjadi tanpa group).
+
+5. Shortcut ke Table Definition dari Halaman Table View
+Pada halaman table view (halaman data), tersedia tombol untuk redirect langsung ke halaman table definition dari table tersebut. Tombol ini hanya tampil bagi user yang memiliki akses Platform Management, sehingga programmer/admin dapat melompat dari data ke definisinya tanpa harus mencari manual di daftar table definition.
 
 Fitur V1.5
 POV berubah dari "tool untuk yang malas buka SQL editor" menjadi Low Code CRUD dengan dua persona: programmer yang melakukan setup table definition, dan user bisnis murni tanpa pengalaman IT yang menggunakan table. Versi ini fokus agar data tampil dan terbaca nyaman bagi user bisnis.
@@ -127,7 +130,6 @@ Kolom virtual read-only yang nilainya dihitung di application layer, tidak disim
 
 5. Platform Polish
 - Lokalisasi UI bahasa Indonesia dan Inggris. Bahasa dipilih per user dan disimpan di profile user.
-- Organisasi menu: programmer dapat mengelompokkan table definition ke dalam kategori (seperti folder) pada sidebar, beserta label khusus untuk navigasi.
 - Saved filter per user: kombinasi advanced filter yang aktif dapat disimpan dengan nama, tampil sebagai dropdown pada halaman data, dan hanya visible untuk user yang membuatnya. (Fitur ini tadinya dipangkas dari v1.3, menjadi relevan kembali dengan hadirnya user bisnis)
 
 Fitur V1.6 — Automation via Go Hooks
