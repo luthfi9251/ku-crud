@@ -163,11 +163,13 @@ type tableDefDTO struct {
 	PageSize       int         `json:"pageSize"`
 	DefaultSortCol string      `json:"defaultSortCol"`
 	DefaultSortDir string      `json:"defaultSortDir"`
+	GroupID        string      `json:"groupId,omitempty"`
+	GroupName      string      `json:"groupName,omitempty"`
 	Columns        []columnDTO `json:"columns,omitempty"`
 	Permissions    permsDTO    `json:"permissions"`
 }
 
-func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDTO) tableDefDTO {
+func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDTO, groups map[int64]string) tableDefDTO {
 	dto := tableDefDTO{
 		ID:             s.ids.Encode("td", def.ID),
 		DatasourceID:   s.ids.Encode("ds", def.DatasourceID),
@@ -179,6 +181,10 @@ func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDT
 		DefaultSortCol: def.DefaultSortCol,
 		DefaultSortDir: def.DefaultSortDir,
 		Permissions:    p,
+	}
+	if def.GroupID > 0 {
+		dto.GroupID = s.ids.Encode("grp", def.GroupID)
+		dto.GroupName = groups[def.GroupID]
 	}
 	if dto.KeyColumns == nil {
 		dto.KeyColumns = []string{}
@@ -470,7 +476,7 @@ func (s *Server) handleTableCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", "save failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, s.toTableDTO(def, cols, permsDTO{true, true, true, true}))
+	writeJSON(w, 200, s.toTableDTO(def, cols, permsDTO{true, true, true, true}, s.groupNameMap()))
 }
 
 func (s *Server) handleTableList(w http.ResponseWriter, r *http.Request) {
@@ -481,6 +487,7 @@ func (s *Server) handleTableList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := []tableDefDTO{}
+	groups := s.groupNameMap()
 	for i := range list {
 		p := s.tablePerms(u, list[i].ID)
 		// Platform users see every definition (they manage them); everyone
@@ -489,7 +496,7 @@ func (s *Server) handleTableList(w http.ResponseWriter, r *http.Request) {
 		if !u.PlatformManage && !p.Read {
 			continue
 		}
-		out = append(out, s.toTableDTO(&list[i], nil, p))
+		out = append(out, s.toTableDTO(&list[i], nil, p, groups))
 	}
 	writeJSON(w, 200, out)
 }
@@ -531,7 +538,7 @@ func (s *Server) handleTableGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "FORBIDDEN", "no access to this table", nil)
 		return
 	}
-	writeJSON(w, 200, s.toTableDTO(def, cols, p))
+	writeJSON(w, 200, s.toTableDTO(def, cols, p, s.groupNameMap()))
 }
 
 func (s *Server) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
@@ -552,6 +559,10 @@ func (s *Server) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	cols := s.toCols(in.Columns)
 	def.ID = id
+	// group assignment is managed via PATCH /api/tables/{id}; keep it on edit
+	if old, _, err := s.store.GetTableDef(id); err == nil {
+		def.GroupID = old.GroupID
+	}
 	if msg := s.validateDef(def, cols); msg != "" {
 		writeErr(w, 400, "VALIDATION", msg, nil)
 		return
@@ -564,7 +575,7 @@ func (s *Server) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", "update failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, s.toTableDTO(def, cols, permsDTO{true, true, true, true}))
+	writeJSON(w, 200, s.toTableDTO(def, cols, permsDTO{true, true, true, true}, s.groupNameMap()))
 }
 
 func (s *Server) handleTableDelete(w http.ResponseWriter, r *http.Request) {
@@ -745,7 +756,7 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, fresh, _ := s.store.GetTableDef(def.ID)
-	writeJSON(w, 200, s.toTableDTO(def, fresh, permsDTO{true, true, true, true}))
+	writeJSON(w, 200, s.toTableDTO(def, fresh, permsDTO{true, true, true, true}, s.groupNameMap()))
 }
 
 func (s *Server) handleDSColumns(w http.ResponseWriter, r *http.Request) {
