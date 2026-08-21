@@ -64,7 +64,8 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
-	if !s.hasTablePerm(userFrom(r), def.ID, "read") {
+	u := userFrom(r)
+	if !s.hasTablePerm(u, def.ID, "read") {
 		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
 		return
 	}
@@ -84,6 +85,11 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 	sortCol, sortDir := resolveSort(def, cols, q.Get("sort"), q.Get("dir"))
+	filters, fmsg := s.parseFilters(def, cols, u, q.Get("filters"))
+	if fmsg != "" {
+		writeErr(w, 400, "FILTER_INVALID", fmsg, nil)
+		return
+	}
 	page := 1
 	if p, err := strconv.Atoi(q.Get("page")); err == nil && p > 0 {
 		page = p
@@ -93,7 +99,8 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 	lp := ds.ListParams{Schema: def.SchemaName, Table: def.TableName, Columns: names,
 		Searchable: searchable, Search: q.Get("search"),
 		SortCol: sortCol, SortDir: sortDir,
-		Limit: def.PageSize, Offset: (page - 1) * def.PageSize}
+		Filters: filters,
+		Limit:   def.PageSize, Offset: (page - 1) * def.PageSize}
 
 	rows, err := a.ListRows(lp)
 	if err != nil {
@@ -105,8 +112,8 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "CONN", "count failed", err.Error())
 		return
 	}
-	rels := s.buildRels(userFrom(r), cols, rows)
-	m2mRels := s.buildM2MRels(userFrom(r), def, cols, rows)
+	rels := s.buildRels(u, cols, rows)
+	m2mRels := s.buildM2MRels(u, def, cols, rows)
 	if rows == nil {
 		rows = []map[string]any{}
 	}
@@ -191,6 +198,9 @@ func editablePayload(body map[string]any, cols []meta.ColumnDef, keyCols []strin
 			}
 			if err := validateValue(ft, v, c.EnumOptions); err != nil {
 				return nil, nil, fmt.Errorf("%s: %w", c.Name, err)
+			}
+			if err := applyColumnValidations(c, v); err != nil {
+				return nil, nil, err
 			}
 			if c.FieldType == "json" {
 				s, err := normalizeJSONValue(v)

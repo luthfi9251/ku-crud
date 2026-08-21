@@ -6,6 +6,9 @@ import (
 	"regexp"
 	"strconv"
 	"time"
+	"unicode/utf8"
+
+	"ku-crud/internal/meta"
 )
 
 var datetimeLayouts = []string{time.RFC3339, "2006-01-02T15:04", "2006-01-02"}
@@ -102,4 +105,68 @@ func normalizeJSONValue(v any) (string, error) {
 		return string(b), nil
 	}
 	return "", fmt.Errorf("expected JSON string or object/array, got %T", v)
+}
+
+var (
+	ruleEmailRe  = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
+	ruleNumberRe = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?$`)
+	ruleTextRe   = regexp.MustCompile(`^[A-Za-zÀ-ÿ ]+$`)
+)
+
+// stringForm renders a decoded JSON value the way validation rules see it.
+func stringForm(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case bool:
+		if x {
+			return "true"
+		}
+		return "false"
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case int:
+		return strconv.Itoa(x)
+	case []byte:
+		return string(x)
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+// applyColumnValidations enforces the def's optional per-column rules on the
+// string form of a value. Empty/nil values are skipped (required-ness is a
+// separate flag). Called from editablePayload (row writes) and coerceValidate
+// (CSV import) — the two validation funnels.
+func applyColumnValidations(c meta.ColumnDef, v any) error {
+	if v == nil || len(c.Validations) == 0 {
+		return nil
+	}
+	s := stringForm(v)
+	if s == "" {
+		return nil // empty values are skipped like NULL (required-ness is separate)
+	}
+	for _, r := range c.Validations {
+		var bad bool
+		switch r.Type {
+		case "email":
+			bad = !ruleEmailRe.MatchString(s)
+		case "min_len":
+			bad = utf8.RuneCountInString(s) < r.Param
+		case "max_len":
+			bad = utf8.RuneCountInString(s) > r.Param
+		case "number":
+			bad = !ruleNumberRe.MatchString(s)
+		case "text":
+			bad = !ruleTextRe.MatchString(s)
+		default:
+			bad = true
+		}
+		if bad {
+			return fmt.Errorf("%s: failed %q validation (%q)", c.Name, r.Type, s)
+		}
+	}
+	return nil
 }

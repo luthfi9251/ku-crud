@@ -19,11 +19,13 @@ import {
   Database,
   Download,
   Upload,
+  Settings2,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { encodeRowKey } from "../lib/rowkey";
-import type { ColumnDef, FkOptionsRes, Row, RowsRes, TableDefPayload } from "../lib/types";
+import type { ColumnDef, FkOptionsRes, Me, Row, RowsRes, TableDefPayload } from "../lib/types";
 import { HelpPopover } from "../components/ColumnListEditor";
+import { FilterBar, serializeFilters, type ActiveFilter } from "../components/FilterBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,11 +47,13 @@ export default function Data() {
 
   const qc = useQueryClient();
   const def = useQuery({ queryKey: ["def", id], queryFn: () => api<TableDefPayload>(`/tables/${id}`) });
+  const me = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/auth/me") });
   const [search, setSearch] = useState(searchParam);
   const [debounced, setDebounced] = useState(searchParam);
   const [sort, setSort] = useState("");
   const [dir, setDir] = useState<"ASC" | "DESC">("ASC");
   const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState<ActiveFilter[]>([]);
   const [drift, setDrift] = useState<{ missing: string[]; added: string[]; typeChanged: string[] } | null>(null);
   const [connErr, setConnErr] = useState("");
   const [form, setForm] = useState<{ mode: "new" | "edit"; row: Row; initialKey?: string[] | null } | null>(null);
@@ -61,6 +65,7 @@ export default function Data() {
     setPage(1);
     setSort("");
     setDir("ASC");
+    setFilters([]);
     setForm(null);
     // eslint-disable-line react-hooks/exhaustive-deps
   }, [id, searchParam]);
@@ -102,11 +107,13 @@ export default function Data() {
   }, [id]);
 
   const rows = useQuery({
-    queryKey: ["rows", id, debounced, sort, dir, page],
+    queryKey: ["rows", id, debounced, sort, dir, page, filters],
     enabled: !!def.data,
     queryFn: () => {
       const p = new URLSearchParams();
       if (debounced) p.set("search", debounced);
+      const fs = serializeFilters(filters);
+      if (fs) p.set("filters", fs);
       if (sort) {
         p.set("sort", sort);
         p.set("dir", dir);
@@ -205,7 +212,7 @@ export default function Data() {
 
   const [delErr, setDelErr] = useState("");
 
-  // CSV export follows the active search/sort; all pages, not just current
+  // CSV export follows the active search/sort/filters; all pages, not just current
   const [exporting, setExporting] = useState(false);
   const exportCSV = async () => {
     setExporting(true);
@@ -216,6 +223,8 @@ export default function Data() {
         p.set("sort", sort);
         p.set("dir", dir);
       }
+      const fs = serializeFilters(filters);
+      if (fs) p.set("filters", fs);
       const res = await fetch(`/api/tables/${id}/rows/export?${p}`, { credentials: "same-origin" });
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;
@@ -388,7 +397,11 @@ export default function Data() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div>
+          <div className="mb-2">
+            <FilterBar key={id} cols={cols} filters={filters} onChange={(fs) => { setFilters(fs); setPage(1); }} />
+          </div>
+          <div className="flex items-center gap-2">
           {cols.some((c) => c.searchable) && (
             <div className="flex items-center gap-1">
               <div className="relative">
@@ -404,6 +417,17 @@ export default function Data() {
                 <p>Filters rows across all searchable columns using parameterized SQL <code>LIKE</code> wildcard matching.</p>
               </HelpPopover>
             </div>
+          )}
+          {me.data?.platformManage && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1 text-xs"
+              onClick={() => navigate(`/tables/${id}/edit`)}
+              title="Open table definition"
+            >
+              <Settings2 className="h-3.5 w-3.5" /> Definition
+            </Button>
           )}
           <Button
             variant="outline"
@@ -456,6 +480,7 @@ export default function Data() {
               </Button>
             </>
           )}
+          </div>
         </div>
       </div>
 

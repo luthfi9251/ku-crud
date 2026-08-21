@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -225,4 +226,45 @@ func metaTrim(s string) string {
 		}
 	}
 	return b.String()
+}
+
+func TestValidationRuleBlocksWriteAndImport(t *testing.T) {
+	cs := os.Getenv("KUCRUD_TEST_PG")
+	if cs == "" {
+		t.Skip("KUCRUD_TEST_PG not set")
+	}
+	s := newTestServer(t)
+	c := login(s)
+	seedLive(t, s)
+
+	// PUT def 1 back with an email rule on the name column
+	tok := tdTok(s, 1)
+	w := do(s, "GET", "/api/tables/"+tok, "", c)
+	var def map[string]any
+	json.Unmarshal(w.Body.Bytes(), &def)
+	for _, colAny := range def["columns"].([]any) {
+		col := colAny.(map[string]any)
+		if col["name"] == "name" {
+			col["validations"] = []map[string]any{{"type": "email"}}
+		}
+	}
+	w = do(s, "PUT", "/api/tables/"+tok, string(mustJSON(def)), c)
+	if w.Code != 200 {
+		t.Fatalf("def update = %d %s", w.Code, w.Body)
+	}
+
+	// row create with a bad email -> 400
+	w = do(s, "POST", "/api/tables/"+tok+"/rows", `{"id":99,"name":"not-an-email"}`, c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "email") {
+		t.Fatalf("rule not enforced on create: %d %s", w.Code, w.Body)
+	}
+
+	// import preview marks the row invalid
+	req := importRequest(t, "/api/tables/"+tok+"/import/preview", "id,name\n9,also-bad\n", nil)
+	req.Header.Set("Cookie", *c)
+	resp := httptest.NewRecorder()
+	s.Routes().ServeHTTP(resp, req)
+	if resp.Code != 200 || !strings.Contains(resp.Body.String(), "email") {
+		t.Fatalf("rule not enforced on import: %d %s", resp.Code, resp.Body)
+	}
 }

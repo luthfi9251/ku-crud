@@ -19,25 +19,33 @@ type TableDef struct {
 	PageSize       int      `json:"pageSize"`
 	DefaultSortCol string   `json:"defaultSortCol"`
 	DefaultSortDir string   `json:"defaultSortDir"`
+	GroupID        int64    `json:"groupId,omitempty"`
+}
+
+// ValidationRule is one optional per-column rule enforced on every write.
+type ValidationRule struct {
+	Type  string `json:"type"`            // email | min_len | max_len | number | text
+	Param int    `json:"param,omitempty"` // bound for min_len / max_len
 }
 
 type ColumnDef struct {
-	ID               int64    `json:"id"`
-	TableDefID       int64    `json:"tableDefId"`
-	Name             string   `json:"name"`
-	Label            string   `json:"label"`
-	FieldType        string   `json:"fieldType"`
-	EnumOptions      []string `json:"enumOptions"`
-	Editable         bool     `json:"editable"`
-	Required         bool     `json:"required"`
-	Visible          bool     `json:"visible"`
-	Searchable       bool     `json:"searchable"`
-	Sortable         bool     `json:"sortable"`
-	Position         int      `json:"position"`
-	BaseType         string   `json:"baseType,omitempty"`
-	FKTableDefID     int64    `json:"fkTableDefId,omitempty"`
-	FKRefColumn      string   `json:"fkRefColumn,omitempty"`
-	FKDisplayColumns []string `json:"fkDisplayColumns,omitempty"`
+	ID               int64            `json:"id"`
+	TableDefID       int64            `json:"tableDefId"`
+	Name             string           `json:"name"`
+	Label            string           `json:"label"`
+	FieldType        string           `json:"fieldType"`
+	EnumOptions      []string         `json:"enumOptions"`
+	Editable         bool             `json:"editable"`
+	Required         bool             `json:"required"`
+	Visible          bool             `json:"visible"`
+	Searchable       bool             `json:"searchable"`
+	Sortable         bool             `json:"sortable"`
+	Position         int              `json:"position"`
+	Validations      []ValidationRule `json:"validations,omitempty"`
+	BaseType         string           `json:"baseType,omitempty"`
+	FKTableDefID     int64            `json:"fkTableDefId,omitempty"`
+	FKRefColumn      string           `json:"fkRefColumn,omitempty"`
+	FKDisplayColumns []string         `json:"fkDisplayColumns,omitempty"`
 	// m2m virtual columns (fieldType == "m2m") — no live column counterpart.
 	M2MJunctionDefID  int64    `json:"m2mJunctionDefId,omitempty"`
 	M2MJunctionSrcCol string   `json:"m2mJunctionSrcCol,omitempty"`
@@ -70,15 +78,20 @@ func insertCols(tx *sql.Tx, defID int64, cols []ColumnDef) error {
 			b, _ := json.Marshal(c.M2MDisplayColumns)
 			m2mDisp = string(b)
 		}
+		vRules := ""
+		if len(c.Validations) > 0 {
+			b, _ := json.Marshal(c.Validations)
+			vRules = string(b)
+		}
 		_, err := tx.Exec(`INSERT INTO columns(table_def_id,name,label,field_type,enum_options,
 			editable,required,visible,searchable,sortable,position,
 			base_type,fk_table_def_id,fk_ref_column,fk_display_columns,
-			m2m_junction_def_id,m2m_junction_src_col,m2m_junction_tgt_col,m2m_display_cols)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			m2m_junction_def_id,m2m_junction_src_col,m2m_junction_tgt_col,m2m_display_cols,validations)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			defID, c.Name, c.Label, c.FieldType, opts,
 			c.Editable, c.Required, c.Visible, c.Searchable, c.Sortable, c.Position,
 			c.BaseType, c.FKTableDefID, c.FKRefColumn, disp,
-			c.M2MJunctionDefID, c.M2MJunctionSrcCol, c.M2MJunctionTgtCol, m2mDisp)
+			c.M2MJunctionDefID, c.M2MJunctionSrcCol, c.M2MJunctionTgtCol, m2mDisp, vRules)
 		if err != nil {
 			return err
 		}
@@ -98,8 +111,12 @@ func (s *Store) SaveTableDef(def *TableDef, cols []ColumnDef) error {
 	if def.DefaultSortDir != "DESC" {
 		def.DefaultSortDir = "ASC"
 	}
-	res, err := tx.Exec(`INSERT INTO table_defs(datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir)
-		VALUES(?,?,?,?,?,?,?,?)`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir)
+	var gid any
+	if def.GroupID > 0 {
+		gid = def.GroupID
+	}
+	res, err := tx.Exec(`INSERT INTO table_defs(datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir,group_id)
+		VALUES(?,?,?,?,?,?,?,?,?)`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir, gid)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -126,8 +143,12 @@ func (s *Store) UpdateTableDef(def *TableDef, cols []ColumnDef) error {
 	if def.DefaultSortDir != "DESC" {
 		def.DefaultSortDir = "ASC"
 	}
-	res, err := tx.Exec(`UPDATE table_defs SET datasource_id=?,schema_name=?,table_name=?,label=?,key_columns=?,page_size=?,default_sort_col=?,default_sort_dir=?
-		WHERE id=?`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir, def.ID)
+	var gid any
+	if def.GroupID > 0 {
+		gid = def.GroupID
+	}
+	res, err := tx.Exec(`UPDATE table_defs SET datasource_id=?,schema_name=?,table_name=?,label=?,key_columns=?,page_size=?,default_sort_col=?,default_sort_dir=?,group_id=?
+		WHERE id=?`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir, gid, def.ID)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -165,7 +186,7 @@ func (s *Store) ReplaceColumns(defID int64, cols []ColumnDef) error {
 }
 
 func (s *Store) ListTableDefs() ([]TableDef, error) {
-	rows, err := s.db.Query(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir
+	rows, err := s.db.Query(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir,group_id
 		FROM table_defs ORDER BY label`)
 	if err != nil {
 		return nil, err
@@ -175,9 +196,11 @@ func (s *Store) ListTableDefs() ([]TableDef, error) {
 	for rows.Next() {
 		var d TableDef
 		var kj string
-		if err := rows.Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir); err != nil {
+		var gid sql.NullInt64
+		if err := rows.Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir, &gid); err != nil {
 			return nil, err
 		}
+		d.GroupID = gid.Int64
 		json.Unmarshal([]byte(kj), &d.KeyColumns)
 		out = append(out, d)
 	}
@@ -187,15 +210,17 @@ func (s *Store) ListTableDefs() ([]TableDef, error) {
 func (s *Store) GetTableDef(id int64) (*TableDef, []ColumnDef, error) {
 	d := &TableDef{}
 	var kj string
-	err := s.db.QueryRow(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir
+	var gid sql.NullInt64
+	err := s.db.QueryRow(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir,group_id
 		FROM table_defs WHERE id=?`, id).
-		Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir)
+		Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir, &gid)
 	if err == sql.ErrNoRows {
 		return nil, nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, nil, err
 	}
+	d.GroupID = gid.Int64
 	json.Unmarshal([]byte(kj), &d.KeyColumns)
 	cols, err := s.getColumns(id)
 	return d, cols, err
@@ -205,7 +230,7 @@ func (s *Store) getColumns(defID int64) ([]ColumnDef, error) {
 	rows, err := s.db.Query(`SELECT id,table_def_id,name,label,field_type,enum_options,
 		editable,required,visible,searchable,sortable,position,
 		base_type,fk_table_def_id,fk_ref_column,fk_display_columns,
-		m2m_junction_def_id,m2m_junction_src_col,m2m_junction_tgt_col,m2m_display_cols
+		m2m_junction_def_id,m2m_junction_src_col,m2m_junction_tgt_col,m2m_display_cols,validations
 		FROM columns WHERE table_def_id=? ORDER BY position`, defID)
 	if err != nil {
 		return nil, err
@@ -214,11 +239,11 @@ func (s *Store) getColumns(defID int64) ([]ColumnDef, error) {
 	var out []ColumnDef
 	for rows.Next() {
 		var c ColumnDef
-		var opts, disp, m2mDisp sql.NullString
+		var opts, disp, m2mDisp, vld sql.NullString
 		if err := rows.Scan(&c.ID, &c.TableDefID, &c.Name, &c.Label, &c.FieldType, &opts,
 			&c.Editable, &c.Required, &c.Visible, &c.Searchable, &c.Sortable, &c.Position,
 			&c.BaseType, &c.FKTableDefID, &c.FKRefColumn, &disp,
-			&c.M2MJunctionDefID, &c.M2MJunctionSrcCol, &c.M2MJunctionTgtCol, &m2mDisp); err != nil {
+			&c.M2MJunctionDefID, &c.M2MJunctionSrcCol, &c.M2MJunctionTgtCol, &m2mDisp, &vld); err != nil {
 			return nil, err
 		}
 		if opts.Valid && opts.String != "" {
@@ -229,6 +254,9 @@ func (s *Store) getColumns(defID int64) ([]ColumnDef, error) {
 		}
 		if m2mDisp.Valid && m2mDisp.String != "" {
 			json.Unmarshal([]byte(m2mDisp.String), &c.M2MDisplayColumns)
+		}
+		if vld.Valid && vld.String != "" {
+			json.Unmarshal([]byte(vld.String), &c.Validations)
 		}
 		out = append(out, c)
 	}
