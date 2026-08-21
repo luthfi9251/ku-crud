@@ -36,7 +36,7 @@ export function FilterBar({ cols, filters, onChange }: {
 }) {
   const [draft, setDraft] = useState<{ column: string; op: FilterOp } | null>(null);
   const [draftVals, setDraftVals] = useState<string[]>([]);
-  const filterable = cols.filter((c) => c.visible && c.fieldType !== "m2m" && opsFor(c).length > 0);
+  const filterable = cols.filter((c) => c.visible && c.fieldType !== "m2m" && !c.isComputed && opsFor(c).length > 0);
   const colByName = (n: string) => cols.find((c) => c.name === n);
 
   const add = () => { setDraft({ column: filterable[0].name, op: opsFor(filterable[0])[0] }); setDraftVals([""]); };

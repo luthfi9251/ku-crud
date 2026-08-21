@@ -64,6 +64,8 @@ type metaFileColumn struct {
 	M2MSrcCol   string                `json:"m2mJunctionSrcCol,omitempty"`
 	M2MTgtCol   string                `json:"m2mJunctionTgtCol,omitempty"`
 	M2MDisplay  []string              `json:"m2mDisplayColumns"`
+	IsComputed  bool                  `json:"isComputed,omitempty"`
+	ComputedFml string                `json:"computedFormula,omitempty"`
 }
 
 type metaFileTable struct {
@@ -174,7 +176,8 @@ func (s *Server) buildMetaFile() (*metaFile, error) {
 				Visible: c.Visible, Searchable: c.Searchable, Sortable: c.Sortable,
 				Position: c.Position, BaseType: c.BaseType, Validations: nonNilRules(c.Validations),
 				FKRefColumn: c.FKRefColumn, FKDisplay: nonNil(c.FKDisplayColumns),
-				M2MSrcCol: c.M2MJunctionSrcCol, M2MTgtCol: c.M2MJunctionTgtCol, M2MDisplay: nonNil(c.M2MDisplayColumns)}
+				M2MSrcCol: c.M2MJunctionSrcCol, M2MTgtCol: c.M2MJunctionTgtCol, M2MDisplay: nonNil(c.M2MDisplayColumns),
+				IsComputed: c.IsComputed, ComputedFml: c.ComputedFormula}
 			if c.FKTableDefID > 0 {
 				fc.FKTableRef = refOf(c.FKTableDefID)
 			}
@@ -245,6 +248,7 @@ func tblEqual(ft metaFileTable, def *meta.TableDef, cols []meta.ColumnDef, dsNam
 		if fc.Name != c.Name || fc.Label != c.Label || fc.FieldType != c.FieldType ||
 			fc.Editable != c.Editable || fc.Required != c.Required || fc.Visible != c.Visible ||
 			fc.Searchable != c.Searchable || fc.Sortable != c.Sortable || fc.Position != c.Position ||
+			fc.IsComputed != c.IsComputed || fc.ComputedFml != c.ComputedFormula ||
 			len(fc.Validations) != len(c.Validations) {
 			return false
 		}
@@ -532,7 +536,8 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 				Searchable: fc.Searchable, Sortable: fc.Sortable, Position: fc.Position,
 				BaseType: fc.BaseType, Validations: fc.Validations,
 				FKRefColumn: fc.FKRefColumn, FKDisplayColumns: fc.FKDisplay,
-				M2MJunctionSrcCol: fc.M2MSrcCol, M2MJunctionTgtCol: fc.M2MTgtCol, M2MDisplayColumns: fc.M2MDisplay}}
+				M2MJunctionSrcCol: fc.M2MSrcCol, M2MJunctionTgtCol: fc.M2MTgtCol, M2MDisplayColumns: fc.M2MDisplay,
+				IsComputed: fc.IsComputed, ComputedFormula: fc.ComputedFml}}
 			if fc.FKTableRef != nil {
 				pc.FKRef = meta.DefRef{DsName: fc.FKTableRef.DatasourceRef, Schema: fc.FKTableRef.Schema, Table: fc.FKTableRef.Table}
 			}
@@ -560,8 +565,14 @@ func validateBundleTable(ft metaFileTable) string {
 			return "table " + ft.Table + ": invalid identifier " + name
 		}
 	}
+	// full column list (once) so computed formulas resolve their identifiers
+	colDefs := make([]meta.ColumnDef, len(ft.Columns))
+	for i, fc := range ft.Columns {
+		colDefs[i] = meta.ColumnDef{Name: fc.Name, FieldType: fc.FieldType,
+			IsComputed: fc.IsComputed, ComputedFormula: fc.ComputedFml}
+	}
 	names := map[string]bool{}
-	for _, c := range ft.Columns {
+	for i, c := range ft.Columns {
 		if c.Name == "" || c.Label == "" {
 			return "table " + ft.Table + ": column name and label are required"
 		}
@@ -573,6 +584,11 @@ func validateBundleTable(ft metaFileTable) string {
 		}
 		if c.FieldType == "enum" && len(c.EnumOptions) == 0 {
 			return "table " + ft.Table + ": column " + c.Name + " enum needs options"
+		}
+		if c.IsComputed {
+			if _, _, err := compileComputed(colDefs[i], colDefs); err != nil {
+				return "table " + ft.Table + ": column " + c.Name + ": " + err.Error()
+			}
 		}
 		names[c.Name] = true
 	}

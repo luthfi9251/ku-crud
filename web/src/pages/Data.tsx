@@ -601,6 +601,7 @@ export default function Data() {
                     >
                       <div className="flex items-center gap-1">
                         <span>{c.label}</span>
+                        {c.isComputed && <Badge variant="outline" className="text-[9px] font-mono bg-emerald-500/10 text-emerald-600 border-emerald-500/20 ml-1">fx</Badge>}
                         {c.sortable && (
                           <span className="text-muted-foreground">
                             {sort === c.name ? (

@@ -18,6 +18,8 @@ export interface ColumnDef {
   editable: boolean; required: boolean; visible: boolean;
   searchable: boolean; sortable: boolean; position: number;
   validations?: ValidationRule[] | null;
+  isComputed?: boolean;
+  computedFormula?: string;
   baseType?: BaseFieldType;
   fkTableDefId?: string; // masked token or "self"
   fkRefColumn?: string;

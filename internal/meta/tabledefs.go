@@ -29,23 +29,27 @@ type ValidationRule struct {
 }
 
 type ColumnDef struct {
-	ID               int64            `json:"id"`
-	TableDefID       int64            `json:"tableDefId"`
-	Name             string           `json:"name"`
-	Label            string           `json:"label"`
-	FieldType        string           `json:"fieldType"`
-	EnumOptions      []string         `json:"enumOptions"`
-	Editable         bool             `json:"editable"`
-	Required         bool             `json:"required"`
-	Visible          bool             `json:"visible"`
-	Searchable       bool             `json:"searchable"`
-	Sortable         bool             `json:"sortable"`
-	Position         int              `json:"position"`
-	Validations      []ValidationRule `json:"validations,omitempty"`
-	BaseType         string           `json:"baseType,omitempty"`
-	FKTableDefID     int64            `json:"fkTableDefId,omitempty"`
-	FKRefColumn      string           `json:"fkRefColumn,omitempty"`
-	FKDisplayColumns []string         `json:"fkDisplayColumns,omitempty"`
+	ID          int64            `json:"id"`
+	TableDefID  int64            `json:"tableDefId"`
+	Name        string           `json:"name"`
+	Label       string           `json:"label"`
+	FieldType   string           `json:"fieldType"`
+	EnumOptions []string         `json:"enumOptions"`
+	Editable    bool             `json:"editable"`
+	Required    bool             `json:"required"`
+	Visible     bool             `json:"visible"`
+	Searchable  bool             `json:"searchable"`
+	Sortable    bool             `json:"sortable"`
+	Position    int              `json:"position"`
+	Validations []ValidationRule `json:"validations,omitempty"`
+	// Formatting is display-only JSON (never written to DB or export).
+	Formatting       string   `json:"-"`
+	IsComputed       bool     `json:"isComputed,omitempty"`
+	ComputedFormula  string   `json:"computedFormula,omitempty"`
+	BaseType         string   `json:"baseType,omitempty"`
+	FKTableDefID     int64    `json:"fkTableDefId,omitempty"`
+	FKRefColumn      string   `json:"fkRefColumn,omitempty"`
+	FKDisplayColumns []string `json:"fkDisplayColumns,omitempty"`
 	// m2m virtual columns (fieldType == "m2m") — no live column counterpart.
 	M2MJunctionDefID  int64    `json:"m2mJunctionDefId,omitempty"`
 	M2MJunctionSrcCol string   `json:"m2mJunctionSrcCol,omitempty"`
@@ -86,12 +90,14 @@ func insertCols(tx *sql.Tx, defID int64, cols []ColumnDef) error {
 		_, err := tx.Exec(`INSERT INTO columns(table_def_id,name,label,field_type,enum_options,
 			editable,required,visible,searchable,sortable,position,
 			base_type,fk_table_def_id,fk_ref_column,fk_display_columns,
-			m2m_junction_def_id,m2m_junction_src_col,m2m_junction_tgt_col,m2m_display_cols,validations)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			m2m_junction_def_id,m2m_junction_src_col,m2m_junction_tgt_col,m2m_display_cols,validations,
+			formatting,is_computed,computed_formula)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			defID, c.Name, c.Label, c.FieldType, opts,
 			c.Editable, c.Required, c.Visible, c.Searchable, c.Sortable, c.Position,
 			c.BaseType, c.FKTableDefID, c.FKRefColumn, disp,
-			c.M2MJunctionDefID, c.M2MJunctionSrcCol, c.M2MJunctionTgtCol, m2mDisp, vRules)
+			c.M2MJunctionDefID, c.M2MJunctionSrcCol, c.M2MJunctionTgtCol, m2mDisp, vRules,
+			c.Formatting, c.IsComputed, c.ComputedFormula)
 		if err != nil {
 			return err
 		}
@@ -230,7 +236,8 @@ func (s *Store) getColumns(defID int64) ([]ColumnDef, error) {
 	rows, err := s.db.Query(`SELECT id,table_def_id,name,label,field_type,enum_options,
 		editable,required,visible,searchable,sortable,position,
 		base_type,fk_table_def_id,fk_ref_column,fk_display_columns,
-		m2m_junction_def_id,m2m_junction_src_col,m2m_junction_tgt_col,m2m_display_cols,validations
+		m2m_junction_def_id,m2m_junction_src_col,m2m_junction_tgt_col,m2m_display_cols,validations,
+		formatting,is_computed,computed_formula
 		FROM columns WHERE table_def_id=? ORDER BY position`, defID)
 	if err != nil {
 		return nil, err
@@ -239,11 +246,12 @@ func (s *Store) getColumns(defID int64) ([]ColumnDef, error) {
 	var out []ColumnDef
 	for rows.Next() {
 		var c ColumnDef
-		var opts, disp, m2mDisp, vld sql.NullString
+		var opts, disp, m2mDisp, vld, fmtv sql.NullString
 		if err := rows.Scan(&c.ID, &c.TableDefID, &c.Name, &c.Label, &c.FieldType, &opts,
 			&c.Editable, &c.Required, &c.Visible, &c.Searchable, &c.Sortable, &c.Position,
 			&c.BaseType, &c.FKTableDefID, &c.FKRefColumn, &disp,
-			&c.M2MJunctionDefID, &c.M2MJunctionSrcCol, &c.M2MJunctionTgtCol, &m2mDisp, &vld); err != nil {
+			&c.M2MJunctionDefID, &c.M2MJunctionSrcCol, &c.M2MJunctionTgtCol, &m2mDisp, &vld,
+			&fmtv, &c.IsComputed, &c.ComputedFormula); err != nil {
 			return nil, err
 		}
 		if opts.Valid && opts.String != "" {
@@ -258,6 +266,7 @@ func (s *Store) getColumns(defID int64) ([]ColumnDef, error) {
 		if vld.Valid && vld.String != "" {
 			json.Unmarshal([]byte(vld.String), &c.Validations)
 		}
+		c.Formatting = fmtv.String
 		out = append(out, c)
 	}
 	return out, rows.Err()
