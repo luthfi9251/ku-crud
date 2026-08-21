@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { User, Lock, Sparkles, AlertCircle, ArrowRight } from "lucide-react";
 import { api, ApiError } from "../lib/api";
+import { useT } from "../lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +12,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 // after the first user; this page also self-redirects when needed=false).
 export default function Setup() {
   const nav = useNavigate();
+  const t = useT();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -30,7 +32,7 @@ export default function Setup() {
       await api("/setup", { method: "POST", body: JSON.stringify({ username, password }) });
       nav("/login");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "setup failed");
+      setError(err instanceof ApiError ? err.message : t("setup.failed"));
     } finally {
       setLoading(false);
     }
@@ -41,21 +43,21 @@ export default function Setup() {
       <Card className="w-96">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5" /> Welcome to Ku-CRUD
+            <Sparkles className="h-5 w-5" /> {t("setup.welcome")}
           </CardTitle>
-          <CardDescription>Create the first admin user to get started.</CardDescription>
+          <CardDescription>{t("setup.desc")}</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="grid gap-3">
             <div className="grid gap-1">
-              <Label htmlFor="su">Username</Label>
+              <Label htmlFor="su">{t("setup.username")}</Label>
               <div className="relative">
                 <User className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input id="su" className="pl-8" value={username} onChange={(e) => setUsername(e.target.value)} required />
               </div>
             </div>
             <div className="grid gap-1">
-              <Label htmlFor="sp">Password</Label>
+              <Label htmlFor="sp">{t("setup.password")}</Label>
               <div className="relative">
                 <Lock className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input id="sp" className="pl-8" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={4} />
@@ -69,7 +71,7 @@ export default function Setup() {
           </CardContent>
           <CardFooter>
             <Button className="w-full" type="submit" disabled={loading}>
-              Create user <ArrowRight className="ml-2 h-4 w-4" />
+              {t("setup.create")} <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </CardFooter>
         </form>

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Server, Plus, Edit, Trash2, Zap, CheckCircle2, AlertCircle, ShieldCheck, Database, HardDrive } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import type { Datasource } from "../lib/types";
+import { useT } from "../lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +18,7 @@ const driverLabels: Record<string, string> = { postgres: "PostgreSQL", mysql: "M
 
 export default function Datasources() {
   const qc = useQueryClient();
+  const t = useT();
   const list = useQuery({ queryKey: ["ds"], queryFn: () => api<Datasource[]>("/datasources") });
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Datasource | null>(null);
@@ -34,9 +36,9 @@ export default function Datasources() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ds"] });
       setOpen(false);
-      setMsg({ type: "success", text: editing ? "Datasource updated successfully" : "Datasource created successfully" });
+      setMsg({ type: "success", text: editing ? t("ds.updated") : t("ds.created") });
     },
-    onError: (e) => setMsg({ type: "error", text: e instanceof ApiError ? `${e.message}: ${String(e.detail ?? "")}` : "Save failed" }),
+    onError: (e) => setMsg({ type: "error", text: e instanceof ApiError ? `${e.message}: ${String(e.detail ?? "")}` : t("ds.saveFailed") }),
   });
 
   const test = useMutation({
@@ -46,11 +48,11 @@ export default function Datasources() {
     },
     onSuccess: () => {
       setTestingId(null);
-      setMsg({ type: "success", text: "Database connection successful!" });
+      setMsg({ type: "success", text: t("ds.testOk") });
     },
     onError: (e) => {
       setTestingId(null);
-      setMsg({ type: "error", text: e instanceof ApiError ? `${e.message}: ${String(e.detail ?? "")}` : "Connection test failed" });
+      setMsg({ type: "error", text: e instanceof ApiError ? `${e.message}: ${String(e.detail ?? "")}` : t("ds.testFailed") });
     },
   });
 
@@ -61,9 +63,9 @@ export default function Datasources() {
       {/* Top Action Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b pb-4">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Datasource Connections</h2>
+          <h2 className="text-xl font-bold tracking-tight">{t("ds.title")}</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Manage database connections and credentials for dynamic CRUD generation
+            {t("ds.subtitle")}
           </p>
         </div>
         <Button
@@ -75,7 +77,7 @@ export default function Datasources() {
           }}
           className="bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1.5"
         >
-          <Plus className="h-4 w-4" /> Add Datasource
+          <Plus className="h-4 w-4" /> {t("ds.add")}
         </Button>
       </div>
 
@@ -95,15 +97,15 @@ export default function Datasources() {
 
       {/* Grid of Datasource Cards */}
       {list.isLoading ? (
-        <div className="text-center py-12 text-xs text-muted-foreground">Loading datasources...</div>
+        <div className="text-center py-12 text-xs text-muted-foreground">{t("ds.loading")}</div>
       ) : (list.data ?? []).length === 0 ? (
         <Card className="border-dashed p-12 text-center">
           <div className="flex flex-col items-center justify-center space-y-3">
             <Server className="h-10 w-10 text-muted-foreground/40" />
             <div>
-              <p className="text-base font-semibold">No datasources connected</p>
+              <p className="text-base font-semibold">{t("ds.empty")}</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Add a database connection to generate dynamic CRUD tables.
+                {t("ds.emptyHint")}
               </p>
             </div>
             <Button
@@ -115,7 +117,7 @@ export default function Datasources() {
               }}
               className="bg-blue-600 text-white hover:bg-blue-700 text-xs mt-2"
             >
-              <Plus className="h-3.5 w-3.5 mr-1" /> Create Datasource
+              <Plus className="h-3.5 w-3.5 mr-1" /> {t("ds.create")}
             </Button>
           </div>
         </Card>
@@ -139,7 +141,7 @@ export default function Datasources() {
                       {driverLabels[d.driver] ?? d.driver}
                     </Badge>
                     <Badge variant="outline" className="text-[10px] font-normal gap-1 bg-muted/50">
-                      <ShieldCheck className="h-3 w-3 text-emerald-500" /> SSL: {d.sslmode}
+                      <ShieldCheck className="h-3 w-3 text-emerald-500" /> {t("ds.ssl", { mode: d.sslmode })}
                     </Badge>
                   </div>
                 </div>
@@ -166,7 +168,7 @@ export default function Datasources() {
                     onClick={() => test.mutate(d.id)}
                   >
                     <Zap className={`h-3.5 w-3.5 text-amber-500 ${testingId === d.id ? "animate-spin" : ""}`} />
-                    {testingId === d.id ? "Testing..." : "Test Connection"}
+                    {testingId === d.id ? t("ds.testing") : t("ds.test")}
                   </Button>
 
                   <div className="flex items-center gap-1">
@@ -189,7 +191,7 @@ export default function Datasources() {
                         setMsg(null);
                         setOpen(true);
                       }}
-                      title="Edit Datasource"
+                      title={t("ds.editTitle")}
                     >
                       <Edit className="h-3.5 w-3.5" />
                     </Button>
@@ -198,11 +200,11 @@ export default function Datasources() {
                       size="icon"
                       className="h-8 w-8 text-muted-foreground hover:text-destructive"
                       onClick={async () => {
-                        if (!confirm(`Delete datasource connection "${d.name}"?`)) return;
+                        if (!confirm(t("ds.deleteConfirm", { name: d.name }))) return;
                         await api(`/datasources/${d.id}`, { method: "DELETE" });
                         qc.invalidateQueries({ queryKey: ["ds"] });
                       }}
-                      title="Delete Datasource"
+                      title={t("ds.deleteTitle")}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -220,18 +222,18 @@ export default function Datasources() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <HardDrive className="h-5 w-5 text-blue-500" />
-              {editing ? "Edit Datasource Connection" : "New Datasource Connection"}
+              {editing ? t("ds.editDialog") : t("ds.newDialog")}
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Provide connection details for {driverLabels[form.driver] ?? form.driver} database
+              {t("ds.dialogDesc", { driver: driverLabels[form.driver] ?? form.driver })}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-3 py-2">
             <div className="space-y-1">
-              <Label className="text-xs">Datasource Label</Label>
+              <Label className="text-xs">{t("ds.label")}</Label>
               <Input
-                placeholder="e.g. Production DB"
+                placeholder={t("ds.labelPh")}
                 value={form.name}
                 onChange={(e) => set("name", e.target.value)}
                 className="h-9 text-xs"
@@ -239,7 +241,7 @@ export default function Datasources() {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-xs">Driver</Label>
+              <Label className="text-xs">{t("ds.driver")}</Label>
               <Select
                 value={form.driver}
                 onValueChange={(v) => setForm((f) => ({ ...f, driver: v, port: defaultPorts[v] ?? f.port }))}
@@ -255,7 +257,7 @@ export default function Datasources() {
 
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2 space-y-1">
-                <Label className="text-xs">Host</Label>
+                <Label className="text-xs">{t("ds.host")}</Label>
                 <Input
                   placeholder="localhost"
                   value={form.host}
@@ -264,7 +266,7 @@ export default function Datasources() {
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Port</Label>
+                <Label className="text-xs">{t("ds.port")}</Label>
                 <Input
                   type="number"
                   value={form.port}
@@ -275,7 +277,7 @@ export default function Datasources() {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-xs">Database Name</Label>
+              <Label className="text-xs">{t("ds.dbname")}</Label>
               <Input
                 placeholder="database_name"
                 value={form.dbname}
@@ -286,7 +288,7 @@ export default function Datasources() {
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-xs">Username</Label>
+                <Label className="text-xs">{t("ds.username")}</Label>
                 <Input
                   placeholder="postgres"
                   value={form.username}
@@ -296,7 +298,7 @@ export default function Datasources() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">
-                  {editing ? "Password (blank = keep)" : "Password"}
+                  {editing ? t("ds.passwordKeep") : t("ds.password")}
                 </Label>
                 <Input
                   type="password"
@@ -309,7 +311,7 @@ export default function Datasources() {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-xs">SSL Mode</Label>
+              <Label className="text-xs">{t("ds.sslmode")}</Label>
               <Select value={form.sslmode} onValueChange={(v) => set("sslmode", v)}>
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue />
@@ -327,14 +329,14 @@ export default function Datasources() {
 
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setOpen(false)}>
-              Cancel
+              {t("form.cancel")}
             </Button>
             <Button
               onClick={() => save.mutate()}
               disabled={save.isPending}
               className="bg-blue-600 text-white hover:bg-blue-700"
             >
-              {save.isPending ? "Saving..." : editing ? "Save Changes" : "Connect Datasource"}
+              {save.isPending ? t("form.saving") : editing ? t("tform.saveChanges") : t("ds.connect")}
             </Button>
           </DialogFooter>
         </DialogContent>

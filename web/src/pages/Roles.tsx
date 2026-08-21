@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck, Plus, Trash2, Pencil, Users as UsersIcon } from "lucide-react";
 import { api } from "../lib/api";
 import type { Role, TableDef, TableGrant } from "../lib/types";
+import { useT } from "../lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,6 +25,7 @@ const emptyForm: RoleForm = { mode: "new", id: "", name: "", platformManage: fal
 
 export default function Roles() {
   const qc = useQueryClient();
+  const t = useT();
   const roles = useQuery({ queryKey: ["roles"], queryFn: () => api<Role[]>("/roles") });
   const defs = useQuery({ queryKey: ["defs"], queryFn: () => api<TableDef[]>("/tables") });
   const [form, setForm] = useState<RoleForm | null>(null);
@@ -67,32 +69,32 @@ export default function Roles() {
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <div>
             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <ShieldCheck className="h-4 w-4 text-indigo-500" /> Roles
+              <ShieldCheck className="h-4 w-4 text-indigo-500" /> {t("roles.title")}
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Define access profiles: platform management bundle plus per-table CRUD grants
+              {t("roles.subtitle")}
             </p>
           </div>
           <Button onClick={() => setForm({ ...emptyForm })} className="bg-blue-600 text-white hover:bg-blue-700 shadow-xs">
-            <Plus className="h-4 w-4 mr-1.5" /> Add Role
+            <Plus className="h-4 w-4 mr-1.5" /> {t("roles.add")}
           </Button>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="w-[25%]">Role</TableHead>
-                <TableHead className="w-[15%]">Platform Access</TableHead>
-                <TableHead className="w-[15%]">Table Grants</TableHead>
-                <TableHead className="w-[15%]">Users</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="w-[25%]">{t("roles.role")}</TableHead>
+                <TableHead className="w-[15%]">{t("roles.platformAccess")}</TableHead>
+                <TableHead className="w-[15%]">{t("roles.tableGrants")}</TableHead>
+                <TableHead className="w-[15%]">{t("roles.users")}</TableHead>
+                <TableHead className="text-right">{t("data.actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {roles.isLoading ? (
                 <TableRow>
                   <TableCell colSpan={5} className="h-24 text-center text-xs text-muted-foreground">
-                    Loading roles...
+                    {t("roles.loading")}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -102,21 +104,21 @@ export default function Roles() {
                       <span className="font-mono text-sm">{r.name}</span>
                       {r.isAdmin && (
                         <Badge variant="outline" className="ml-2 text-[10px] bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20">
-                          Builtin
+                          {t("roles.builtin")}
                         </Badge>
                       )}
                     </TableCell>
                     <TableCell>
                       {r.platformManage ? (
                         <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
-                          Full platform
+                          {t("roles.fullPlatform")}
                         </Badge>
                       ) : (
-                        <span className="text-xs text-muted-foreground">Table CRUD only</span>
+                        <span className="text-xs text-muted-foreground">{t("roles.tableOnly")}</span>
                       )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {r.isAdmin ? "all tables (implicit)" : `${r.tables.length} table${r.tables.length === 1 ? "" : "s"}`}
+                      {r.isAdmin ? t("roles.allTables") : t("roles.tableCount", { count: String(r.tables.length) })}
                     </TableCell>
                     <TableCell>
                       <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
@@ -126,7 +128,7 @@ export default function Roles() {
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         {r.isAdmin ? (
-                          <span className="text-[11px] text-muted-foreground italic">Protected</span>
+                          <span className="text-[11px] text-muted-foreground italic">{t("users.protected")}</span>
                         ) : (
                           <>
                             <Button
@@ -134,7 +136,7 @@ export default function Roles() {
                               size="icon"
                               className="h-7 w-7 text-muted-foreground hover:text-foreground"
                               onClick={() => openEdit(r)}
-                              title="Edit role"
+                               title={t("roles.editTitle")}
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
@@ -143,9 +145,9 @@ export default function Roles() {
                               size="icon"
                               className="h-7 w-7 text-muted-foreground hover:text-destructive"
                               onClick={() => {
-                                if (confirm(`Delete role "${r.name}"?`)) del.mutate(r.id);
+                                if (confirm(t("roles.deleteConfirm", { name: r.name }))) del.mutate(r.id);
                               }}
-                              title="Delete role"
+                              title={t("roles.deleteTitle")}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
@@ -164,51 +166,51 @@ export default function Roles() {
       <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{form?.mode === "new" ? "Add Role" : `Edit Role: ${form?.name}`}</DialogTitle>
+            <DialogTitle>{form?.mode === "new" ? t("roles.add") : t("roles.editDialog", { name: form?.name ?? "" })}</DialogTitle>
             <DialogDescription className="text-xs">
-              Platform access grants Datasources, Tables &amp; Schema and Audit Trail management; table CRUD needs per-table grants
+              {t("roles.dialogDesc")}
             </DialogDescription>
           </DialogHeader>
           {form && (
             <div className="space-y-5 py-1">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">Role Name</Label>
-                  <Input
-                    className="h-9 text-xs"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="e.g. Order Editor"
+                   <Label className="text-xs font-medium">{t("roles.name")}</Label>
+                   <Input
+                     className="h-9 text-xs"
+                     value={form.name}
+                     onChange={(e) => setForm({ ...form, name: e.target.value })}
+                     placeholder={t("roles.namePh")}
                   />
                 </div>
                 <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3 h-fit">
                   <div>
-                    <p className="text-xs font-medium">Platform Management</p>
-                    <p className="text-[11px] text-muted-foreground">Datasources, definitions, audit trail</p>
+                    <p className="text-xs font-medium">{t("roles.platformManage")}</p>
+                    <p className="text-[11px] text-muted-foreground">{t("roles.platformManageDesc")}</p>
                   </div>
                   <Switch checked={form.platformManage} onCheckedChange={(v) => setForm({ ...form, platformManage: v })} />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label className="text-xs font-medium">Table CRUD Grants</Label>
+                 <Label className="text-xs font-medium">{t("roles.tableGrants")}</Label>
                 <div className="rounded-lg border overflow-hidden">
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/50 hover:bg-muted/50">
-                        <TableHead>Table</TableHead>
-                        <TableHead className="text-center w-20">Read</TableHead>
-                        <TableHead className="text-center w-20">Create</TableHead>
-                        <TableHead className="text-center w-20">Update</TableHead>
-                        <TableHead className="text-center w-20">Delete</TableHead>
+                         <TableHead>{t("roles.colTable")}</TableHead>
+                         <TableHead className="text-center w-20">{t("roles.colRead")}</TableHead>
+                         <TableHead className="text-center w-20">{t("roles.colCreate")}</TableHead>
+                         <TableHead className="text-center w-20">{t("roles.colUpdate")}</TableHead>
+                         <TableHead className="text-center w-20">{t("roles.colDelete")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {(defs.data ?? []).length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={5} className="h-16 text-center text-xs text-muted-foreground">
-                            No table definitions yet — grants can be added later
-                          </TableCell>
+                           <TableCell colSpan={5} className="h-16 text-center text-xs text-muted-foreground">
+                             {t("roles.noDefs")}
+                           </TableCell>
                         </TableRow>
                       ) : (
                         (defs.data ?? []).map((d) => {
@@ -245,16 +247,16 @@ export default function Roles() {
             </div>
           )}
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setForm(null)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => save.mutate()}
-              disabled={save.isPending || !form?.name}
-              className="bg-blue-600 text-white hover:bg-blue-700"
-            >
-              {save.isPending ? "Saving..." : "Save Role"}
-            </Button>
+             <Button variant="outline" onClick={() => setForm(null)}>
+               {t("form.cancel")}
+             </Button>
+             <Button
+               onClick={() => save.mutate()}
+               disabled={save.isPending || !form?.name}
+               className="bg-blue-600 text-white hover:bg-blue-700"
+             >
+               {save.isPending ? t("form.saving") : t("roles.save")}
+             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

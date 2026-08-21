@@ -1,35 +1,37 @@
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./components/Sidebar";
 import { Table2, Server, ShieldCheck, Database, Layers, Users as UsersIcon, KeyRound, ArrowLeftRight } from "lucide-react";
+import { useT } from "./lib/i18n";
 
 export default function App() {
   const location = useLocation();
+  const t = useT();
 
   // Helper for Breadcrumb header info
   const getHeaderInfo = () => {
     const path = location.pathname;
     if (path === "/") {
-      return { title: "Tables & Schema", subtitle: "Configure dynamic database definitions", icon: Table2 };
+      return { title: t("app.header.tables"), subtitle: t("app.header.tablesSub"), icon: Table2 };
     } else if (path === "/tables/new") {
-      return { title: "New Table Definition", subtitle: "Register and map a database table into Ku-CRUD", icon: Table2 };
+      return { title: t("app.header.newTable"), subtitle: t("app.header.newTableSub"), icon: Table2 };
     } else if (path.includes("/tables/") && path.includes("/edit")) {
-      return { title: "Edit Table Definition", subtitle: "Modify column mappings and display rules", icon: Table2 };
+      return { title: t("app.header.editTable"), subtitle: t("app.header.editTableSub"), icon: Table2 };
     } else if (path === "/datasources") {
-      return { title: "Datasources", subtitle: "Manage database connection pools", icon: Server };
+      return { title: t("app.header.datasources"), subtitle: t("app.header.datasourcesSub"), icon: Server };
     } else if (path === "/audit") {
-      return { title: "Audit Trail", subtitle: "Track database mutation logs and diffs", icon: ShieldCheck };
+      return { title: t("app.header.audit"), subtitle: t("app.header.auditSub"), icon: ShieldCheck };
     } else if (path.startsWith("/meta")) {
-      return { title: "Definitions Transfer", subtitle: "Export and import table definitions across instances", icon: ArrowLeftRight };
+      return { title: t("app.header.transfer"), subtitle: t("app.header.transferSub"), icon: ArrowLeftRight };
     } else if (path === "/users") {
-      return { title: "User Management", subtitle: "Manage login accounts and role assignment", icon: UsersIcon };
+      return { title: t("app.header.users"), subtitle: t("app.header.usersSub"), icon: UsersIcon };
     } else if (path === "/roles") {
-      return { title: "Roles & Access", subtitle: "Define platform and per-table permissions", icon: KeyRound };
+      return { title: t("app.header.roles"), subtitle: t("app.header.rolesSub"), icon: KeyRound };
     } else if (path.includes("/import")) {
-      return { title: "Import CSV", subtitle: "Upload, map and validate rows before insert", icon: Layers };
+      return { title: t("app.header.import"), subtitle: t("app.header.importSub"), icon: Layers };
     } else if (path.startsWith("/data/")) {
-      return { title: "Data Explorer", subtitle: "Live table CRUD administration", icon: Layers };
+      return { title: t("app.header.data"), subtitle: t("app.header.dataSub"), icon: Layers };
     }
-    return { title: "Ku-CRUD", subtitle: "Database Administration", icon: Database };
+    return { title: t("app.header.default"), subtitle: t("app.header.defaultSub"), icon: Database };
   };
 
   const headerInfo = getHeaderInfo();
