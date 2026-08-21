@@ -19,6 +19,8 @@ type TableDef struct {
 	PageSize       int      `json:"pageSize"`
 	DefaultSortCol string   `json:"defaultSortCol"`
 	DefaultSortDir string   `json:"defaultSortDir"`
+	DefaultView    string   `json:"defaultView,omitempty"`
+	ViewConfig     string   `json:"viewConfig,omitempty"`
 	GroupID        int64    `json:"groupId,omitempty"`
 }
 
@@ -121,8 +123,8 @@ func (s *Store) SaveTableDef(def *TableDef, cols []ColumnDef) error {
 	if def.GroupID > 0 {
 		gid = def.GroupID
 	}
-	res, err := tx.Exec(`INSERT INTO table_defs(datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir,group_id)
-		VALUES(?,?,?,?,?,?,?,?,?)`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir, gid)
+	res, err := tx.Exec(`INSERT INTO table_defs(datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir,default_view,view_config,group_id)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?)`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir, def.DefaultView, def.ViewConfig, gid)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -153,8 +155,8 @@ func (s *Store) UpdateTableDef(def *TableDef, cols []ColumnDef) error {
 	if def.GroupID > 0 {
 		gid = def.GroupID
 	}
-	res, err := tx.Exec(`UPDATE table_defs SET datasource_id=?,schema_name=?,table_name=?,label=?,key_columns=?,page_size=?,default_sort_col=?,default_sort_dir=?,group_id=?
-		WHERE id=?`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir, gid, def.ID)
+	res, err := tx.Exec(`UPDATE table_defs SET datasource_id=?,schema_name=?,table_name=?,label=?,key_columns=?,page_size=?,default_sort_col=?,default_sort_dir=?,default_view=?,view_config=?,group_id=?
+		WHERE id=?`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir, def.DefaultView, def.ViewConfig, gid, def.ID)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -192,7 +194,7 @@ func (s *Store) ReplaceColumns(defID int64, cols []ColumnDef) error {
 }
 
 func (s *Store) ListTableDefs() ([]TableDef, error) {
-	rows, err := s.db.Query(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir,group_id
+	rows, err := s.db.Query(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir,default_view,view_config,group_id
 		FROM table_defs ORDER BY label`)
 	if err != nil {
 		return nil, err
@@ -203,7 +205,7 @@ func (s *Store) ListTableDefs() ([]TableDef, error) {
 		var d TableDef
 		var kj string
 		var gid sql.NullInt64
-		if err := rows.Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir, &gid); err != nil {
+		if err := rows.Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir, &d.DefaultView, &d.ViewConfig, &gid); err != nil {
 			return nil, err
 		}
 		d.GroupID = gid.Int64
@@ -217,9 +219,9 @@ func (s *Store) GetTableDef(id int64) (*TableDef, []ColumnDef, error) {
 	d := &TableDef{}
 	var kj string
 	var gid sql.NullInt64
-	err := s.db.QueryRow(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir,group_id
+	err := s.db.QueryRow(`SELECT id,datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir,default_view,view_config,group_id
 		FROM table_defs WHERE id=?`, id).
-		Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir, &gid)
+		Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir, &d.DefaultView, &d.ViewConfig, &gid)
 	if err == sql.ErrNoRows {
 		return nil, nil, ErrNotFound
 	}

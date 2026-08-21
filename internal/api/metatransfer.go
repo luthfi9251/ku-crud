@@ -78,6 +78,8 @@ type metaFileTable struct {
 	PageSize       int              `json:"pageSize"`
 	DefaultSortCol string           `json:"defaultSortCol"`
 	DefaultSortDir string           `json:"defaultSortDir"`
+	DefaultView    string           `json:"defaultView,omitempty"`
+	ViewConfig     json.RawMessage  `json:"viewConfig,omitempty"`
 	GroupRef       string           `json:"groupRef,omitempty"`
 	Columns        []metaFileColumn `json:"columns"`
 }
@@ -170,7 +172,11 @@ func (s *Server) buildMetaFile() (*metaFile, error) {
 		ft := metaFileTable{DatasourceRef: dsName[d.DatasourceID], Schema: d.SchemaName,
 			Table: d.TableName, Label: d.Label, KeyColumns: nonNil(d.KeyColumns), PageSize: d.PageSize,
 			DefaultSortCol: d.DefaultSortCol, DefaultSortDir: d.DefaultSortDir,
-			GroupRef: groupName[d.GroupID], Columns: []metaFileColumn{}}
+			DefaultView: d.DefaultView,
+			GroupRef:    groupName[d.GroupID], Columns: []metaFileColumn{}}
+		if d.ViewConfig != "" {
+			ft.ViewConfig = json.RawMessage(d.ViewConfig)
+		}
 		for _, c := range cols {
 			fc := metaFileColumn{Name: c.Name, Label: c.Label, FieldType: c.FieldType,
 				EnumOptions: nonNil(c.EnumOptions), Editable: c.Editable, Required: c.Required,
@@ -236,6 +242,7 @@ func tblEqual(ft metaFileTable, def *meta.TableDef, cols []meta.ColumnDef, dsNam
 	if ft.DatasourceRef != dsName || ft.Schema != def.SchemaName || ft.Table != def.TableName ||
 		ft.Label != def.Label || ft.PageSize != def.PageSize ||
 		ft.DefaultSortCol != def.DefaultSortCol || ft.DefaultSortDir != def.DefaultSortDir ||
+		ft.DefaultView != def.DefaultView || string(ft.ViewConfig) != def.ViewConfig ||
 		ft.GroupRef != groupName || len(ft.KeyColumns) != len(def.KeyColumns) {
 		return false
 	}
@@ -525,7 +532,8 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 		pd := meta.PlannedDef{DsName: ft.DatasourceRef, GroupName: ft.GroupRef,
 			Def: meta.TableDef{SchemaName: ft.Schema, TableName: ft.Table, Label: ft.Label,
 				KeyColumns: ft.KeyColumns, PageSize: ft.PageSize,
-				DefaultSortCol: ft.DefaultSortCol, DefaultSortDir: ft.DefaultSortDir}}
+				DefaultSortCol: ft.DefaultSortCol, DefaultSortDir: ft.DefaultSortDir,
+				DefaultView: ft.DefaultView, ViewConfig: string(ft.ViewConfig)}}
 		if mode == "overwrite" {
 			for i := range defs {
 				if tableRef(dsName[defs[i].DatasourceID], defs[i].SchemaName, defs[i].TableName) == ref {

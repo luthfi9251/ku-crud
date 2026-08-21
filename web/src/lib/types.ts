@@ -44,10 +44,20 @@ export interface Permissions {
   read: boolean; create: boolean; update: boolean; delete: boolean;
 }
 
+export type ViewMode = "grid" | "kanban" | "calendar";
+export interface ViewConfig {
+  kanbanBoardColumn?: string;
+  kanbanDisplayColumn?: string;
+  calendarStartColumn?: string;
+  calendarEndColumn?: string | null;
+}
+
 export interface TableDef {
   id: Id; datasourceId: Id; schemaName: string; tableName: string;
   label: string; keyColumns: string[]; pageSize: number;
   defaultSortCol: string; defaultSortDir: "ASC" | "DESC";
+  defaultView?: ViewMode;
+  viewConfig?: ViewConfig | null;
   groupId?: string; groupName?: string;
   permissions: Permissions;
 }
