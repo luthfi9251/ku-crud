@@ -153,6 +153,10 @@ export default function Data() {
     enabled: !!def.data && !!groupBy && effectiveView === "grid",
     queryFn: async () => {
       const all: Row[] = [];
+      // rel label maps accumulated across chunks so fk/m2m cells resolve
+      // for every grouped row (labels are idempotent — last-write-wins merge)
+      const rels: Record<string, Record<string, Row>> = {};
+      const m2mRels: Record<string, Record<string, Row[]>> = {};
       const CAP = 2000;
       for (let page = 1; ; page++) {
         const p = new URLSearchParams();
@@ -167,9 +171,15 @@ export default function Data() {
         p.set("limit", String(Math.min(200, CAP)));
         const res = await api<RowsRes>(`/tables/${id}/rows?${p}`);
         all.push(...res.rows);
+        for (const [col, m] of Object.entries(res.rels ?? {})) {
+          rels[col] = { ...(rels[col] ?? {}), ...m };
+        }
+        for (const [col, m] of Object.entries(res.m2mRels ?? {})) {
+          m2mRels[col] = { ...(m2mRels[col] ?? {}), ...m };
+        }
         if (all.length >= res.total || res.rows.length === 0 || all.length >= CAP) break;
       }
-      return { rows: all, truncated: all.length >= CAP };
+      return { rows: all, truncated: all.length >= CAP, rels, m2mRels };
     },
   });
 
@@ -412,8 +422,10 @@ export default function Data() {
   // total grid columns: optional bulk-select checkbox + data cols + actions
   const colsLen = cols.length + (perms.delete ? 2 : 1);
 
-  const rels = rows.data?.rels;
-  const m2mRels = rows.data?.m2mRels;
+  // while grouping, fk/m2m label lookups use the rel maps accumulated by the
+  // grouped query (all matching rows) instead of the flat page-1 query
+  const rels = groupBy ? groupedRows.data?.rels : rows.data?.rels;
+  const m2mRels = groupBy ? groupedRows.data?.m2mRels : rows.data?.m2mRels;
   const fkDisplay = (c: ColumnDef, row: Row): string | null => {
     if (c.fieldType === "m2m") {
       if (!c.m2mRefColumn) return "";
@@ -437,12 +449,15 @@ export default function Data() {
     return parts.length ? parts.join(" — ") : null;
   };
 
-  // single grid row, shared by the flat paginated body and the grouped body
-  // (the react key is applied at the call site)
-  const RowRow = ({ row }: { row: Row }) => {
+  // single grid row, shared by the flat paginated body and the grouped body.
+  // A plain function called directly (not a component rendered as JSX) so its
+  // output is inlined into the caller's element tree — defining it here does
+  // not change type identity per render, avoiding full row remounts.
+  // The react key is passed in from the call site.
+  const renderRow = (row: Row, key: string) => {
     const rowKeyStr = rowKey(row) ? encodeRowKey(rowKey(row) as string[]) : "";
     return (
-      <TableRow className="hover:bg-muted/20">
+      <TableRow key={key} className="hover:bg-muted/20">
         {perms.delete && (
           <TableCell className="w-10">
             {rowKeyStr && (
@@ -841,15 +856,20 @@ export default function Data() {
                     const sections: React.ReactNode[] = [];
                     let gi = 0;
                     for (const [gv, rowsInGroup] of groups) {
+                      const g = gi++;
                       sections.push(
-                        <TableRow key={`g${gi++}`} className="bg-muted/60">
+                        <TableRow key={`g${g}`} className="bg-muted/60">
                           <TableCell colSpan={colsLen} className="px-4 py-1.5 text-xs font-semibold">
                             {gv || <span className="italic text-muted-foreground">—</span>}
                             <span className="ml-2 text-[10px] font-normal text-muted-foreground">({rowsInGroup.length})</span>
                           </TableCell>
                         </TableRow>
                       );
-                      sections.push(...rowsInGroup.map((row, i) => <RowRow key={`r${gi}-${i}`} row={row} />));
+                      sections.push(
+                        ...rowsInGroup.map((row, i) =>
+                          renderRow(row, `g${g}-` + (rowKey(row) ?? []).join("\u0000") + i)
+                        )
+                      );
                     }
                     return sections;
                   })()
@@ -869,7 +889,7 @@ export default function Data() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  (r?.rows ?? []).map((row, i) => <RowRow key={i} row={row} />)
+                  (r?.rows ?? []).map((row, i) => renderRow(row, (rowKey(row) ?? []).join("\u0000") + i))
                 )}
               </TableBody>
             </Table>
