@@ -69,6 +69,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/auth/me", s.RequireAuth(s.handleMe))
+	mux.HandleFunc("PATCH /api/auth/me", s.RequireAuth(s.handleMeUpdate))
 
 	mux.HandleFunc("GET /api/setup/status", s.handleSetupStatus)
 	mux.HandleFunc("POST /api/setup", s.handleSetup)
