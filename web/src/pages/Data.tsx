@@ -19,10 +19,11 @@ import {
   Database,
   Download,
   Upload,
+  Settings2,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { encodeRowKey } from "../lib/rowkey";
-import type { ColumnDef, FkOptionsRes, Row, RowsRes, TableDefPayload } from "../lib/types";
+import type { ColumnDef, FkOptionsRes, Me, Row, RowsRes, TableDefPayload } from "../lib/types";
 import { HelpPopover } from "../components/ColumnListEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +46,7 @@ export default function Data() {
 
   const qc = useQueryClient();
   const def = useQuery({ queryKey: ["def", id], queryFn: () => api<TableDefPayload>(`/tables/${id}`) });
+  const me = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/auth/me") });
   const [search, setSearch] = useState(searchParam);
   const [debounced, setDebounced] = useState(searchParam);
   const [sort, setSort] = useState("");
@@ -399,6 +401,17 @@ export default function Data() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
+          )}
+          {me.data?.platformManage && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1 text-xs"
+              onClick={() => navigate(`/tables/${id}/edit`)}
+              title="Open table definition"
+            >
+              <Settings2 className="h-3.5 w-3.5" /> Definition
+            </Button>
           )}
           <Button
             variant="outline"
