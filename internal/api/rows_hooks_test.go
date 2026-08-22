@@ -149,6 +149,39 @@ func TestAfterDeleteEnqueues(t *testing.T) {
 	}
 }
 
+func TestBeforeUpdateRejectAndAfterEnqueue(t *testing.T) {
+	if os.Getenv("KUCRUD_TEST_PG") == "" {
+		t.Skip("KUCRUD_TEST_PG not set")
+	}
+	s, _ := hookEnv(t)
+	c := login(s)
+	do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"id":60,"name":"mia"}`, c)
+
+	// beforeUpdate rejection: row keeps its old name
+	setHooks(t, s, 1, `{"beforeUpdate":[{"hook":"RejectNames","order":1}]}`)
+	w := do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"60"}), `{"name":"forbidden"}`, c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "HOOK_REJECTED") {
+		t.Fatalf("update reject = %d %s", w.Code, w.Body)
+	}
+	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows?search=mia", "", c); !strings.Contains(w.Body.String(), "mia") {
+		t.Fatal("row must keep old name after rejected update")
+	}
+
+	// afterUpdate enqueue: valid PUT snapshots old + merged new values
+	setHooks(t, s, 1, `{"afterUpdate":[{"hook":"NoteAfter","order":1}]}`)
+	w = do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"60"}), `{"name":"mia2"}`, c)
+	if w.Code != 200 {
+		t.Fatalf("update = %d %s", w.Code, w.Body)
+	}
+	entries, total, _ := s.store.ListOutbox("", 0, 10, 0)
+	if total != 1 || entries[0].Event != "afterUpdate" || entries[0].HookName != "NoteAfter" {
+		t.Fatalf("outbox = %d %+v", total, entries)
+	}
+	if !strings.Contains(entries[0].OldValues, "mia") || !strings.Contains(entries[0].NewValues, "mia2") {
+		t.Fatalf("outbox snapshot old=%s new=%s", entries[0].OldValues, entries[0].NewValues)
+	}
+}
+
 // setHooks writes hooks JSON onto a stored def directly (bypasses the API's
 // save-time registry check so tests can simulate drift).
 func setHooks(t *testing.T, s *Server, defID int64, hooksJSON string) {

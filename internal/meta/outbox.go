@@ -91,8 +91,9 @@ func (s *Store) MarkOutboxFailed(id int64, attempts int, nextRetry, lastErr stri
 }
 
 // RetryOutbox resets a dead/failed entry for immediate re-execution.
+// Done entries are not retryable — their side effect already fired.
 func (s *Store) RetryOutbox(id int64) error {
-	res, err := s.db.Exec(`UPDATE hook_outbox SET status='pending', attempts=0, next_retry_at=NULL, updated_at=datetime('now') WHERE id=?`, id)
+	res, err := s.db.Exec(`UPDATE hook_outbox SET status='pending', attempts=0, next_retry_at=NULL, updated_at=datetime('now') WHERE id=? AND status!='done'`, id)
 	if err != nil {
 		return err
 	}

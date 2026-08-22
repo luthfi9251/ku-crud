@@ -70,6 +70,13 @@ func TestOutboxLifecycle(t *testing.T) {
 	if got.Status != "done" {
 		t.Fatalf("status = %q", got.Status)
 	}
+	// done entries cannot be manually retried
+	if err := s.RetryOutbox(e.ID); err != ErrNotFound {
+		t.Fatalf("retry done = %v, want ErrNotFound", err)
+	}
+	if got, _ = s.GetOutbox(e.ID); got.Status != "done" {
+		t.Fatalf("done entry was reset by retry: %+v", got)
+	}
 
 	// failed → scheduled retry → due at that time, dead after 6
 	e2 := &OutboxEntry{TableDefID: id, Event: "afterCreate", HookName: "H"}
