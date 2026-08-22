@@ -134,6 +134,26 @@ CREATE TABLE saved_filters (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX idx_saved_filters ON saved_filters(user_id, table_def_id, name);`,
+	// v1.6: hook assignments on table defs + durable after-hook outbox.
+	`ALTER TABLE table_defs ADD COLUMN hooks TEXT NOT NULL DEFAULT '';
+CREATE TABLE hook_outbox(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_def_id INTEGER NOT NULL REFERENCES table_defs(id) ON DELETE CASCADE,
+  event TEXT NOT NULL,
+  hook_name TEXT NOT NULL,
+  config TEXT NOT NULL DEFAULT '',
+  old_values TEXT,
+  new_values TEXT,
+  user_id INTEGER NOT NULL DEFAULT 0,
+  username TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_retry_at TEXT,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_hook_outbox_due ON hook_outbox(status, next_retry_at);`,
 }
 
 func Open(path string) (*Store, error) {
