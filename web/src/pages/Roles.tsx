@@ -17,11 +17,18 @@ interface RoleForm {
   mode: "new" | "edit";
   id: string;
   name: string;
-  platformManage: boolean;
+  manageDatasources: boolean;
+  manageTables: boolean;
+  viewAudit: boolean;
+  viewOutbox: boolean;
   grants: Record<string, TableGrant>;
 }
 
-const emptyForm: RoleForm = { mode: "new", id: "", name: "", platformManage: false, grants: {} };
+const emptyForm: RoleForm = {
+  mode: "new", id: "", name: "",
+  manageDatasources: false, manageTables: false, viewAudit: false, viewOutbox: false,
+  grants: {},
+};
 
 export default function Roles() {
   const qc = useQueryClient();
@@ -41,13 +48,22 @@ export default function Roles() {
   const openEdit = (r: Role) => {
     const grants: Record<string, TableGrant> = {};
     r.tables.forEach((g) => (grants[g.tableDefId] = g));
-    setForm({ mode: "edit", id: r.id, name: r.name, platformManage: r.platformManage, grants });
+    setForm({ mode: "edit", id: r.id, name: r.name,
+      manageDatasources: r.manageDatasources, manageTables: r.manageTables,
+      viewAudit: r.viewAudit, viewOutbox: r.viewOutbox, grants });
   };
 
   const save = useMutation({
     mutationFn: () => {
       const tables = (defs.data ?? []).map((d) => grantFor(form!, d.id)).filter((g) => g.canRead || g.canCreate || g.canUpdate || g.canDelete);
-      const body = JSON.stringify({ name: form!.name, platformManage: form!.platformManage, tables });
+      const body = JSON.stringify({
+        name: form!.name,
+        manageDatasources: form!.manageDatasources,
+        manageTables: form!.manageTables,
+        viewAudit: form!.viewAudit,
+        viewOutbox: form!.viewOutbox,
+        tables,
+      });
       return form!.mode === "new"
         ? api("/roles", { method: "POST", body })
         : api(`/roles/${form!.id}`, { method: "PUT", body });
@@ -109,12 +125,28 @@ export default function Roles() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {r.platformManage ? (
+                      {r.isAdmin ? (
                         <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
                           {t("roles.fullPlatform")}
                         </Badge>
                       ) : (
-                        <span className="text-xs text-muted-foreground">{t("roles.tableOnly")}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {r.manageDatasources && (
+                            <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">{t("roles.grant.datasources")}</Badge>
+                          )}
+                          {r.manageTables && (
+                            <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">{t("roles.grant.tables")}</Badge>
+                          )}
+                          {r.viewAudit && (
+                            <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">{t("roles.grant.audit")}</Badge>
+                          )}
+                          {r.viewOutbox && (
+                            <Badge variant="outline" className="text-[10px] bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20">{t("roles.grant.outbox")}</Badge>
+                          )}
+                          {!r.manageDatasources && !r.manageTables && !r.viewAudit && !r.viewOutbox && (
+                            <span className="text-xs text-muted-foreground">{t("roles.tableOnly")}</span>
+                          )}
+                        </div>
                       )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
@@ -183,12 +215,22 @@ export default function Roles() {
                      placeholder={t("roles.namePh")}
                   />
                 </div>
-                <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3 h-fit">
-                  <div>
-                    <p className="text-xs font-medium">{t("roles.platformManage")}</p>
-                    <p className="text-[11px] text-muted-foreground">{t("roles.platformManageDesc")}</p>
-                  </div>
-                  <Switch checked={form.platformManage} onCheckedChange={(v) => setForm({ ...form, platformManage: v })} />
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-2.5">
+                  <p className="text-xs font-medium">{t("roles.grant.title")}</p>
+                  {([
+                    ["manageDatasources", "roles.grant.datasources", "roles.grant.datasourcesDesc"],
+                    ["manageTables", "roles.grant.tables", "roles.grant.tablesDesc"],
+                    ["viewAudit", "roles.grant.audit", "roles.grant.auditDesc"],
+                    ["viewOutbox", "roles.grant.outbox", "roles.grant.outboxDesc"],
+                  ] as const).map(([key, labelKey, descKey]) => (
+                    <div key={key} className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-medium">{t(labelKey)}</p>
+                        <p className="text-[11px] text-muted-foreground">{t(descKey)}</p>
+                      </div>
+                      <Switch checked={form[key]} onCheckedChange={(v) => setForm({ ...form, [key]: v })} />
+                    </div>
+                  ))}
                 </div>
               </div>
 

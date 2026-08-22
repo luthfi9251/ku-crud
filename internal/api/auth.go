@@ -73,12 +73,62 @@ func (s *Server) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// RequirePlatform gates Platform Management (datasources, table definitions,
-// audit). Admin passes implicitly (Admin role has platform_manage=1).
-func (s *Server) RequirePlatform(next http.HandlerFunc) http.HandlerFunc {
+// RequireDSManage gates datasource management. Admin passes implicitly.
+func (s *Server) RequireDSManage(next http.HandlerFunc) http.HandlerFunc {
 	return s.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
-		if !userFrom(r).PlatformManage {
-			writeErr(w, 403, "FORBIDDEN", "platform management requires a role with platform access", nil)
+		u := userFrom(r)
+		if !u.IsAdmin && !u.ManageDatasources {
+			writeErr(w, 403, "FORBIDDEN", "datasource management requires a role with datasource access", nil)
+			return
+		}
+		next(w, r)
+	})
+}
+
+// RequireTablesManage gates table-definition management (including the
+// hooks dropdown that feeds the definition editor). Admin passes implicitly.
+func (s *Server) RequireTablesManage(next http.HandlerFunc) http.HandlerFunc {
+	return s.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		u := userFrom(r)
+		if !u.IsAdmin && !u.ManageTables {
+			writeErr(w, 403, "FORBIDDEN", "table definition management requires a role with definition access", nil)
+			return
+		}
+		next(w, r)
+	})
+}
+
+// RequireAuditView gates the audit trail. Admin passes implicitly.
+func (s *Server) RequireAuditView(next http.HandlerFunc) http.HandlerFunc {
+	return s.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		u := userFrom(r)
+		if !u.IsAdmin && !u.ViewAudit {
+			writeErr(w, 403, "FORBIDDEN", "audit trail requires a role with audit access", nil)
+			return
+		}
+		next(w, r)
+	})
+}
+
+// RequireOutboxView gates the hook outbox monitor. Admin passes implicitly.
+func (s *Server) RequireOutboxView(next http.HandlerFunc) http.HandlerFunc {
+	return s.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		u := userFrom(r)
+		if !u.IsAdmin && !u.ViewOutbox {
+			writeErr(w, 403, "FORBIDDEN", "hook outbox requires a role with outbox access", nil)
+			return
+		}
+		next(w, r)
+	})
+}
+
+// RequirePlatformAll gates endpoints that touch datasources AND definitions
+// (meta transfer). Admin passes implicitly.
+func (s *Server) RequirePlatformAll(next http.HandlerFunc) http.HandlerFunc {
+	return s.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		u := userFrom(r)
+		if !u.IsAdmin && !(u.ManageDatasources && u.ManageTables) {
+			writeErr(w, 403, "FORBIDDEN", "definition transfer requires both datasource and definition access", nil)
 			return
 		}
 		next(w, r)
@@ -154,7 +204,9 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
 	writeJSON(w, 200, map[string]any{
-		"username": u.Username, "isAdmin": u.IsAdmin, "platformManage": u.PlatformManage,
+		"username": u.Username, "isAdmin": u.IsAdmin,
+		"manageDatasources": u.ManageDatasources, "manageTables": u.ManageTables,
+		"viewAudit": u.ViewAudit, "viewOutbox": u.ViewOutbox,
 		"language": u.Language,
 	})
 }

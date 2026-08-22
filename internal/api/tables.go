@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"ku-crud/internal/ds"
 	"ku-crud/internal/hooks"
@@ -17,6 +18,7 @@ type tableDefInput struct {
 	SchemaName     string          `json:"schemaName"`
 	TableName      string          `json:"tableName"`
 	Label          string          `json:"label"`
+	Description    string          `json:"description"`
 	KeyColumns     []string        `json:"keyColumns"`
 	PageSize       int             `json:"pageSize"`
 	DefaultSortCol string          `json:"defaultSortCol"`
@@ -96,8 +98,13 @@ func (s *Server) toDef(in tableDefInput) (*meta.TableDef, error) {
 	if in.DefaultView != "kanban" && in.DefaultView != "calendar" {
 		in.DefaultView = "grid"
 	}
+	in.Description = strings.TrimSpace(in.Description)
+	if len(in.Description) > 200 {
+		return nil, errors.New("description too long (max 200 chars)")
+	}
 	return &meta.TableDef{DatasourceID: dsID, SchemaName: in.SchemaName,
-		TableName: in.TableName, Label: in.Label, KeyColumns: in.KeyColumns,
+		TableName: in.TableName, Label: in.Label, Description: in.Description,
+		KeyColumns:     in.KeyColumns,
 		PageSize:       in.PageSize,
 		DefaultSortCol: in.DefaultSortCol, DefaultSortDir: in.DefaultSortDir,
 		DefaultView: in.DefaultView, ViewConfig: string(in.ViewConfig), Hooks: string(in.Hooks)}, nil
@@ -182,6 +189,7 @@ type tableDefDTO struct {
 	SchemaName     string          `json:"schemaName"`
 	TableName      string          `json:"tableName"`
 	Label          string          `json:"label"`
+	Description    string          `json:"description"`
 	KeyColumns     []string        `json:"keyColumns"`
 	PageSize       int             `json:"pageSize"`
 	DefaultSortCol string          `json:"defaultSortCol"`
@@ -202,6 +210,7 @@ func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDT
 		SchemaName:     def.SchemaName,
 		TableName:      def.TableName,
 		Label:          def.Label,
+		Description:    def.Description,
 		KeyColumns:     def.KeyColumns,
 		PageSize:       def.PageSize,
 		DefaultSortCol: def.DefaultSortCol,
@@ -662,10 +671,10 @@ func (s *Server) handleTableList(w http.ResponseWriter, r *http.Request) {
 	groups := s.groupNameMap()
 	for i := range list {
 		p := s.tablePerms(u, list[i].ID)
-		// Platform users see every definition (they manage them); everyone
+		// Table managers see every definition (they define them); everyone
 		// else only sees tables they can read. The permissions object always
 		// reflects actual row-CRUD grants.
-		if !u.PlatformManage && !p.Read {
+		if !u.ManageTables && !p.Read {
 			continue
 		}
 		out = append(out, s.toTableDTO(&list[i], nil, p, groups))
@@ -706,7 +715,7 @@ func (s *Server) handleTableGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := s.tablePerms(u, def.ID)
-	if !u.PlatformManage && !p.Read {
+	if !u.ManageTables && !p.Read {
 		writeErr(w, 403, "FORBIDDEN", "no access to this table", nil)
 		return
 	}

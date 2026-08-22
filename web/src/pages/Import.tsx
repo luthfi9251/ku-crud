@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Upload, ArrowLeft, CheckCircle2, XCircle, FileSpreadsheet } from "lucide-react";
-import { api, ApiError } from "../lib/api";
+import { api } from "../lib/api";
+import { humanError } from "../lib/errors";
 import type { TableDefPayload } from "../lib/types";
 import { useT } from "../lib/i18n";
 import { Button } from "@/components/ui/button";
@@ -66,7 +67,7 @@ export default function Import() {
       setResult(null);
       setErr("");
     },
-    onError: (e) => setErr(e instanceof ApiError ? e.message : String(e)),
+    onError: (e) => setErr(humanError(e, t).title),
   });
 
   const repreview = useMutation({
@@ -81,7 +82,7 @@ export default function Import() {
       setPreview(res);
       setErr("");
     },
-    onError: (e) => setErr(e instanceof ApiError ? e.message : String(e)),
+    onError: (e) => setErr(humanError(e, t).title),
   });
 
   const apply = useMutation({
@@ -97,7 +98,7 @@ export default function Import() {
       setResult(res);
       qc.invalidateQueries({ queryKey: ["rows", id] });
     },
-    onError: (e) => setErr(e instanceof ApiError ? e.message : String(e)),
+    onError: (e) => setErr(humanError(e, t).title),
   });
 
   const mappableCols = (def.data?.columns ?? []).filter((c) => c.editable || (def.data?.keyColumns ?? []).includes(c.name));

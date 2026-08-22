@@ -48,7 +48,7 @@ func TestMigration3Upgrade(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("GetUserContext: %v %v", ok, err)
 	}
-	if !u.IsAdmin || !u.PlatformManage {
+	if !u.IsAdmin || !u.ManageDatasources || !u.ManageTables || !u.ViewAudit || !u.ViewOutbox {
 		t.Fatalf("v1.0 user should be Admin: %+v", u)
 	}
 	if !u.IsFirst {

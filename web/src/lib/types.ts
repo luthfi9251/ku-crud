@@ -54,7 +54,8 @@ export interface ViewConfig {
 
 export interface TableDef {
   id: Id; datasourceId: Id; schemaName: string; tableName: string;
-  label: string; keyColumns: string[]; pageSize: number;
+  label: string; description?: string;
+  keyColumns: string[]; pageSize: number;
   defaultSortCol: string; defaultSortDir: "ASC" | "DESC";
   defaultView?: ViewMode;
   viewConfig?: ViewConfig | null;
@@ -94,8 +95,10 @@ export interface AuditEntry {
 }
 
 export interface Me {
-  username: string; isAdmin: boolean; platformManage: boolean;
-  language?: string; // populated by the i18n task; defaults to "en" until then
+  username: string; isAdmin: boolean;
+  manageDatasources: boolean; manageTables: boolean;
+  viewAudit: boolean; viewOutbox: boolean;
+  language?: string;
 }
 
 export interface User {
@@ -109,7 +112,9 @@ export interface TableGrant {
 }
 
 export interface Role {
-  id: Id; name: string; isAdmin: boolean; platformManage: boolean;
+  id: Id; name: string; isAdmin: boolean;
+  manageDatasources: boolean; manageTables: boolean;
+  viewAudit: boolean; viewOutbox: boolean;
   tables: TableGrant[]; userCount: number;
 }
 

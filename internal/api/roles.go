@@ -17,18 +17,24 @@ type grantDTO struct {
 }
 
 type roleDTO struct {
-	ID             string     `json:"id"`
-	Name           string     `json:"name"`
-	IsAdmin        bool       `json:"isAdmin"`
-	PlatformManage bool       `json:"platformManage"`
-	Grants         []grantDTO `json:"tables"`
-	UserCount      int        `json:"userCount"`
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	IsAdmin           bool       `json:"isAdmin"`
+	ManageDatasources bool       `json:"manageDatasources"`
+	ManageTables      bool       `json:"manageTables"`
+	ViewAudit         bool       `json:"viewAudit"`
+	ViewOutbox        bool       `json:"viewOutbox"`
+	Grants            []grantDTO `json:"tables"`
+	UserCount         int        `json:"userCount"`
 }
 
 type roleInput struct {
-	Name           string     `json:"name"`
-	PlatformManage bool       `json:"platformManage"`
-	Tables         []grantDTO `json:"tables"`
+	Name              string     `json:"name"`
+	ManageDatasources bool       `json:"manageDatasources"`
+	ManageTables      bool       `json:"manageTables"`
+	ViewAudit         bool       `json:"viewAudit"`
+	ViewOutbox        bool       `json:"viewOutbox"`
+	Tables            []grantDTO `json:"tables"`
 }
 
 // toGrants decodes masked table-def tokens; every referenced table must exist.
@@ -56,7 +62,8 @@ func (s *Server) toGrants(in []grantDTO) ([]meta.TableGrant, error) {
 func (s *Server) toRoleDTO(r meta.Role, grants []meta.TableGrant, userCount int) roleDTO {
 	dto := roleDTO{
 		ID: s.ids.Encode("role", r.ID), Name: r.Name,
-		IsAdmin: r.IsAdmin, PlatformManage: r.PlatformManage,
+		IsAdmin: r.IsAdmin, ManageDatasources: r.ManageDatasources,
+		ManageTables: r.ManageTables, ViewAudit: r.ViewAudit, ViewOutbox: r.ViewOutbox,
 		Grants: make([]grantDTO, 0, len(grants)), UserCount: userCount,
 	}
 	for _, g := range grants {
@@ -98,7 +105,8 @@ func (s *Server) handleRoleCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
-	role := &meta.Role{Name: in.Name, PlatformManage: in.PlatformManage}
+	role := &meta.Role{Name: in.Name, ManageDatasources: in.ManageDatasources,
+		ManageTables: in.ManageTables, ViewAudit: in.ViewAudit, ViewOutbox: in.ViewOutbox}
 	if err := s.store.CreateRole(role, grants); err != nil {
 		writeErr(w, 400, "VALIDATION", "could not create role (duplicate name?)", err.Error())
 		return
@@ -127,7 +135,8 @@ func (s *Server) handleRoleUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
-	role := &meta.Role{ID: id, Name: in.Name, PlatformManage: in.PlatformManage}
+	role := &meta.Role{ID: id, Name: in.Name, ManageDatasources: in.ManageDatasources,
+		ManageTables: in.ManageTables, ViewAudit: in.ViewAudit, ViewOutbox: in.ViewOutbox}
 	if err := s.store.UpdateRole(role, grants); err != nil {
 		s.writeRoleErr(w, err)
 		return

@@ -32,17 +32,20 @@ func TestMeReturnsRoleInfo(t *testing.T) {
 	c := login(s)
 	w := do(s, "GET", "/api/auth/me", "", c)
 	var me struct {
-		Username       string `json:"username"`
-		IsAdmin        bool   `json:"isAdmin"`
-		PlatformManage bool   `json:"platformManage"`
+		Username          string `json:"username"`
+		IsAdmin           bool   `json:"isAdmin"`
+		ManageDatasources bool   `json:"manageDatasources"`
+		ManageTables      bool   `json:"manageTables"`
+		ViewAudit         bool   `json:"viewAudit"`
+		ViewOutbox        bool   `json:"viewOutbox"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &me)
-	if me.Username != "alice" || !me.IsAdmin || !me.PlatformManage {
+	if me.Username != "alice" || !me.IsAdmin || !me.ManageDatasources || !me.ManageTables || !me.ViewAudit || !me.ViewOutbox {
 		t.Fatalf("me = %s", w.Body)
 	}
 }
 
-func TestPlatformGate(t *testing.T) {
+func TestNoGrantsForbidden(t *testing.T) {
 	s := newTestServer(t)
 	seedDS(t, s)
 	// save one def (id 1) via admin
@@ -75,7 +78,7 @@ func TestPlatformGate(t *testing.T) {
 
 func TestAdminGate(t *testing.T) {
 	s := newTestServer(t)
-	c := loginAs(t, s, "plat", &meta.Role{Name: "Plat", PlatformManage: true}, nil)
+	c := loginAs(t, s, "plat", &meta.Role{Name: "Plat", ManageDatasources: true}, nil)
 	for _, p := range []struct{ method, path string }{
 		{"GET", "/api/users"}, {"POST", "/api/users"},
 		{"PUT", "/api/users/x"}, {"DELETE", "/api/users/x"},
@@ -156,7 +159,7 @@ func TestTableGrantMatrix(t *testing.T) {
 
 	// platform users see every definition (they manage them) but their
 	// permissions object reflects grants — row CRUD still 403s without one
-	plat := loginAs(t, s, "plat2", &meta.Role{Name: "Plat2", PlatformManage: true}, nil)
+	plat := loginAs(t, s, "plat2", &meta.Role{Name: "Plat2", ManageTables: true}, nil)
 	w = do(s, "GET", "/api/tables", "", plat)
 	json.Unmarshal(w.Body.Bytes(), &list)
 	if len(list) != 1 {
@@ -170,7 +173,7 @@ func TestTableGrantMatrix(t *testing.T) {
 		t.Fatalf("platform rows without grant = %d", w.Code)
 	}
 	// platform role WITH a grant behaves per that grant
-	platRW := loginAs(t, s, "plat3", &meta.Role{Name: "Plat3", PlatformManage: true},
+	platRW := loginAs(t, s, "plat3", &meta.Role{Name: "Plat3", ManageTables: true},
 		[]meta.TableGrant{{TableDefID: 1, CanRead: true, CanDelete: true}})
 	w = do(s, "GET", "/api/tables", "", platRW)
 	json.Unmarshal(w.Body.Bytes(), &list)

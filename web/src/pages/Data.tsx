@@ -24,6 +24,8 @@ import {
   Bookmark,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
+import { humanError } from "../lib/errors";
+import { ErrorBox } from "../components/ErrorBox";
 import { encodeRowKey } from "../lib/rowkey";
 import { enumColorClass, formatCell } from "../lib/format";
 import type { ColumnDef, FkOptionsRes, Me, Row, RowsRes, SavedFilter, TableDefPayload, ViewConfig, ViewMode } from "../lib/types";
@@ -124,7 +126,10 @@ export default function Data() {
         setConnErr("");
       } catch (e) {
         if (e instanceof ApiError && e.code === "DRIFT") setDrift(e.detail as never);
-        else if (e instanceof ApiError && e.code === "CONN") setConnErr(e.message + ": " + String(e.detail ?? ""));
+        else if (e instanceof ApiError && e.code === "CONN") {
+          console.error(e);
+          setConnErr(humanError(e, t).title);
+        }
         else throw e;
       }
     },
@@ -337,7 +342,8 @@ export default function Data() {
           : String(e.detail ?? "");
         setDelErr(t("data.rowReferenced", { refs: d || t("data.otherTables") }));
       } else {
-        setDelErr(e instanceof Error ? e.message : t("data.deleteFailed"));
+        console.error(e);
+        setDelErr(humanError(e, t).title);
       }
     },
   });
@@ -384,7 +390,8 @@ export default function Data() {
       setSel(new Set());
       setDataVersion((v) => v + 1);
     } catch (e) {
-      setBulkMsg(e instanceof Error ? e.message : t("data.bulkDeleteFailed"));
+      console.error(e);
+      setBulkMsg(humanError(e, t).title);
     } finally {
       setBulkBusy(false);
     }
@@ -409,7 +416,7 @@ export default function Data() {
       qc.invalidateQueries({ queryKey: ["saved-filters", id] });
     },
     onError: (e) => {
-      alert(e instanceof Error ? e.message : t("data.saveFilterFailed"));
+      alert(humanError(e, t).title);
     },
   });
   const delFilter = useMutation({
@@ -577,6 +584,11 @@ export default function Data() {
                 {def.data.schemaName}.{def.data.tableName}
               </Badge>
             </div>
+            {def.data.description && (
+              <p className="text-xs text-muted-foreground mt-0.5 truncate" title={def.data.description}>
+                {def.data.description}
+              </p>
+            )}
             <p className="text-xs text-muted-foreground mt-0.5">
               {t("data.key")}: <span className="font-mono text-foreground font-semibold">{keyCols.join(" + ")}</span> &bull; {t("data.totalRecords", { count: String(r?.total ?? 0) })}
             </p>
@@ -585,7 +597,7 @@ export default function Data() {
 
         {/* Action Buttons Toolbar */}
         <div className="flex flex-wrap items-center gap-2">
-          {me.data?.platformManage && (
+          {me.data?.manageTables && me.data?.manageDatasources && (
             <Button
               variant="outline"
               size="sm"
@@ -1101,12 +1113,10 @@ export default function Data() {
           )}
 
           {save.isError && (
-            <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive space-y-1">
-              <p className="font-semibold">
-                {(save.error as Error).message}: {String((save.error as ApiError).detail ?? "")}
-              </p>
+            <div className="space-y-1">
+              <ErrorBox e={save.error} />
               {String((save.error as ApiError).detail ?? "").includes("violates not-null constraint") && (
-                <p className="text-[11px] opacity-90 border-t pt-1 border-destructive/20 font-sans">
+                <p className="text-[11px] text-muted-foreground">
                   💡 <strong>{t("form.notNullTip")}</strong>
                 </p>
               )}

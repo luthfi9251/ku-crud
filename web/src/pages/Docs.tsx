@@ -45,6 +45,13 @@ function BusinessDocs() {
         </ul>
       </Section>
 
+      <Section title="Who sees what">
+        <ul className="space-y-2">
+          <Li>The menus you see depend on what your administrator granted your role: some people also see <K>Datasources</K>, <K>Definitions Transfer</K>, <K>Audit Trail</K> or <K>Hook Outbox</K> — if a menu is missing, your role simply does not include it.</Li>
+          <Li>When an action fails, the message explains what happened in plain words. <K>Technical detail</K> unfolds the raw error for your administrator.</Li>
+        </ul>
+      </Section>
+
       <Section title="Working with the grid">
         <ul className="space-y-2">
           <Li>Type in the search box to filter rows; click a column header to sort by that column.</Li>

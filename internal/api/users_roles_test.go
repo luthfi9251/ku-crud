@@ -16,7 +16,7 @@ func TestUserEndpoints(t *testing.T) {
 	var role struct {
 		ID string `json:"id"`
 	}
-	w := do(s, "POST", "/api/roles", `{"name":"Editor","platformManage":false,"tables":[]}`, c)
+	w := do(s, "POST", "/api/roles", `{"name":"Editor","manageDatasources":false,"manageTables":false,"viewAudit":false,"viewOutbox":false,"tables":[]}`, c)
 	if w.Code != 200 {
 		t.Fatalf("role create = %d %s", w.Code, w.Body)
 	}
@@ -143,7 +143,7 @@ func TestRoleEndpoints(t *testing.T) {
 
 	// create role with grants
 	w = do(s, "POST", "/api/roles",
-		`{"name":"RW","platformManage":false,"tables":[{"tableDefId":"`+tdTok+`","canRead":true,"canCreate":true,"canUpdate":false,"canDelete":false}]}`, c)
+		`{"name":"RW","manageDatasources":false,"manageTables":false,"viewAudit":false,"viewOutbox":false,"tables":[{"tableDefId":"`+tdTok+`","canRead":true,"canCreate":true,"canUpdate":false,"canDelete":false}]}`, c)
 	if w.Code != 200 {
 		t.Fatalf("role create = %d %s", w.Code, w.Body)
 	}
@@ -159,12 +159,12 @@ func TestRoleEndpoints(t *testing.T) {
 
 	// update role: rename + replace grants (full CRUD)
 	w = do(s, "PUT", "/api/roles/"+rl.ID,
-		`{"name":"RW2","platformManage":true,"tables":[{"tableDefId":"`+tdTok+`","canRead":true,"canCreate":true,"canUpdate":true,"canDelete":true}]}`, c)
+		`{"name":"RW2","manageDatasources":true,"manageTables":true,"viewAudit":true,"viewOutbox":true,"tables":[{"tableDefId":"`+tdTok+`","canRead":true,"canCreate":true,"canUpdate":true,"canDelete":true}]}`, c)
 	if w.Code != 200 {
 		t.Fatalf("role update = %d %s", w.Code, w.Body)
 	}
 	w = do(s, "GET", "/api/roles", "", c)
-	if !strings.Contains(w.Body.String(), `"name":"RW2"`) || !strings.Contains(w.Body.String(), `"platformManage":true`) {
+	if !strings.Contains(w.Body.String(), `"name":"RW2"`) || !strings.Contains(w.Body.String(), `"manageTables":true`) {
 		t.Fatalf("roles list = %s", w.Body)
 	}
 

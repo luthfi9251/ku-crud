@@ -48,7 +48,7 @@ func TestMigration6Upgrade(t *testing.T) {
 	defer s.Close()
 
 	var v string
-	if err := s.db.QueryRow(`SELECT value FROM settings WHERE key='schema_version'`).Scan(&v); err != nil || v != "9" {
+	if err := s.db.QueryRow(`SELECT value FROM settings WHERE key='schema_version'`).Scan(&v); err != nil || v != "10" {
 		t.Fatalf("schema_version=%q err=%v", v, err)
 	}
 	// new table_defs columns exist with defaults

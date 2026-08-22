@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -49,6 +50,7 @@ export default function TableForm() {
   const [schema, setSchema] = useState("");
   const [tableName, setTableName] = useState("");
   const [label, setLabel] = useState("");
+  const [description, setDescription] = useState("");
   const [pageSize, setPageSize] = useState(20);
   const [defaultSortCol, setDefaultSortCol] = useState("");
   const [defaultSortDir, setDefaultSortDir] = useState<"ASC" | "DESC">("ASC");
@@ -105,6 +107,7 @@ export default function TableForm() {
       setSchema(d.schemaName);
       setTableName(d.tableName);
       setLabel(d.label);
+      setDescription(d.description ?? "");
       setPageSize(d.pageSize);
       setDefaultSortCol(d.defaultSortCol ?? "");
       setDefaultSortDir(d.defaultSortDir === "DESC" ? "DESC" : "ASC");
@@ -154,6 +157,7 @@ export default function TableForm() {
         schemaName: schema,
         tableName: tableName,
         label,
+        description,
         keyColumns: keys,
         pageSize,
         defaultSortCol,
@@ -436,7 +440,7 @@ export default function TableForm() {
         <CardContent className="pt-4 space-y-6">
           <fieldset disabled={!step2Complete} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-               <div className="space-y-1.5">
+               <div className="space-y-1.5 md:col-span-2">
                  <Label className="text-xs font-medium">{t("tform.displayLabel")}</Label>
                  <Input
                    value={label}
@@ -444,6 +448,24 @@ export default function TableForm() {
                    placeholder={t("tform.labelPh")}
                    className="h-9 text-xs"
                  />
+                 <p className="text-[11px] text-muted-foreground">{t("tform.labelHint")}</p>
+                 <div className="flex items-center gap-2.5 rounded-lg border bg-sidebar px-3 py-2 w-fit">
+                   <Layers className="h-3.5 w-3.5 text-sidebar-foreground/50" />
+                   <span className="text-xs text-sidebar-foreground/80 truncate max-w-[240px]">
+                     {label || t("tform.labelPh")}
+                   </span>
+                 </div>
+               </div>
+               <div className="space-y-1.5 md:col-span-2">
+                 <Label className="text-xs font-medium">{t("tform.description")}</Label>
+                 <Textarea
+                   value={description}
+                   onChange={(e) => setDescription(e.target.value)}
+                   maxLength={200}
+                   placeholder={t("tform.descPh")}
+                   className="text-xs min-h-[64px]"
+                 />
+                 <p className="text-[11px] text-muted-foreground">{t("tform.descHint")}</p>
                </div>
                <div className="space-y-1.5">
                  <Label className="text-xs font-medium">{t("tform.pageSize")}</Label>
