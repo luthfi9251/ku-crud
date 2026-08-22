@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+
+	"ku-crud/internal/hooks"
 )
 
 // bulkDeleteCap bounds one bulk-delete request; clients chunk beyond this.
@@ -43,6 +45,10 @@ func (s *Server) handleRowBulkDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "BULK_TOO_LARGE", "bulk delete is limited to 1000 keys per request", nil)
 		return
 	}
+	if err := s.hookGuard(def); err != nil {
+		writeHookErr(w, err)
+		return
+	}
 	a, err := s.liveAdapter(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
@@ -52,6 +58,7 @@ func (s *Server) handleRowBulkDelete(w http.ResponseWriter, r *http.Request) {
 
 	deleted := 0
 	var failures []bulkFailure
+	var deletedOlds []map[string]any
 	seen := map[string]bool{}
 	for _, key := range body.Keys {
 		if seen[key] {
@@ -87,6 +94,17 @@ func (s *Server) handleRowBulkDelete(w http.ResponseWriter, r *http.Request) {
 				Message: "row is referenced by other rows", Detail: conflicts})
 			continue
 		}
+		blocked := false
+		for _, old := range oldRows {
+			if _, err := s.runBefore(r.Context(), u, def, cols, hooks.BeforeDelete, nil, old); err != nil {
+				failures = append(failures, bulkFailure{Key: key, Code: "HOOK_REJECTED", Message: err.Error()})
+				blocked = true
+				break
+			}
+		}
+		if blocked {
+			continue
+		}
 		if _, err := a.DeleteByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals); err != nil {
 			code, msg := "CONN", "delete failed"
 			if a.IsFKViolation(err) {
@@ -97,8 +115,12 @@ func (s *Server) handleRowBulkDelete(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, old := range oldRows {
 			s.auditBestEffort(u, def.ID, "DELETE", rowKeyString(def, old), old, nil)
+			deletedOlds = append(deletedOlds, old)
 		}
 		deleted++
+	}
+	for _, old := range deletedOlds {
+		s.enqueueAfter(u, def, hooks.AfterDelete, old, nil)
 	}
 	if failures == nil {
 		failures = []bulkFailure{}

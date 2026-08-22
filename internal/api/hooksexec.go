@@ -30,13 +30,20 @@ func (s *Server) hookGuard(def *meta.TableDef) error {
 	return s.hooks.CheckMissing(asgs)
 }
 
-func writeHookErr(w http.ResponseWriter, err error) {
+// wrapHookErr maps a hook error onto a 400 apiError (HOOK_MISSING for a
+// MissingError, HOOK_REJECTED otherwise) — for write paths without a
+// ResponseWriter, e.g. m2m link sync.
+func wrapHookErr(err error) error {
 	var me *hooks.MissingError
 	if errors.As(err, &me) {
-		writeErr(w, 400, "HOOK_MISSING", err.Error(), nil)
-		return
+		return newAPIErr(400, "HOOK_MISSING", err.Error())
 	}
-	writeErr(w, 400, "HOOK_REJECTED", err.Error(), nil)
+	return newAPIErr(400, "HOOK_REJECTED", err.Error())
+}
+
+func writeHookErr(w http.ResponseWriter, err error) {
+	ae := wrapHookErr(err).(*apiError)
+	writeErr(w, ae.status, ae.code, ae.msg, nil)
 }
 
 // runBefore executes the def's before-hooks for ev, returning the modified

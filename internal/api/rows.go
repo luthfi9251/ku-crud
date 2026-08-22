@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -559,6 +560,13 @@ func (s *Server) syncM2MLinks(u CtxUser, def *meta.TableDef, c meta.ColumnDef, s
 		return newAPIErr(403, "FORBIDDEN", "managing "+cfg.Junction.Label+
 			" relations requires create and delete grants on that table")
 	}
+	jdef, jcols, err := s.store.GetTableDef(cfg.Junction.ID)
+	if err != nil {
+		return err
+	}
+	if err := s.hookGuard(jdef); err != nil {
+		return wrapHookErr(err)
+	}
 	ja, err := s.liveAdapter(cfg.Junction.DatasourceID)
 	if err != nil {
 		return err
@@ -583,23 +591,31 @@ func (s *Server) syncM2MLinks(u CtxUser, def *meta.TableDef, c meta.ColumnDef, s
 		if _, exists := current[rowValKey(w)]; exists {
 			continue
 		}
+		linkVals := map[string]any{c.M2MJunctionSrcCol: srcVal, c.M2MJunctionTgtCol: w}
+		if _, err := s.runBefore(context.Background(), u, jdef, jcols, hooks.BeforeCreate, linkVals, nil); err != nil {
+			return wrapHookErr(err)
+		}
 		if err := ja.Insert(cfg.Junction.SchemaName, cfg.Junction.TableName,
 			[]string{c.M2MJunctionSrcCol, c.M2MJunctionTgtCol}, []any{srcVal, w}); err != nil {
 			return err
 		}
-		s.auditBestEffort(u, cfg.Junction.ID, "INSERT", "", nil,
-			map[string]any{c.M2MJunctionSrcCol: srcVal, c.M2MJunctionTgtCol: w})
+		s.auditBestEffort(u, cfg.Junction.ID, "INSERT", "", nil, linkVals)
+		s.enqueueAfter(u, jdef, hooks.AfterCreate, nil, linkVals)
 	}
 	for k, v := range current { // removed links
 		if wantSet[k] {
 			continue
 		}
+		linkVals := map[string]any{c.M2MJunctionSrcCol: srcVal, c.M2MJunctionTgtCol: v}
+		if _, err := s.runBefore(context.Background(), u, jdef, jcols, hooks.BeforeDelete, nil, linkVals); err != nil {
+			return wrapHookErr(err)
+		}
 		if _, err := ja.DeletePairs(cfg.Junction.SchemaName, cfg.Junction.TableName,
 			c.M2MJunctionSrcCol, srcVal, c.M2MJunctionTgtCol, v); err != nil {
 			return err
 		}
-		s.auditBestEffort(u, cfg.Junction.ID, "DELETE", "",
-			map[string]any{c.M2MJunctionSrcCol: srcVal, c.M2MJunctionTgtCol: v}, nil)
+		s.auditBestEffort(u, cfg.Junction.ID, "DELETE", "", linkVals, nil)
+		s.enqueueAfter(u, jdef, hooks.AfterDelete, linkVals, nil)
 	}
 	return nil
 }
