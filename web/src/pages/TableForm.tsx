@@ -99,7 +99,7 @@ export default function TableForm() {
   // Live database columns query for New mode
   const liveCols = useQuery({
     queryKey: ["ds-cols", dsId, schema, tableName],
-    enabled: !isEditing && !!dsId && !!schema && !!tableName,
+    enabled: !isEditing && sourceType === "table" && !!dsId && !!schema && !!tableName,
     queryFn: () => api<LiveColumn[]>(`/datasources/${dsId}/tables/${schema}/${tableName}/columns`),
   });
 
@@ -676,11 +676,7 @@ export default function TableForm() {
               </Card>
             )}
 
-            {save.isError && (
-              <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive">
-                {String((save.error as Error).message)}
-              </div>
-            )}
+            {save.isError && <ErrorBox e={save.error} />}
 
             <div className="flex justify-end gap-2 pt-4 border-t">
               <Link to="/">
