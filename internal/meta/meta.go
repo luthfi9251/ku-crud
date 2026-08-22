@@ -7,10 +7,23 @@ import (
 	"errors"
 	"fmt"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 var ErrNotFound = errors.New("not found")
+
+// isUniqueConstraint reports whether err is the SQLite UNIQUE constraint
+// violation that modernc.org/sqlite surfaces for duplicate key writes.
+// The driver enables extended result codes, so the code is the full
+// SQLITE_CONSTRAINT_UNIQUE (2067) rather than the primary 19.
+func isUniqueConstraint(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	return se.Code() == int(sqlite3.SQLITE_CONSTRAINT_UNIQUE)
+}
 
 type Store struct {
 	db   *sql.DB
@@ -104,6 +117,23 @@ ALTER TABLE columns ADD COLUMN m2m_display_cols TEXT NOT NULL DEFAULT '';`,
 );
 ALTER TABLE table_defs ADD COLUMN group_id INTEGER REFERENCES table_groups(id) ON DELETE SET NULL;
 ALTER TABLE columns ADD COLUMN validations TEXT NOT NULL DEFAULT '';`,
+	// v1.5: computed columns, per-column formatting, default views,
+	// user language and saved filters.
+	`ALTER TABLE columns ADD COLUMN formatting TEXT NOT NULL DEFAULT '';
+ALTER TABLE columns ADD COLUMN is_computed INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE columns ADD COLUMN computed_formula TEXT NOT NULL DEFAULT '';
+ALTER TABLE table_defs ADD COLUMN default_view TEXT NOT NULL DEFAULT 'grid';
+ALTER TABLE table_defs ADD COLUMN view_config TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'en';
+CREATE TABLE saved_filters (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  table_def_id  INTEGER NOT NULL REFERENCES table_defs(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,
+  filters       TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX idx_saved_filters ON saved_filters(user_id, table_def_id, name);`,
 }
 
 func Open(path string) (*Store, error) {

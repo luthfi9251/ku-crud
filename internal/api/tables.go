@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,15 +12,17 @@ import (
 
 // tableDefInput accepts masked datasource ids from the client.
 type tableDefInput struct {
-	DatasourceID   string        `json:"datasourceId"`
-	SchemaName     string        `json:"schemaName"`
-	TableName      string        `json:"tableName"`
-	Label          string        `json:"label"`
-	KeyColumns     []string      `json:"keyColumns"`
-	PageSize       int           `json:"pageSize"`
-	DefaultSortCol string        `json:"defaultSortCol"`
-	DefaultSortDir string        `json:"defaultSortDir"`
-	Columns        []columnInput `json:"columns"`
+	DatasourceID   string          `json:"datasourceId"`
+	SchemaName     string          `json:"schemaName"`
+	TableName      string          `json:"tableName"`
+	Label          string          `json:"label"`
+	KeyColumns     []string        `json:"keyColumns"`
+	PageSize       int             `json:"pageSize"`
+	DefaultSortCol string          `json:"defaultSortCol"`
+	DefaultSortDir string          `json:"defaultSortDir"`
+	DefaultView    string          `json:"defaultView"`
+	ViewConfig     json.RawMessage `json:"viewConfig"`
+	Columns        []columnInput   `json:"columns"`
 }
 
 // columnInput mirrors meta.ColumnDef but takes the fk/m2m targets as masked
@@ -44,6 +47,9 @@ type columnInput struct {
 	M2MJunctionSrcCol string                `json:"m2mJunctionSrcCol"`
 	M2MJunctionTgtCol string                `json:"m2mJunctionTgtCol"`
 	M2MDisplayColumns []string              `json:"m2mDisplayColumns"`
+	IsComputed        bool                  `json:"isComputed"`
+	ComputedFormula   string                `json:"computedFormula"`
+	Formatting        json.RawMessage       `json:"formatting"`
 }
 
 func (s *Server) toCols(in []columnInput) []meta.ColumnDef {
@@ -55,7 +61,11 @@ func (s *Server) toCols(in []columnInput) []meta.ColumnDef {
 			Position: c.Position, Validations: c.Validations, BaseType: c.BaseType,
 			FKRefColumn: c.FKRefColumn, FKDisplayColumns: c.FKDisplayColumns,
 			M2MJunctionSrcCol: c.M2MJunctionSrcCol, M2MJunctionTgtCol: c.M2MJunctionTgtCol,
-			M2MDisplayColumns: c.M2MDisplayColumns}
+			M2MDisplayColumns: c.M2MDisplayColumns,
+			IsComputed:        c.IsComputed, ComputedFormula: c.ComputedFormula}
+		if c.Formatting != nil {
+			m.Formatting = string(c.Formatting)
+		}
 		if c.FKTableDefID == "self" {
 			m.FKTableDefID = meta.SelfRef
 		} else if c.FKTableDefID != "" {
@@ -81,10 +91,14 @@ func (s *Server) toDef(in tableDefInput) (*meta.TableDef, error) {
 	if in.DefaultSortDir != "DESC" {
 		in.DefaultSortDir = "ASC"
 	}
+	if in.DefaultView != "kanban" && in.DefaultView != "calendar" {
+		in.DefaultView = "grid"
+	}
 	return &meta.TableDef{DatasourceID: dsID, SchemaName: in.SchemaName,
 		TableName: in.TableName, Label: in.Label, KeyColumns: in.KeyColumns,
 		PageSize:       in.PageSize,
-		DefaultSortCol: in.DefaultSortCol, DefaultSortDir: in.DefaultSortDir}, nil
+		DefaultSortCol: in.DefaultSortCol, DefaultSortDir: in.DefaultSortDir,
+		DefaultView: in.DefaultView, ViewConfig: string(in.ViewConfig)}, nil
 }
 
 type permsDTO struct {
@@ -114,6 +128,9 @@ type columnDTO struct {
 	M2MJunctionSrcCol string                `json:"m2mJunctionSrcCol,omitempty"`
 	M2MJunctionTgtCol string                `json:"m2mJunctionTgtCol,omitempty"`
 	M2MDisplayColumns []string              `json:"m2mDisplayColumns,omitempty"`
+	IsComputed        bool                  `json:"isComputed,omitempty"`
+	ComputedFormula   string                `json:"computedFormula,omitempty"`
+	Formatting        json.RawMessage       `json:"formatting,omitempty"`
 	// M2MRefColumn is the source-table column the junction references —
 	// resolved server-side so the grid can key m2mRels lookups.
 	M2MRefColumn string `json:"m2mRefColumn,omitempty"`
@@ -128,7 +145,11 @@ func (s *Server) colToDTO(c meta.ColumnDef, m2mRefCache *map[string][2]string) c
 		Position: c.Position, Validations: c.Validations, BaseType: c.BaseType,
 		FKRefColumn: c.FKRefColumn, FKDisplayColumns: c.FKDisplayColumns,
 		M2MJunctionSrcCol: c.M2MJunctionSrcCol, M2MJunctionTgtCol: c.M2MJunctionTgtCol,
-		M2MDisplayColumns: c.M2MDisplayColumns}
+		M2MDisplayColumns: c.M2MDisplayColumns,
+		IsComputed:        c.IsComputed, ComputedFormula: c.ComputedFormula}
+	if c.Formatting != "" {
+		dto.Formatting = json.RawMessage(c.Formatting)
+	}
 	if c.FKTableDefID > 0 {
 		dto.FKTableDefID = s.ids.Encode("td", c.FKTableDefID)
 	}
@@ -154,19 +175,21 @@ func (s *Server) colToDTO(c meta.ColumnDef, m2mRefCache *map[string][2]string) c
 
 // tableDefDTO masks ids and carries the caller's grants.
 type tableDefDTO struct {
-	ID             string      `json:"id"`
-	DatasourceID   string      `json:"datasourceId"`
-	SchemaName     string      `json:"schemaName"`
-	TableName      string      `json:"tableName"`
-	Label          string      `json:"label"`
-	KeyColumns     []string    `json:"keyColumns"`
-	PageSize       int         `json:"pageSize"`
-	DefaultSortCol string      `json:"defaultSortCol"`
-	DefaultSortDir string      `json:"defaultSortDir"`
-	GroupID        string      `json:"groupId,omitempty"`
-	GroupName      string      `json:"groupName,omitempty"`
-	Columns        []columnDTO `json:"columns,omitempty"`
-	Permissions    permsDTO    `json:"permissions"`
+	ID             string          `json:"id"`
+	DatasourceID   string          `json:"datasourceId"`
+	SchemaName     string          `json:"schemaName"`
+	TableName      string          `json:"tableName"`
+	Label          string          `json:"label"`
+	KeyColumns     []string        `json:"keyColumns"`
+	PageSize       int             `json:"pageSize"`
+	DefaultSortCol string          `json:"defaultSortCol"`
+	DefaultSortDir string          `json:"defaultSortDir"`
+	DefaultView    string          `json:"defaultView,omitempty"`
+	ViewConfig     json.RawMessage `json:"viewConfig,omitempty"`
+	GroupID        string          `json:"groupId,omitempty"`
+	GroupName      string          `json:"groupName,omitempty"`
+	Columns        []columnDTO     `json:"columns,omitempty"`
+	Permissions    permsDTO        `json:"permissions"`
 }
 
 func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDTO, groups map[int64]string) tableDefDTO {
@@ -180,11 +203,15 @@ func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDT
 		PageSize:       def.PageSize,
 		DefaultSortCol: def.DefaultSortCol,
 		DefaultSortDir: def.DefaultSortDir,
+		DefaultView:    def.DefaultView,
 		Permissions:    p,
 	}
 	if def.GroupID > 0 {
 		dto.GroupID = s.ids.Encode("grp", def.GroupID)
 		dto.GroupName = groups[def.GroupID]
+	}
+	if def.ViewConfig != "" {
+		dto.ViewConfig = json.RawMessage(def.ViewConfig)
 	}
 	if dto.KeyColumns == nil {
 		dto.KeyColumns = []string{}
@@ -240,10 +267,100 @@ var validFieldTypes = map[string]bool{
 
 var validRules = map[string]bool{"email": true, "min_len": true, "max_len": true, "number": true, "text": true}
 
+var validEnumColors = map[string]bool{
+	"gray": true, "blue": true, "green": true, "amber": true,
+	"red": true, "purple": true, "cyan": true, "orange": true,
+}
+
+// checkFormatting validates a column's raw formatting JSON.
+func checkFormatting(c meta.ColumnDef) string {
+	if c.Formatting == "" {
+		return ""
+	}
+	var f struct {
+		EnumColors map[string]string `json:"enumColors"`
+		Number     *struct {
+			Thousands *bool  `json:"thousands"`
+			Decimals  *int   `json:"decimals"`
+			Prefix    string `json:"prefix"`
+		} `json:"number"`
+	}
+	if err := json.Unmarshal([]byte(c.Formatting), &f); err != nil {
+		return "column " + c.Name + ": formatting is not valid JSON"
+	}
+	if len(f.EnumColors) > 0 && c.FieldType != "enum" {
+		return "column " + c.Name + ": enumColors requires an enum column"
+	}
+	for v, col := range f.EnumColors {
+		if !validEnumColors[col] {
+			return "column " + c.Name + ": unknown enum color " + col + " for value " + v
+		}
+	}
+	if f.Number != nil && c.FieldType != "number" {
+		return "column " + c.Name + ": number formatting requires a number column"
+	}
+	if f.Number != nil && f.Number.Decimals != nil && (*f.Number.Decimals < 0 || *f.Number.Decimals > 6) {
+		return "column " + c.Name + ": decimals must be 0..6"
+	}
+	return ""
+}
+
 var (
 	errDSNotFound = errors.New("datasource not found")
 	errConn       = errors.New("connection failed")
 )
+
+type viewConfigJSON struct {
+	KanbanBoardColumn   string `json:"kanbanBoardColumn"`
+	KanbanDisplayColumn string `json:"kanbanDisplayColumn"`
+	CalendarStartColumn string `json:"calendarStartColumn"`
+	CalendarEndColumn   string `json:"calendarEndColumn"`
+}
+
+func (s *Server) checkViewConfig(def *meta.TableDef, cols []meta.ColumnDef) string {
+	if def.DefaultView != "grid" && def.DefaultView != "kanban" && def.DefaultView != "calendar" {
+		return "defaultView must be grid, kanban or calendar"
+	}
+	if def.ViewConfig == "" {
+		return ""
+	}
+	var vc viewConfigJSON
+	if err := json.Unmarshal([]byte(def.ViewConfig), &vc); err != nil {
+		return "viewConfig is not valid JSON"
+	}
+	byName := map[string]meta.ColumnDef{}
+	for _, c := range cols {
+		byName[c.Name] = c
+	}
+	board, boardOk := byName[vc.KanbanBoardColumn]
+	if vc.KanbanBoardColumn != "" {
+		if !boardOk || board.FieldType != "enum" || board.IsComputed {
+			return "viewConfig.kanbanBoardColumn must be a defined, non-computed enum column"
+		}
+	}
+	if vc.KanbanDisplayColumn != "" {
+		disp, ok := byName[vc.KanbanDisplayColumn]
+		if !ok || !disp.Visible {
+			return "viewConfig.kanbanDisplayColumn must be a defined, visible column"
+		}
+	}
+	if vc.CalendarStartColumn != "" {
+		start, ok := byName[vc.CalendarStartColumn]
+		if !ok || start.FieldType != "datetime" || !start.Visible {
+			return "viewConfig.calendarStartColumn must be a defined, visible datetime column"
+		}
+	}
+	if vc.CalendarEndColumn != "" {
+		end, ok := byName[vc.CalendarEndColumn]
+		if !ok || end.FieldType != "datetime" || !end.Visible {
+			return "viewConfig.calendarEndColumn must be a defined, visible datetime column"
+		}
+	}
+	if vc.CalendarEndColumn != "" && vc.CalendarStartColumn == "" {
+		return "viewConfig.calendarEndColumn requires calendarStartColumn"
+	}
+	return ""
+}
 
 func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 	if def.DatasourceID == 0 || def.SchemaName == "" || def.TableName == "" ||
@@ -281,11 +398,38 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 				return "column " + c.Name + ": validation rule param must be 1..1000"
 			}
 		}
+		if msg := checkFormatting(c); msg != "" {
+			return msg
+		}
 		if c.Name == "" || c.Label == "" {
 			return "column name and label are required"
 		}
 		if _, err := ds.QuoteIdent(c.Name); err != nil {
 			return "invalid identifier: " + c.Name
+		}
+		if c.IsComputed {
+			if c.FieldType != "number" && c.FieldType != "text" {
+				return "column " + c.Name + ": computed columns must be number or text"
+			}
+			if c.Editable || c.Searchable || c.Sortable {
+				return "column " + c.Name + ": computed columns cannot be editable/searchable/sortable"
+			}
+			for _, key := range def.KeyColumns {
+				if c.Name == key {
+					return "column " + c.Name + ": computed columns cannot be key columns"
+				}
+			}
+			if c.ComputedFormula == "" {
+				return "column " + c.Name + ": computed columns need computedFormula"
+			}
+			ft, _, err := compileComputed(c, cols)
+			if err != nil {
+				return "column " + c.Name + ": " + err.Error()
+			}
+			if ft != c.FieldType {
+				return "column " + c.Name + ": formula produces " + ft + " but the column type is " + c.FieldType
+			}
+			continue
 		}
 		if msg := s.validateFK(def, cols, c); msg != "" {
 			return msg
@@ -314,6 +458,9 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 	}
 	if def.DefaultSortCol != "" && !sortable[def.DefaultSortCol] {
 		return "defaultSortCol must be a defined, sortable column"
+	}
+	if msg := s.checkViewConfig(def, cols); msg != "" {
+		return msg
 	}
 	return ""
 }
@@ -713,8 +860,8 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 
 	var out []meta.ColumnDef
 	for _, c := range cols {
-		if c.FieldType == "m2m" {
-			out = append(out, c) // virtual relation column — preserved on resync
+		if c.FieldType == "m2m" || c.IsComputed {
+			out = append(out, c) // virtual column — preserved on resync
 			continue
 		}
 		lc, ok := liveByName[c.Name]

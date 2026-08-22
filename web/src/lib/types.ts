@@ -12,12 +12,21 @@ export interface Datasource {
 export type ValidationRuleType = "email" | "min_len" | "max_len" | "number" | "text";
 export interface ValidationRule { type: ValidationRuleType; param?: number }
 
+// ColumnFormatting is display-only config (never written to DB or CSV export).
+export interface ColumnFormatting {
+  enumColors?: Record<string, string> | null;
+  number?: { thousands?: boolean; decimals?: number; prefix?: string } | null;
+}
+
 export interface ColumnDef {
   name: string; label: string; fieldType: FieldType;
   enumOptions: string[] | null;
   editable: boolean; required: boolean; visible: boolean;
   searchable: boolean; sortable: boolean; position: number;
   validations?: ValidationRule[] | null;
+  isComputed?: boolean;
+  computedFormula?: string;
+  formatting?: ColumnFormatting | null;
   baseType?: BaseFieldType;
   fkTableDefId?: string; // masked token or "self"
   fkRefColumn?: string;
@@ -35,10 +44,20 @@ export interface Permissions {
   read: boolean; create: boolean; update: boolean; delete: boolean;
 }
 
+export type ViewMode = "grid" | "kanban" | "calendar";
+export interface ViewConfig {
+  kanbanBoardColumn?: string;
+  kanbanDisplayColumn?: string;
+  calendarStartColumn?: string;
+  calendarEndColumn?: string | null;
+}
+
 export interface TableDef {
   id: Id; datasourceId: Id; schemaName: string; tableName: string;
   label: string; keyColumns: string[]; pageSize: number;
   defaultSortCol: string; defaultSortDir: "ASC" | "DESC";
+  defaultView?: ViewMode;
+  viewConfig?: ViewConfig | null;
   groupId?: string; groupName?: string;
   permissions: Permissions;
 }
@@ -46,6 +65,10 @@ export interface TableDef {
 export interface TableDefPayload extends TableDef { columns: ColumnDef[] }
 
 export interface TableGroup { id: Id; name: string; position: number }
+
+// SavedFilter is a per-user named filter set for one table (filters is the
+// serialized ActiveFilter[] JSON produced by serializeFilters).
+export interface SavedFilter { id: Id; name: string; filters: string; createdAt: string }
 
 export interface LiveColumn {
   name: string; fieldType: FieldType; nullable: boolean;
@@ -71,6 +94,7 @@ export interface AuditEntry {
 
 export interface Me {
   username: string; isAdmin: boolean; platformManage: boolean;
+  language?: string; // populated by the i18n task; defaults to "en" until then
 }
 
 export interface User {

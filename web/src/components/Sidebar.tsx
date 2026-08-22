@@ -24,9 +24,11 @@ import {
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type { Me, TableDef, TableGroup } from "@/lib/types";
+import { useT, useI18nLang, type Lang } from "@/lib/i18n";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 interface SidebarProps {
@@ -38,6 +40,8 @@ export function Sidebar({ className }: SidebarProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(false);
+  const t = useT();
+  const { lang, setLang } = useI18nLang();
 
   const me = useQuery({
     queryKey: ["me"],
@@ -76,7 +80,7 @@ export function Sidebar({ className }: SidebarProps) {
       alert(
         e instanceof ApiError
           ? `${e.message}: ${String(e.detail ?? "")}`
-          : "Group action failed",
+          : t("nav.groupActionFailed"),
       ),
   });
 
@@ -114,11 +118,11 @@ export function Sidebar({ className }: SidebarProps) {
       return (eff ?? "") === (gid ?? "");
     });
 
-  const renderTable = (t: TableDef) => {
-    const tablePath = `/data/${t.id}`;
+  const renderTable = (tb: TableDef) => {
+    const tablePath = `/data/${tb.id}`;
     const isActive = location.pathname === tablePath;
     return (
-      <div key={t.id} className="relative">
+      <div key={tb.id} className="relative">
         <Link
           to={tablePath}
           className={cn(
@@ -128,7 +132,7 @@ export function Sidebar({ className }: SidebarProps) {
               : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
           )}
           title={
-            collapsed ? t.label : `${t.schemaName}.${t.tableName}`
+            collapsed ? tb.label : `${tb.schemaName}.${tb.tableName}`
           }
         >
           <div className="flex items-center gap-2.5 truncate">
@@ -138,7 +142,7 @@ export function Sidebar({ className }: SidebarProps) {
                 isActive ? "text-blue-400" : "text-sidebar-foreground/50",
               )}
             />
-            {!collapsed && <span className="truncate">{t.label}</span>}
+            {!collapsed && <span className="truncate">{tb.label}</span>}
           </div>
           {!collapsed && !canPlatform && (
             <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-sidebar-foreground/40 shrink-0" />
@@ -147,13 +151,13 @@ export function Sidebar({ className }: SidebarProps) {
         {canPlatform && !collapsed && (
           <div className="absolute right-1 top-1/2 -translate-y-1/2 z-10">
             <button
-              onClick={() => setOpenMenu(openMenu === t.id ? null : t.id)}
+              onClick={() => setOpenMenu(openMenu === tb.id ? null : tb.id)}
               className="flex h-3.5 w-3.5 items-center justify-center rounded text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
-              title="Move to group"
+              title={t("nav.moveToGroup")}
             >
               <MoreVertical className="h-3 w-3" />
             </button>
-            {openMenu === t.id && (
+            {openMenu === tb.id && (
               <div className="absolute right-0 z-10 mt-1 w-40 rounded-md border bg-popover p-1 shadow text-xs text-popover-foreground">
                 {(groups.data ?? []).map((g) => (
                   <button
@@ -163,7 +167,7 @@ export function Sidebar({ className }: SidebarProps) {
                       setOpenMenu(null);
                       groupMut.mutate({
                         method: "PATCH",
-                        path: `/tables/${t.id}`,
+                        path: `/tables/${tb.id}`,
                         body: { groupId: g.id },
                       });
                     }}
@@ -177,12 +181,12 @@ export function Sidebar({ className }: SidebarProps) {
                     setOpenMenu(null);
                     groupMut.mutate({
                       method: "PATCH",
-                      path: `/tables/${t.id}`,
+                      path: `/tables/${tb.id}`,
                       body: { groupId: null },
                     });
                   }}
                 >
-                  No group
+                  {t("nav.noGroup")}
                 </button>
               </div>
             )}
@@ -194,19 +198,19 @@ export function Sidebar({ className }: SidebarProps) {
   const navItems = [
     ...(canPlatform
       ? [
-          { label: "Datasources", path: "/datasources", icon: Server },
-          { label: "Definitions Transfer", path: "/meta", icon: ArrowLeftRight },
+          { label: t("nav.datasources"), path: "/datasources", icon: Server },
+          { label: t("nav.transfer"), path: "/meta", icon: ArrowLeftRight },
         ]
       : []),
-    { label: "Tables & Schema", path: "/", icon: Table2 },
+    { label: t("nav.tables"), path: "/", icon: Table2 },
     ...(isAdmin
       ? [
-          { label: "Users", path: "/users", icon: UsersIcon },
-          { label: "Roles & Access", path: "/roles", icon: KeyRound },
+          { label: t("nav.users"), path: "/users", icon: UsersIcon },
+          { label: t("nav.roles"), path: "/roles", icon: KeyRound },
         ]
       : []),
     ...(canPlatform
-      ? [{ label: "Audit Trail", path: "/audit", icon: ShieldCheck }]
+      ? [{ label: t("nav.audit"), path: "/audit", icon: ShieldCheck }]
       : []),
   ];
 
@@ -231,11 +235,11 @@ export function Sidebar({ className }: SidebarProps) {
                   Ku-CRUD
                 </span>
                 <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-blue-400 border border-blue-500/20">
-                  v1.4
+                  v1.5
                 </span>
               </div>
               <span className="text-[11px] text-sidebar-foreground/60 truncate">
-                Database Portal
+                {t("nav.brandSubtitle")}
               </span>
             </div>
           )}
@@ -245,7 +249,7 @@ export function Sidebar({ className }: SidebarProps) {
           size="icon"
           className="h-8 w-8 shrink-0 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
           onClick={() => setCollapsed(!collapsed)}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
         >
           {collapsed ? (
             <PanelLeft className="h-4 w-4" />
@@ -261,7 +265,7 @@ export function Sidebar({ className }: SidebarProps) {
         <div className="space-y-1">
           {!collapsed && (
             <p className="px-3 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 mb-2">
-              Navigation
+              {t("nav.section")}
             </p>
           )}
           {navItems.map((item) => {
@@ -301,14 +305,14 @@ export function Sidebar({ className }: SidebarProps) {
           {!collapsed && (
             <div className="flex items-center justify-between px-3 mb-2">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
-                Active Tables ({defs.data?.length ?? 0})
+                {t("nav.activeTables", { count: String(defs.data?.length ?? 0) })}
               </p>
               <Sparkles className="h-3 w-3 text-blue-400/80" />
             </div>
           )}
           {defs.isLoading && !collapsed && (
             <div className="px-3 py-2 text-xs text-sidebar-foreground/40 italic">
-              Loading tables...
+              {t("nav.loadingTables")}
             </div>
           )}
           {collapsed ? (
@@ -323,8 +327,8 @@ export function Sidebar({ className }: SidebarProps) {
                       className="flex h-4 w-4 shrink-0 items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground"
                       title={
                         collapsedGroups.has(g.id)
-                          ? "Expand group"
-                          : "Collapse group"
+                          ? t("nav.expandGroup")
+                          : t("nav.collapseGroup")
                       }
                     >
                       {collapsedGroups.has(g.id) ? (
@@ -347,7 +351,7 @@ export function Sidebar({ className }: SidebarProps) {
                             })
                           }
                           className="flex h-4 w-4 items-center justify-center rounded text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
-                          title="Move group up"
+                          title={t("nav.moveUp")}
                         >
                           <ChevronUp className="h-3 w-3" />
                         </button>
@@ -360,13 +364,13 @@ export function Sidebar({ className }: SidebarProps) {
                             })
                           }
                           className="flex h-4 w-4 items-center justify-center rounded text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
-                          title="Move group down"
+                          title={t("nav.moveDown")}
                         >
                           <ChevronDown className="h-3 w-3" />
                         </button>
                         <button
                           onClick={() => {
-                            const name = prompt("Group name", g.name);
+                            const name = prompt(t("nav.groupNamePrompt"), g.name);
                             if (name)
                               groupMut.mutate({
                                 method: "PATCH",
@@ -375,7 +379,7 @@ export function Sidebar({ className }: SidebarProps) {
                               });
                           }}
                           className="flex h-4 w-4 items-center justify-center rounded text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
-                          title="Rename group"
+                          title={t("nav.renameGroup")}
                         >
                           <Pencil className="h-3 w-3" />
                         </button>
@@ -383,7 +387,7 @@ export function Sidebar({ className }: SidebarProps) {
                           onClick={() => {
                             if (
                               confirm(
-                                `Delete group "${g.name}"? Its tables stay, just ungrouped.`,
+                                t("nav.deleteGroupConfirm", { name: g.name }),
                               )
                             )
                               groupMut.mutate({
@@ -392,7 +396,7 @@ export function Sidebar({ className }: SidebarProps) {
                               });
                           }}
                           className="flex h-4 w-4 items-center justify-center rounded text-sidebar-foreground/40 hover:text-red-400 hover:bg-red-500/10"
-                          title="Delete group"
+                          title={t("nav.deleteGroup")}
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>
@@ -405,7 +409,7 @@ export function Sidebar({ className }: SidebarProps) {
               {canPlatform && (
                 <button
                   onClick={() => {
-                    const name = prompt("Group name");
+                    const name = prompt(t("nav.groupNamePrompt"));
                     if (name)
                       groupMut.mutate({
                         method: "POST",
@@ -414,10 +418,10 @@ export function Sidebar({ className }: SidebarProps) {
                       });
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-sidebar-foreground/50 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-all"
-                  title="Create a new table group"
+                  title={t("nav.createGroupHint")}
                 >
                   <Plus className="h-3 w-3" />
-                  New group
+                  {t("nav.newGroup")}
                 </button>
               )}
               {byGroup(undefined).map(renderTable)}
@@ -425,7 +429,7 @@ export function Sidebar({ className }: SidebarProps) {
           )}
           {!defs.isLoading && (defs.data ?? []).length === 0 && !collapsed && (
             <div className="px-3 py-2 text-xs text-sidebar-foreground/40 italic">
-              No tables defined yet
+              {t("nav.noTables")}
             </div>
           )}
         </div>
@@ -433,6 +437,18 @@ export function Sidebar({ className }: SidebarProps) {
 
       {/* Footer / User Profile */}
       <div className="border-t border-sidebar-border/60 p-3">
+        {!collapsed && (
+          <div className="mb-1 flex items-center justify-between px-1">
+            <span className="text-[10px] text-sidebar-foreground/50">{t("app.language")}</span>
+            <Select value={lang} onValueChange={(v) => setLang(v as Lang)}>
+              <SelectTrigger className="h-6 w-24 text-[10px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="en" className="text-xs">English</SelectItem>
+                <SelectItem value="id" className="text-xs">Indonesia</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div
           className={cn(
             "flex items-center justify-between rounded-xl bg-sidebar-accent/40 p-2",
@@ -450,10 +466,10 @@ export function Sidebar({ className }: SidebarProps) {
             {!collapsed && (
               <div className="flex flex-col truncate">
                 <span className="text-xs font-medium text-sidebar-foreground truncate">
-                  {me.data?.username || "Admin User"}
+                  {me.data?.username || t("nav.adminUser")}
                 </span>
                 <span className="text-[10px] text-sidebar-foreground/50">
-                  Online
+                  {t("nav.online")}
                 </span>
               </div>
             )}
@@ -464,7 +480,7 @@ export function Sidebar({ className }: SidebarProps) {
               size="icon"
               className="h-7 w-7 text-sidebar-foreground/60 hover:text-red-400 hover:bg-red-500/10"
               onClick={handleLogout}
-              title="Logout"
+              title={t("nav.logout")}
             >
               <LogOut className="h-3.5 w-3.5" />
             </Button>

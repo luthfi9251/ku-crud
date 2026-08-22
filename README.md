@@ -73,11 +73,21 @@ and CRUD away.
     text-only) enforced on create/update and CSV import; sidebar table
     **grouping** (drag-to-group, nested menus) and a data-page shortcut to the
     definition editor.
+13. **Views, formatting & personalization (v1.5)** — **computed columns**:
+    definition-level virtual columns evaluated server-side from an allowlisted
+    formula (no live DDL, never persisted); **multiple views** per table
+    (grid / kanban / calendar, with the default view stored in the definition);
+    **column formatting** (enum colors, number thousands/decimals/prefix,
+    locale-aware datetime); **grid group-by**; **per-user saved filters**
+    (name + filter JSON, private to the owning user); and **ID/EN
+    localization** (user language preference, switchable in the UI).
 
 Supported column types: `boolean`, `number` (int/float/numeric), `text`,
 `datetime` (date/time/timestamp), native Postgres `enum`, `uuid`, `json`
 (json/jsonb; MySQL `json`), and `fk`/`m2m` relations. Arrays and bytea
-columns are excluded.
+columns are excluded. Computed columns are definition-level virtual columns
+evaluated server-side — they are not live column types and never exist in
+the underlying database.
 
 ## Configuration
 
@@ -169,8 +179,10 @@ in behavior). From v1.2 the datasource driver defaults to `postgres`.
 v1.3 adds default-sort + relation columns and encrypts stored datasource
 passwords in place (one-way: the metadata file then requires v1.3+).
 v1.4 runs migration 7 (table_groups, table_defs.group_id, columns.validations)
-on first start. Metadata import files never contain datasource passwords —
-re-enter them in the import wizard.
+on first start. v1.5 runs migration 8 (formatting/computed/default_view/
+view_config on definitions, users.language, saved_filters) on first start.
+Metadata import files never contain datasource passwords — re-enter them in
+the import wizard.
 
 ## Security notes
 

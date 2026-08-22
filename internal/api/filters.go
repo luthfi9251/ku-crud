@@ -57,7 +57,7 @@ func (s *Server) parseFilters(def *meta.TableDef, cols []meta.ColumnDef, u CtxUs
 		if !ok {
 			return nil, fmt.Sprintf("filter: unknown column %q", f.Column)
 		}
-		if c.FieldType == "m2m" || c.FieldType == "json" {
+		if c.FieldType == "m2m" || c.FieldType == "json" || c.IsComputed {
 			return nil, fmt.Sprintf("filter: column %q cannot be filtered", f.Column)
 		}
 		okOp := false

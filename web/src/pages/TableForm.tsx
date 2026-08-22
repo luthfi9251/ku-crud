@@ -13,7 +13,7 @@ import {
   Key,
 } from "lucide-react";
 import { api } from "../lib/api";
-import type { BaseFieldType, ColumnDef, Datasource, LiveColumn, TableDefPayload } from "../lib/types";
+import type { BaseFieldType, ColumnDef, Datasource, LiveColumn, TableDefPayload, ViewConfig } from "../lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ColumnListEditor, M2MRelationsEditor, type FormCol } from "../components/ColumnListEditor";
+import { useT } from "../lib/i18n";
 
 export const fieldTypes = ["boolean", "text", "number", "datetime", "enum", "uuid", "json", "fk"] as const;
 
@@ -41,6 +42,7 @@ export default function TableForm() {
   const isEditing = !!id;
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const t = useT();
 
   const [dsId, setDsId] = useState("");
   const [schema, setSchema] = useState("");
@@ -51,6 +53,8 @@ export default function TableForm() {
   const [defaultSortDir, setDefaultSortDir] = useState<"ASC" | "DESC">("ASC");
   const [keys, setKeys] = useState<string[]>([]);
   const [cols, setCols] = useState<FormCol[]>([]);
+  const [defaultView, setDefaultView] = useState<"grid" | "kanban" | "calendar">("grid");
+  const [viewConfig, setViewConfig] = useState<ViewConfig>({});
 
   // Existing definition query for Edit mode
   const existingDef = useQuery({
@@ -96,6 +100,8 @@ export default function TableForm() {
       setPageSize(d.pageSize);
       setDefaultSortCol(d.defaultSortCol ?? "");
       setDefaultSortDir(d.defaultSortDir === "DESC" ? "DESC" : "ASC");
+      setDefaultView(d.defaultView ?? "grid");
+      setViewConfig(d.viewConfig ?? {});
       setKeys(d.keyColumns ?? []);
       setCols(d.columns);
     }
@@ -143,6 +149,8 @@ export default function TableForm() {
         pageSize,
         defaultSortCol,
         defaultSortDir,
+        defaultView,
+        viewConfig,
         columns: cols.map(({ livePk: _lp, origType: _ot, fkDs: _fd, ...c }) =>
           c.fieldType === "fk"
             ? { ...c, m2mJunctionDefId: undefined, m2mJunctionSrcCol: undefined, m2mJunctionTgtCol: undefined, m2mDisplayColumns: undefined, m2mRefColumn: undefined }
@@ -171,7 +179,7 @@ export default function TableForm() {
   if (isEditing && existingDef.isLoading) {
     return (
       <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">
-        Loading table definition...
+        {t("tform.loading")}
       </div>
     );
   }
@@ -188,12 +196,12 @@ export default function TableForm() {
           </Link>
           <div>
             <h2 className="text-xl font-bold tracking-tight">
-              {isEditing ? `Edit Definition: ${label}` : "Create Table Definition"}
+              {isEditing ? t("tform.editTitle", { label }) : t("tform.createTitle")}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
               {isEditing
-                ? `Modifying mapping for definition #${id}`
-                : "Map a database table into Ku-CRUD through progressive step configuration"}
+                ? t("tform.editSub", { id: String(id) })
+                : t("tform.createSub")}
             </p>
           </div>
         </div>
@@ -201,7 +209,7 @@ export default function TableForm() {
         <div className="flex items-center gap-2">
           <Link to="/">
             <Button variant="outline" className="h-9 text-xs">
-              Cancel
+              {t("form.cancel")}
             </Button>
           </Link>
           <Button
@@ -210,7 +218,7 @@ export default function TableForm() {
             className="h-9 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1.5 text-xs"
           >
             <Save className="h-4 w-4" />
-            {save.isPending ? "Saving..." : isEditing ? "Save Changes" : "Create Definition"}
+            {save.isPending ? t("form.saving") : isEditing ? t("tform.saveChanges") : t("tform.createDef")}
           </Button>
         </div>
       </div>
@@ -224,20 +232,20 @@ export default function TableForm() {
                 {step1Complete ? <CheckCircle2 className="h-4 w-4" /> : <Server className="h-4 w-4" />}
               </div>
               <div>
-                <CardTitle className="text-sm font-semibold">Step 1: Select Datasource Connection</CardTitle>
-                <CardDescription className="text-xs">Choose the active database connection pool</CardDescription>
+                <CardTitle className="text-sm font-semibold">{t("tform.step1")}</CardTitle>
+                <CardDescription className="text-xs">{t("tform.step1Desc")}</CardDescription>
               </div>
             </div>
             {isEditing && (
               <span className="flex items-center gap-1 text-[11px] text-muted-foreground font-mono bg-muted/60 px-2 py-0.5 rounded">
-                <Lock className="h-3 w-3" /> Locked on Edit
+                <Lock className="h-3 w-3" /> {t("tform.locked")}
               </span>
             )}
           </div>
         </CardHeader>
         <CardContent className="pt-4">
           <div className="max-w-xl space-y-2">
-            <Label className="text-xs font-medium">Datasource Connection</Label>
+            <Label className="text-xs font-medium">{t("tform.dsConn")}</Label>
             <Select
               value={dsId}
               disabled={isEditing}
@@ -249,7 +257,7 @@ export default function TableForm() {
               }}
             >
               <SelectTrigger className="h-10 text-xs">
-                <SelectValue placeholder="Choose a database connection..." />
+                <SelectValue placeholder={t("tform.dsPh")} />
               </SelectTrigger>
               <SelectContent>
                 {(dsList.data ?? []).map((d) => (
@@ -265,7 +273,7 @@ export default function TableForm() {
             </Select>
             {(dsList.data ?? []).length === 0 && (
               <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 p-3 rounded-lg border border-amber-500/20 mt-2">
-                No datasources available. Please add a Datasource connection first.
+                {t("tform.noDs")}
               </p>
             )}
           </div>
@@ -281,25 +289,25 @@ export default function TableForm() {
                 {step2Complete ? <CheckCircle2 className="h-4 w-4" /> : <Table2 className="h-4 w-4" />}
               </div>
               <div>
-                <CardTitle className="text-sm font-semibold">Step 2: Select Table from Schema</CardTitle>
-                <CardDescription className="text-xs">Pick target database table to generate CRUD mappings</CardDescription>
+                <CardTitle className="text-sm font-semibold">{t("tform.step2")}</CardTitle>
+                <CardDescription className="text-xs">{t("tform.step2Desc")}</CardDescription>
               </div>
             </div>
             {!step1Complete && (
               <span className="flex items-center gap-1 text-[11px] text-muted-foreground font-mono bg-muted/60 px-2 py-0.5 rounded">
-                <Lock className="h-3 w-3" /> Select Datasource first
+                <Lock className="h-3 w-3" /> {t("tform.selectDsFirst")}
               </span>
             )}
             {isEditing && (
               <span className="flex items-center gap-1 text-[11px] text-muted-foreground font-mono bg-muted/60 px-2 py-0.5 rounded">
-                <Lock className="h-3 w-3" /> Locked on Edit
+                <Lock className="h-3 w-3" /> {t("tform.locked")}
               </span>
             )}
           </div>
         </CardHeader>
         <CardContent className="pt-4 space-y-4">
           <fieldset disabled={!step1Complete || isEditing} className="max-w-xl space-y-2">
-            <Label className="text-xs font-medium">Database Table</Label>
+            <Label className="text-xs font-medium">{t("tform.dbTable")}</Label>
             <Select
               value={schema && tableName ? `${schema}.${tableName}` : ""}
               onValueChange={(v) => {
@@ -312,7 +320,7 @@ export default function TableForm() {
               }}
             >
               <SelectTrigger className="h-10 text-xs">
-                <SelectValue placeholder="Choose a table..." />
+                <SelectValue placeholder={t("tform.tablePh")} />
               </SelectTrigger>
               <SelectContent>
                 {(tables.data ?? []).map((t) => (
@@ -331,26 +339,26 @@ export default function TableForm() {
                 <div className="flex items-center gap-2">
                   <Database className="h-4 w-4 text-blue-500" />
                   <span className="text-xs font-semibold text-foreground">
-                    Inspected Database Schema ({schema}.{tableName})
+                    {t("tform.inspected", { name: `${schema}.${tableName}` })}
                   </span>
                 </div>
                 <Badge variant="outline" className="text-[10px] font-mono bg-blue-500/10 text-blue-600 border-blue-500/20">
-                  {isEditing ? cols.length : (liveCols.data?.length ?? 0)} Raw DB Columns Introspected
+                  {t("tform.rawCols", { count: String(isEditing ? cols.length : (liveCols.data?.length ?? 0)) })}
                 </Badge>
               </div>
 
               {liveCols.isLoading && !isEditing ? (
                 <div className="p-4 text-center text-xs text-muted-foreground italic rounded-lg border bg-muted/20">
-                  Inspecting raw table schema and data types from database...
+                  {t("tform.inspecting")}
                 </div>
               ) : (
                 <div className="rounded-lg border bg-muted/10 overflow-hidden max-h-56 overflow-y-auto shadow-xs">
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/50 hover:bg-muted/50 text-[11px]">
-                        <TableHead className="py-2 h-8 font-semibold">Raw Column Name</TableHead>
-                        <TableHead className="py-2 h-8 font-semibold">DB Data Type</TableHead>
-                        <TableHead className="py-2 h-8 font-semibold text-center">Attributes / Constraints</TableHead>
+                         <TableHead className="py-2 h-8 font-semibold">{t("tform.colRawName")}</TableHead>
+                         <TableHead className="py-2 h-8 font-semibold">{t("tform.colDbType")}</TableHead>
+                         <TableHead className="py-2 h-8 font-semibold text-center">{t("tform.colAttrs")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -373,9 +381,9 @@ export default function TableForm() {
                             <TableCell className="py-1.5 text-center">
                               <div className="flex items-center justify-center gap-1.5 flex-wrap">
                                 {isPk && (
-                                  <Badge variant="outline" className="text-[9px] font-mono bg-amber-500/10 text-amber-600 border-amber-500/20 gap-0.5">
-                                    <Key className="h-2.5 w-2.5" /> Primary Key
-                                  </Badge>
+                                   <Badge variant="outline" className="text-[9px] font-mono bg-amber-500/10 text-amber-600 border-amber-500/20 gap-0.5">
+                                     <Key className="h-2.5 w-2.5" /> {t("tform.primaryKey")}
+                                   </Badge>
                                 )}
                                 <Badge variant="outline" className={`text-[9px] font-mono ${isNullable ? "bg-muted/60 text-muted-foreground" : "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"}`}>
                                   {isNullable ? "NULLABLE" : "NOT NULL"}
@@ -403,13 +411,13 @@ export default function TableForm() {
                 <Layers className="h-4 w-4" />
               </div>
               <div>
-                <CardTitle className="text-sm font-semibold">Step 3: Configure Columns & Display Parameters</CardTitle>
-                <CardDescription className="text-xs">Set display label, key column(s), and column property switches</CardDescription>
+                <CardTitle className="text-sm font-semibold">{t("tform.step3")}</CardTitle>
+                <CardDescription className="text-xs">{t("tform.step3Desc")}</CardDescription>
               </div>
             </div>
             {!step2Complete && (
               <span className="flex items-center gap-1 text-[11px] text-muted-foreground font-mono bg-muted/60 px-2 py-0.5 rounded">
-                <Lock className="h-3 w-3" /> Select Table first
+                <Lock className="h-3 w-3" /> {t("tform.selectTableFirst")}
               </span>
             )}
           </div>
@@ -418,17 +426,17 @@ export default function TableForm() {
         <CardContent className="pt-4 space-y-6">
           <fieldset disabled={!step2Complete} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Display Label</Label>
-                <Input
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                  placeholder="e.g. User Accounts"
-                  className="h-9 text-xs"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Page Size (Rows per Page)</Label>
+               <div className="space-y-1.5">
+                 <Label className="text-xs font-medium">{t("tform.displayLabel")}</Label>
+                 <Input
+                   value={label}
+                   onChange={(e) => setLabel(e.target.value)}
+                   placeholder={t("tform.labelPh")}
+                   className="h-9 text-xs"
+                 />
+               </div>
+               <div className="space-y-1.5">
+                 <Label className="text-xs font-medium">{t("tform.pageSize")}</Label>
                 <Input
                   type="number"
                   value={pageSize}
@@ -436,17 +444,17 @@ export default function TableForm() {
                   className="h-9 text-xs"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Default Sort Column</Label>
-                <Select
-                  value={defaultSortCol || "none"}
-                  onValueChange={(v) => setDefaultSortCol(v === "none" ? "" : v)}
-                >
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="None (key column)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none" className="text-xs">None (key column)</SelectItem>
+               <div className="space-y-1.5">
+                 <Label className="text-xs font-medium">{t("tform.sortCol")}</Label>
+                 <Select
+                   value={defaultSortCol || "none"}
+                   onValueChange={(v) => setDefaultSortCol(v === "none" ? "" : v)}
+                 >
+                   <SelectTrigger className="h-9 text-xs">
+                     <SelectValue placeholder={t("tform.noneKey")} />
+                   </SelectTrigger>
+                   <SelectContent>
+                     <SelectItem value="none" className="text-xs">{t("tform.noneKey")}</SelectItem>
                     {cols.filter((c) => c.sortable).map((c) => (
                       <SelectItem key={c.name} value={c.name} className="text-xs">
                         {c.label}
@@ -455,8 +463,8 @@ export default function TableForm() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Default Sort Direction</Label>
+               <div className="space-y-1.5">
+                 <Label className="text-xs font-medium">{t("tform.sortDir")}</Label>
                 <Select
                   value={defaultSortDir}
                   onValueChange={(v) => setDefaultSortDir(v === "DESC" ? "DESC" : "ASC")}
@@ -465,10 +473,10 @@ export default function TableForm() {
                   <SelectTrigger className="h-9 text-xs">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ASC" className="text-xs">Ascending</SelectItem>
-                    <SelectItem value="DESC" className="text-xs">Descending</SelectItem>
-                  </SelectContent>
+                   <SelectContent>
+                     <SelectItem value="ASC" className="text-xs">{t("tform.asc")}</SelectItem>
+                     <SelectItem value="DESC" className="text-xs">{t("tform.desc")}</SelectItem>
+                   </SelectContent>
                 </Select>
               </div>
             </div>
@@ -484,9 +492,26 @@ export default function TableForm() {
               defs={defs.data ?? []}
               dsList={dsList.data ?? []}
               isLoadingCols={liveCols.isLoading}
+              onAddComputed={() =>
+                setCols((prev) => [
+                  ...prev,
+                  { name: `computed_${prev.length + 1}`, label: t("tform.computedCol"),
+                    fieldType: "number", enumOptions: null, editable: false, required: false,
+                    visible: true, searchable: false, sortable: false, position: 1000 + prev.length,
+                    isComputed: true, computedFormula: "" },
+                ])
+              }
             />
 
             <M2MRelationsEditor cols={cols} setCols={setCols} defs={defs.data ?? []} currentId={id} />
+
+            <ViewSettingsCard
+              cols={cols}
+              defaultView={defaultView}
+              setDefaultView={setDefaultView}
+              viewConfig={viewConfig}
+              setViewConfig={setViewConfig}
+            />
 
             {save.isError && (
               <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive">
@@ -496,7 +521,7 @@ export default function TableForm() {
 
             <div className="flex justify-end gap-2 pt-4 border-t">
               <Link to="/">
-                <Button variant="outline">Cancel</Button>
+                <Button variant="outline">{t("form.cancel")}</Button>
               </Link>
               <Button
                 disabled={!step2Complete || !keysValid || save.isPending}
@@ -504,13 +529,96 @@ export default function TableForm() {
                 className="bg-blue-600 text-white hover:bg-blue-700 gap-1.5"
               >
                 <Save className="h-4 w-4" />
-                {save.isPending ? "Saving..." : isEditing ? "Save Changes" : keysValid ? "Create Table Definition" : "Select at Least One Key Column"}
+                {save.isPending ? t("form.saving") : isEditing ? t("tform.saveChanges") : keysValid ? t("tform.createTitle") : t("tform.needKey")}
               </Button>
             </div>
           </fieldset>
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function ViewSettingsCard({ cols, defaultView, setDefaultView, viewConfig, setViewConfig }: {
+  cols: FormCol[]; defaultView: "grid" | "kanban" | "calendar";
+  setDefaultView: (v: "grid" | "kanban" | "calendar") => void;
+  viewConfig: ViewConfig; setViewConfig: (vc: ViewConfig) => void;
+}) {
+  const t = useT();
+  const enums = cols.filter((c) => c.fieldType === "enum" && !c.isComputed);
+  const datetimes = cols.filter((c) => c.fieldType === "datetime" && !c.isComputed);
+  const visibleCols = cols.filter((c) => c.visible && !c.isComputed);
+  return (
+    <Card className="border-border/60">
+      <CardHeader className="pb-3 border-b">
+        <CardTitle className="text-sm font-semibold">{t("view.title")}</CardTitle>
+        <CardDescription className="text-xs">{t("view.desc")}</CardDescription>
+      </CardHeader>
+      <CardContent className="pt-4 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+           <div className="space-y-1.5">
+             <Label className="text-xs font-medium">{t("view.default")}</Label>
+             <Select value={defaultView} onValueChange={(v) => setDefaultView(v as "grid" | "kanban" | "calendar")}>
+               <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+               <SelectContent>
+                 <SelectItem value="grid" className="text-xs">{t("view.grid")}</SelectItem>
+                 <SelectItem value="kanban" className="text-xs">{t("view.kanban")}</SelectItem>
+                 <SelectItem value="calendar" className="text-xs">{t("view.calendar")}</SelectItem>
+               </SelectContent>
+             </Select>
+           </div>
+           <div className="space-y-1.5">
+             <Label className="text-xs font-medium">{t("view.boardCol")}</Label>
+             <Select value={viewConfig.kanbanBoardColumn ?? "none"}
+               onValueChange={(v) => setViewConfig({ ...viewConfig, kanbanBoardColumn: v === "none" ? undefined : v })}>
+               <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={t("view.noneKanban")} /></SelectTrigger>
+               <SelectContent>
+                 <SelectItem value="none" className="text-xs">{t("view.noneKanban")}</SelectItem>
+                 {enums.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+               </SelectContent>
+             </Select>
+             <p className="text-[10px] text-muted-foreground">{t("view.boardColHint")}</p>
+           </div>
+           <div className="space-y-1.5">
+             <Label className="text-xs font-medium">{t("view.cardTitle")}</Label>
+             <Select value={viewConfig.kanbanDisplayColumn ?? "none"}
+               onValueChange={(v) => setViewConfig({ ...viewConfig, kanbanDisplayColumn: v === "none" ? undefined : v })}>
+               <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={t("tform.noneKey")} /></SelectTrigger>
+               <SelectContent>
+                 <SelectItem value="none" className="text-xs">{t("tform.noneKey")}</SelectItem>
+                 {visibleCols.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+               </SelectContent>
+             </Select>
+           </div>
+           <div className="space-y-1.5">
+             <Label className="text-xs font-medium">{t("view.startCol")}</Label>
+             <Select value={viewConfig.calendarStartColumn ?? "none"}
+               onValueChange={(v) => setViewConfig({ ...viewConfig, calendarStartColumn: v === "none" ? undefined : v })}>
+               <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={t("view.noneCalendar")} /></SelectTrigger>
+               <SelectContent>
+                 <SelectItem value="none" className="text-xs">{t("view.noneCalendar")}</SelectItem>
+                 {datetimes.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+               </SelectContent>
+             </Select>
+           </div>
+           <div className="space-y-1.5">
+             <Label className="text-xs font-medium">{t("view.endCol")}</Label>
+             <Select value={viewConfig.calendarEndColumn ?? "none"}
+               onValueChange={(v) => setViewConfig({ ...viewConfig, calendarEndColumn: v === "none" ? undefined : v })}>
+               <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={t("view.noneEnd")} /></SelectTrigger>
+               <SelectContent>
+                 <SelectItem value="none" className="text-xs">{t("view.noneEnd")}</SelectItem>
+                 {datetimes.filter((c) => c.name !== viewConfig.calendarStartColumn)
+                   .map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+               </SelectContent>
+             </Select>
+           </div>
+         </div>
+         <p className="text-[10px] text-muted-foreground">
+           {t("view.hint")}
+         </p>
+      </CardContent>
+    </Card>
   );
 }
 

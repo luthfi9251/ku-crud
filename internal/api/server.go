@@ -69,6 +69,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/auth/me", s.RequireAuth(s.handleMe))
+	mux.HandleFunc("PATCH /api/auth/me", s.RequireAuth(s.handleMeUpdate))
 
 	mux.HandleFunc("GET /api/setup/status", s.handleSetupStatus)
 	mux.HandleFunc("POST /api/setup", s.handleSetup)
@@ -111,6 +112,10 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/tables/{id}/rows/export", s.RequireAuth(s.handleRowExport))
 	mux.HandleFunc("POST /api/tables/{id}/import/preview", s.RequireAuth(s.handleImportPreview))
 	mux.HandleFunc("POST /api/tables/{id}/import/apply", s.RequireAuth(s.handleImportApply))
+	mux.HandleFunc("GET /api/tables/{id}/saved-filters", s.RequireAuth(s.handleSavedFilterList))
+	mux.HandleFunc("POST /api/tables/{id}/saved-filters", s.RequireAuth(s.handleSavedFilterCreate))
+	mux.HandleFunc("PUT /api/tables/{id}/saved-filters/{fid}", s.RequireAuth(s.handleSavedFilterUpdate))
+	mux.HandleFunc("DELETE /api/tables/{id}/saved-filters/{fid}", s.RequireAuth(s.handleSavedFilterDelete))
 	mux.HandleFunc("GET /api/audit", s.RequirePlatform(s.handleAuditList))
 
 	mux.HandleFunc("GET /api/users", s.RequireAdmin(s.handleUserList))

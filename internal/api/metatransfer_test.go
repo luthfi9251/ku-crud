@@ -201,6 +201,61 @@ func applyMeta(t *testing.T, s *Server, c *string, file, selections string) *htt
 	return resp
 }
 
+func TestMetaImportRejectsInvalidComputedColumns(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	base := metaFile{
+		Format: "ku-crud-meta", Version: 1, Groups: []string{},
+		Datasources: []metaFileDatasource{{Name: "pg1", Adapter: "postgres", Host: "h", Port: 5432, Database: "db", User: "u", SSLMode: "prefer"}},
+		Tables: []metaFileTable{{
+			DatasourceRef: "pg1", Schema: "public", Table: "orders", Label: "Orders",
+			KeyColumns: []string{"id"}, PageSize: 50,
+			Columns: []metaFileColumn{
+				{Name: "id", Label: "ID", FieldType: "number", Editable: true, Required: true, Visible: true, Searchable: true, Sortable: true, Position: 1},
+				{Name: "total", Label: "Total", FieldType: "number", IsComputed: true, ComputedFml: "id * 2", Visible: true, Position: 2},
+			},
+		}},
+	}
+	sel := `{"datasources":[{"ref":"pg1","mode":"overwrite","password":"pw"}],"tables":[{"ref":"pg1/public/orders","mode":"overwrite"}],"groups":false}`
+
+	// control: a well-formed computed column imports fine
+	good, _ := json.Marshal(base)
+	if resp := applyMeta(t, s, c, string(good), sel); resp.Code != 200 {
+		t.Fatalf("valid computed import = %d %s", resp.Code, resp.Body)
+	}
+
+	cases := []struct {
+		name   string
+		want   string
+		mutate func(tb *metaFileTable)
+	}{
+		{"computed sortable", "cannot be editable/searchable/sortable", func(tb *metaFileTable) { tb.Columns[1].Sortable = true }},
+		{"computed editable", "cannot be editable/searchable/sortable", func(tb *metaFileTable) { tb.Columns[1].Editable = true }},
+		{"computed searchable", "cannot be editable/searchable/sortable", func(tb *metaFileTable) { tb.Columns[1].Searchable = true }},
+		{"computed key column", "cannot be key columns", func(tb *metaFileTable) { tb.KeyColumns = []string{"total"} }},
+		{"computed result type mismatch", "produces number but the column type is", func(tb *metaFileTable) { tb.Columns[1].FieldType = "text" }},
+		{"computed non-number/text", "computed columns must be number or text", func(tb *metaFileTable) { tb.Columns[1].FieldType = "boolean" }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// deep-copy via JSON so slice mutations never leak into base
+			f := metaFile{}
+			raw, _ := json.Marshal(base)
+			if err := json.Unmarshal(raw, &f); err != nil {
+				t.Fatal(err)
+			}
+			tb := f.Tables[0]
+			tc.mutate(&tb)
+			f.Tables = []metaFileTable{tb}
+			bad, _ := json.Marshal(f)
+			resp := applyMeta(t, s, c, string(bad), sel)
+			if resp.Code != 400 || !strings.Contains(resp.Body.String(), "META_IMPORT_INVALID") || !strings.Contains(resp.Body.String(), tc.want) {
+				t.Fatalf("%s: %d %s (want 400 containing %q)", tc.name, resp.Code, resp.Body, tc.want)
+			}
+		})
+	}
+}
+
 func TestMetaImportApplyEndToEnd(t *testing.T) {
 	src := newTestServer(t)
 	file := metaFileFor(t, src) // seeded + exported
