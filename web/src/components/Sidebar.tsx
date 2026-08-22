@@ -110,7 +110,11 @@ export function Sidebar({ className }: SidebarProps) {
   };
 
   const isAdmin = !!me.data?.isAdmin;
-  const canPlatform = !!me.data?.platformManage;
+  const canDS = !!me.data?.manageDatasources;
+  const canTables = !!me.data?.manageTables;
+  const canAudit = !!me.data?.viewAudit;
+  const canOutbox = !!me.data?.viewOutbox;
+  const canPlatform = canTables; // sidebar affordances that manage definitions
   const all = (defs.data ?? []).filter((t) => t.permissions?.read);
   const knownGroupIds = new Set((groups.data ?? []).map((g) => g.id));
   const byGroup = (gid?: string) =>
@@ -198,11 +202,11 @@ export function Sidebar({ className }: SidebarProps) {
     );
   };
   const navItems = [
-    ...(canPlatform
-      ? [
-          { label: t("nav.datasources"), path: "/datasources", icon: Server },
-          { label: t("nav.transfer"), path: "/meta", icon: ArrowLeftRight },
-        ]
+    ...(canDS
+      ? [{ label: t("nav.datasources"), path: "/datasources", icon: Server }]
+      : []),
+    ...(canDS && canTables
+      ? [{ label: t("nav.transfer"), path: "/meta", icon: ArrowLeftRight }]
       : []),
     { label: t("nav.tables"), path: "/", icon: Table2 },
     { label: t("nav.docs"), path: "/docs", icon: BookOpen },
@@ -212,12 +216,8 @@ export function Sidebar({ className }: SidebarProps) {
           { label: t("nav.roles"), path: "/roles", icon: KeyRound },
         ]
       : []),
-    ...(canPlatform
-      ? [
-          { label: t("nav.audit"), path: "/audit", icon: ShieldCheck },
-          { label: t("nav.hooksOutbox"), path: "/hooks-outbox", icon: Zap },
-        ]
-      : []),
+    ...(canAudit ? [{ label: t("nav.audit"), path: "/audit", icon: ShieldCheck }] : []),
+    ...(canOutbox ? [{ label: t("nav.hooksOutbox"), path: "/hooks-outbox", icon: Zap }] : []),
   ];
 
   return (

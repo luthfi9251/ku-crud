@@ -146,7 +146,7 @@ export default function MetaTransfer() {
     }
   };
 
-  if (me.data && !me.data.platformManage) {
+  if (me.data && !(me.data.manageDatasources && me.data.manageTables)) {
     return <div className="p-8 text-sm text-muted-foreground">{t("meta.accessRequired")}</div>;
   }
 

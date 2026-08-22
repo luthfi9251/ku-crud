@@ -585,7 +585,7 @@ export default function Data() {
 
         {/* Action Buttons Toolbar */}
         <div className="flex flex-wrap items-center gap-2">
-          {me.data?.platformManage && (
+          {me.data?.manageTables && (
             <Button
               variant="outline"
               size="sm"

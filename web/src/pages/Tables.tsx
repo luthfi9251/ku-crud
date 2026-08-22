@@ -25,7 +25,7 @@ export default function Tables() {
   const t = useT();
   const defs = useQuery({ queryKey: ["defs"], queryFn: () => api<TableDef[]>("/tables") });
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/auth/me") });
-  const canPlatform = !!me.data?.platformManage;
+  const canPlatform = !!me.data?.manageTables;
   const dsList = useQuery({ queryKey: ["ds"], queryFn: () => api<Datasource[]>("/datasources"), enabled: canPlatform });
   const [search, setSearch] = useState("");
 
