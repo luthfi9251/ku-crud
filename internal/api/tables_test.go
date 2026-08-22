@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -90,6 +91,75 @@ func TestTableDefEndpoints(t *testing.T) {
 	}
 	if w = do(s, "GET", "/api/tables/"+s.ids.Encode("td", 1), "", c); w.Code != 404 {
 		t.Fatalf("get deleted = %d", w.Code)
+	}
+}
+
+// defBodyDesc returns defBody with a table description injected before label.
+func defBodyDesc(s *Server, desc string) string {
+	return strings.Replace(defBody(s), `"label":`, fmt.Sprintf(`"description":"%s","label":`, desc), 1)
+}
+
+func TestTableDefDescriptionAPI(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	seedDS(t, s)
+
+	// create with description
+	w := do(s, "POST", "/api/tables", defBodyDesc(s, "Customer orders"), c)
+	if w.Code != 200 {
+		t.Fatalf("create = %d %s", w.Code, w.Body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal([]byte(w.Body.String()), &created)
+
+	// GET reflects it
+	w = do(s, "GET", "/api/tables/"+created.ID, "", c)
+	if !strings.Contains(w.Body.String(), `"description":"Customer orders"`) {
+		t.Fatalf("get description: %s", w.Body)
+	}
+
+	// PUT with empty description clears it
+	if w := do(s, "PUT", "/api/tables/"+created.ID, defBodyDesc(s, ""), c); w.Code != 200 {
+		t.Fatalf("update = %d %s", w.Code, w.Body)
+	}
+	w = do(s, "GET", "/api/tables/"+created.ID, "", c)
+	if strings.Contains(w.Body.String(), `"description":"Customer orders"`) {
+		t.Fatalf("description not cleared: %s", w.Body)
+	}
+}
+
+func TestTableDefDescriptionValidation(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	seedDS(t, s)
+
+	// over 200 chars -> 400 VALIDATION
+	if w := do(s, "POST", "/api/tables", defBodyDesc(s, strings.Repeat("x", 201)), c); w.Code != 400 ||
+		!strings.Contains(w.Body.String(), "description too long") {
+		t.Fatalf("long description = %d %s", w.Code, w.Body)
+	}
+	// exactly 200 is allowed
+	if w := do(s, "POST", "/api/tables", defBodyDesc(s, strings.Repeat("x", 200)), c); w.Code != 200 {
+		t.Fatalf("200-char description = %d %s", w.Code, w.Body)
+	}
+
+	// whitespace is trimmed on create
+	if w := do(s, "POST", "/api/tables", defBodyDesc(s, "  Padded label  "), c); w.Code != 200 {
+		t.Fatalf("create = %d %s", w.Code, w.Body)
+	}
+	w := do(s, "GET", "/api/tables/"+s.ids.Encode("td", 2), "", c)
+	if !strings.Contains(w.Body.String(), `"description":"Padded label"`) {
+		t.Fatalf("description not trimmed: %s", w.Body)
+	}
+	// and on update
+	if w := do(s, "PUT", "/api/tables/"+s.ids.Encode("td", 2), defBodyDesc(s, "  Trimmed on update  "), c); w.Code != 200 {
+		t.Fatalf("update = %d %s", w.Code, w.Body)
+	}
+	w = do(s, "GET", "/api/tables/"+s.ids.Encode("td", 2), "", c)
+	if !strings.Contains(w.Body.String(), `"description":"Trimmed on update"`) {
+		t.Fatalf("update description not trimmed: %s", w.Body)
 	}
 }
 

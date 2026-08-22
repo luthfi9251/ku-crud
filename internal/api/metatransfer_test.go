@@ -171,6 +171,42 @@ func TestMetaImportPreviewMissingDependency(t *testing.T) {
 	}
 }
 
+func TestMetaExportIncludesDescription(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	seedDS(t, s)
+	if w := do(s, "POST", "/api/tables", defBodyDesc(s, "Customer orders"), c); w.Code != 200 {
+		t.Fatalf("create = %d %s", w.Code, w.Body)
+	}
+	w := do(s, "GET", "/api/meta/export", "", c)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"description":"Customer orders"`) {
+		t.Fatalf("export = %d %s", w.Code, w.Body)
+	}
+}
+
+func TestMetaImportAppliesDescription(t *testing.T) {
+	src := newTestServer(t)
+	cs := login(src)
+	seedDS(t, src)
+	if w := do(src, "POST", "/api/tables", defBodyDesc(src, "Customer orders"), cs); w.Code != 200 {
+		t.Fatalf("create = %d %s", w.Code, w.Body)
+	}
+	file := do(src, "GET", "/api/meta/export", "", cs).Body.String()
+
+	dst := newTestServer(t)
+	cd := login(dst)
+	resp := applyMeta(t, dst, cd, file,
+		`{"datasources":[{"ref":"d","mode":"overwrite","password":"pw"}],
+		  "tables":[{"ref":"d/public/customers","mode":"overwrite"}],"groups":false}`)
+	if resp.Code != 200 {
+		t.Fatalf("apply = %d %s", resp.Code, resp.Body)
+	}
+	w := do(dst, "GET", "/api/tables/"+dst.ids.Encode("td", 1), "", cd)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"description":"Customer orders"`) {
+		t.Fatalf("imported description: %d %s", w.Code, w.Body)
+	}
+}
+
 func multipartBody(t *testing.T, path, field, filename string, content []byte) *http.Request {
 	t.Helper()
 	var buf bytes.Buffer

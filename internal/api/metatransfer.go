@@ -74,6 +74,7 @@ type metaFileTable struct {
 	Schema         string           `json:"schema"`
 	Table          string           `json:"table"`
 	Label          string           `json:"label"`
+	Description    string           `json:"description,omitempty"`
 	KeyColumns     []string         `json:"keyColumns"`
 	PageSize       int              `json:"pageSize"`
 	DefaultSortCol string           `json:"defaultSortCol"`
@@ -171,7 +172,8 @@ func (s *Server) buildMetaFile() (*metaFile, error) {
 			return nil, err
 		}
 		ft := metaFileTable{DatasourceRef: dsName[d.DatasourceID], Schema: d.SchemaName,
-			Table: d.TableName, Label: d.Label, KeyColumns: nonNil(d.KeyColumns), PageSize: d.PageSize,
+			Table: d.TableName, Label: d.Label, Description: d.Description,
+			KeyColumns: nonNil(d.KeyColumns), PageSize: d.PageSize,
 			DefaultSortCol: d.DefaultSortCol, DefaultSortDir: d.DefaultSortDir,
 			DefaultView: d.DefaultView,
 			GroupRef:    groupName[d.GroupID], Columns: []metaFileColumn{}}
@@ -244,7 +246,7 @@ func tableRef(ds, schema, table string) string { return ds + "/" + schema + "/" 
 
 func tblEqual(ft metaFileTable, def *meta.TableDef, cols []meta.ColumnDef, dsName, groupName string) bool {
 	if ft.DatasourceRef != dsName || ft.Schema != def.SchemaName || ft.Table != def.TableName ||
-		ft.Label != def.Label || ft.PageSize != def.PageSize ||
+		ft.Label != def.Label || ft.Description != def.Description || ft.PageSize != def.PageSize ||
 		ft.DefaultSortCol != def.DefaultSortCol || ft.DefaultSortDir != def.DefaultSortDir ||
 		ft.DefaultView != def.DefaultView || string(ft.ViewConfig) != def.ViewConfig ||
 		string(ft.Hooks) != def.Hooks ||
@@ -536,7 +538,8 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 
 		pd := meta.PlannedDef{DsName: ft.DatasourceRef, GroupName: ft.GroupRef,
 			Def: meta.TableDef{SchemaName: ft.Schema, TableName: ft.Table, Label: ft.Label,
-				KeyColumns: ft.KeyColumns, PageSize: ft.PageSize,
+				Description: ft.Description,
+				KeyColumns:  ft.KeyColumns, PageSize: ft.PageSize,
 				DefaultSortCol: ft.DefaultSortCol, DefaultSortDir: ft.DefaultSortDir,
 				DefaultView: ft.DefaultView, ViewConfig: string(ft.ViewConfig), Hooks: string(ft.Hooks)}}
 		if mode == "overwrite" {
