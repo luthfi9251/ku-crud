@@ -41,7 +41,7 @@ export default function HooksEditor({ value, names, onChange }: Props) {
               </Button>
             </div>
             {list.map((a, i) => (
-              <div key={i} className="flex items-start gap-2">
+              <div key={`${a.hook}-${i}`} className="flex items-start gap-2">
                 <Select
                   value={a.hook}
                   onValueChange={(v) => setEvent(ev, list.map((x, j) => j === i ? { ...x, hook: v } : x))}>
