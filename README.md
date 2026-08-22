@@ -102,6 +102,12 @@ and CRUD away.
     tooltip and under the data-page title, and the definition wizard makes
     the menu label prominent with a live preview. API errors render as
     friendly sentences (ID/EN) with the technical detail collapsed.
+16. **Query views (v1.8)** — a table definition can be backed by a raw SQL
+    SELECT (`sourceType: "query"`) instead of a physical table. Results are
+    read-only grids with the full pipeline: search, sort, per-column filters,
+    pagination, saved filters and CSV export. Execution is guarded in depth:
+    EXPLAIN-validated single SELECT, read-only transaction, 15 s statement
+    timeout and row caps; all write endpoints answer 403 `QUERY_READONLY`.
 
 Supported column types: `boolean`, `number` (int/float/numeric), `text`,
 `datetime` (date/time/timestamp), native Postgres `enum`, `uuid`, `json`
