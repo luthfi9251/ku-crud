@@ -767,7 +767,7 @@ func (s *Server) handleTableCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", "save failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, s.toTableDTO(def, cols, permsDTO{true, true, true, true}, s.groupNameMap()))
+	writeJSON(w, 200, s.toTableDTO(def, cols, s.tablePerms(userFrom(r), def), s.groupNameMap()))
 }
 
 func (s *Server) handleTableList(w http.ResponseWriter, r *http.Request) {
@@ -869,7 +869,7 @@ func (s *Server) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", "update failed", err.Error())
 		return
 	}
-	writeJSON(w, 200, s.toTableDTO(def, cols, permsDTO{true, true, true, true}, s.groupNameMap()))
+	writeJSON(w, 200, s.toTableDTO(def, cols, s.tablePerms(userFrom(r), def), s.groupNameMap()))
 }
 
 func (s *Server) handleTableDelete(w http.ResponseWriter, r *http.Request) {
