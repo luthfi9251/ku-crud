@@ -525,7 +525,12 @@ export default function TableForm() {
 
             <Card className="border-border/60">
               <CardHeader className="pb-3 border-b">
-                <CardTitle className="text-sm font-semibold">{t("tf.hooks.title")}</CardTitle>
+                <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+                  {t("tf.hooks.title")}
+                  <HelpPopover title={t("tf.hooks.title")} placement="bottom">
+                    <p>{t("tf.hooks.help")}</p>
+                  </HelpPopover>
+                </CardTitle>
                 <CardDescription className="text-xs">{t("tf.hooks.hint")}</CardDescription>
               </CardHeader>
               <CardContent className="pt-4">

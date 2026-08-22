@@ -2,6 +2,7 @@ import type { HookEvent, HooksConfig, HookAssignment } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { HelpPopover } from "@/components/ColumnListEditor";
 import { useT } from "@/lib/i18n";
 
 const EVENTS: HookEvent[] = [
@@ -34,7 +35,12 @@ export default function HooksEditor({ value, names, onChange }: Props) {
         return (
           <div key={ev} className="rounded border p-3 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">{t(`tf.hooks.event.${ev}`)}</span>
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                {t(`tf.hooks.event.${ev}`)}
+                <HelpPopover title={t(`tf.hooks.event.${ev}`)} placement="bottom">
+                  <p>{t(`tf.hooks.eventHelp.${ev}`)}</p>
+                </HelpPopover>
+              </span>
               <Button type="button" variant="link" className="h-auto p-0 text-xs"
                 onClick={() => setEvent(ev, [...list, { hook: names[0], order: list.length + 1 }])}>
                 {t("tf.hooks.add")}
@@ -50,6 +56,9 @@ export default function HooksEditor({ value, names, onChange }: Props) {
                     {names.map((n) => <SelectItem key={n} value={n} className="text-xs font-mono">{n}</SelectItem>)}
                   </SelectContent>
                 </Select>
+                <HelpPopover title={t("tf.hooks.config")} placement="bottom">
+                  <p>{t("tf.hooks.configHelp")}</p>
+                </HelpPopover>
                 <Input className="h-8 flex-1 text-xs font-mono"
                   placeholder={t("tf.hooks.config")}
                   defaultValue={a.config ? JSON.stringify(a.config) : ""}
