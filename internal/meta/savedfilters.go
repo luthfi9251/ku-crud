@@ -39,7 +39,10 @@ func (s *Store) CreateSavedFilter(userID, tableDefID int64, name, filters string
 	res, err := s.db.Exec(`INSERT INTO saved_filters(user_id,table_def_id,name,filters) VALUES(?,?,?,?)`,
 		userID, tableDefID, name, filters)
 	if err != nil {
-		return 0, ErrFilterTaken
+		if isUniqueConstraint(err) {
+			return 0, ErrFilterTaken
+		}
+		return 0, err
 	}
 	id, _ := res.LastInsertId()
 	return id, nil
@@ -61,7 +64,10 @@ func (s *Store) GetSavedFilter(id int64) (*SavedFilter, error) {
 func (s *Store) UpdateSavedFilter(id int64, name, filters string) error {
 	res, err := s.db.Exec(`UPDATE saved_filters SET name=?,filters=? WHERE id=?`, name, filters, id)
 	if err != nil {
-		return ErrFilterTaken
+		if isUniqueConstraint(err) {
+			return ErrFilterTaken
+		}
+		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound

@@ -235,7 +235,7 @@ export function Sidebar({ className }: SidebarProps) {
                   Ku-CRUD
                 </span>
                 <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-blue-400 border border-blue-500/20">
-                  v1.4
+                  v1.5
                 </span>
               </div>
               <span className="text-[11px] text-sidebar-foreground/60 truncate">

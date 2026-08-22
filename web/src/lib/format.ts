@@ -44,5 +44,5 @@ export function formatCell(c: ColumnDef, raw: unknown, lang: string): string {
 
 export function enumColorClass(c: ColumnDef, value: string): string {
   const name = c.formatting?.enumColors?.[value];
-  return ENUM_COLOR_CLASSES[name ?? "gray"];
+  return ENUM_COLOR_CLASSES[name ?? "gray"] ?? ENUM_COLOR_CLASSES.gray;
 }

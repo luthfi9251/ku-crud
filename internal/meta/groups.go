@@ -33,7 +33,10 @@ func (s *Store) CreateGroup(name string) (int64, error) {
 	s.db.QueryRow(`SELECT COALESCE(MAX(position),-1) FROM table_groups`).Scan(&maxPos)
 	res, err := s.db.Exec(`INSERT INTO table_groups(name,position) VALUES(?,?)`, name, maxPos+1)
 	if err != nil {
-		return 0, ErrGroupTaken
+		if isUniqueConstraint(err) {
+			return 0, ErrGroupTaken
+		}
+		return 0, err
 	}
 	id, _ := res.LastInsertId()
 	return id, nil
@@ -42,7 +45,10 @@ func (s *Store) CreateGroup(name string) (int64, error) {
 func (s *Store) RenameGroup(id int64, name string) error {
 	res, err := s.db.Exec(`UPDATE table_groups SET name=? WHERE id=?`, name, id)
 	if err != nil {
-		return ErrGroupTaken
+		if isUniqueConstraint(err) {
+			return ErrGroupTaken
+		}
+		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound

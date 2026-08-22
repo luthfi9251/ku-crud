@@ -53,3 +53,13 @@ func TestSavedFiltersCRUD(t *testing.T) {
 		t.Fatalf("get after delete err=%v", err)
 	}
 }
+
+func TestSavedFilterNonDuplicateErrorSurfaces(t *testing.T) {
+	s := openTest(t)
+	// No users exist, so user_id=1 violates the saved_filters FK -> a real DB
+	// error (SQLITE_CONSTRAINT_FOREIGNKEY), which must not be masked as
+	// ErrFilterTaken (reserved for the UNIQUE duplicate-name case).
+	if _, err := s.CreateSavedFilter(1, 1, "x", `[]`); err == ErrFilterTaken || err == nil {
+		t.Fatalf("FK failure masked: err=%v", err)
+	}
+}

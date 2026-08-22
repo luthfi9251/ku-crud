@@ -7,10 +7,23 @@ import (
 	"errors"
 	"fmt"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 var ErrNotFound = errors.New("not found")
+
+// isUniqueConstraint reports whether err is the SQLite UNIQUE constraint
+// violation that modernc.org/sqlite surfaces for duplicate key writes.
+// The driver enables extended result codes, so the code is the full
+// SQLITE_CONSTRAINT_UNIQUE (2067) rather than the primary 19.
+func isUniqueConstraint(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	return se.Code() == int(sqlite3.SQLITE_CONSTRAINT_UNIQUE)
+}
 
 type Store struct {
 	db   *sql.DB
