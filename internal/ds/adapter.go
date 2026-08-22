@@ -57,6 +57,13 @@ type Adapter interface {
 	ListTables() ([]TableInfo, error)
 	InspectTable(schema, table string) ([]LiveColumn, error)
 
+	// Query views: read-only SQL-backed definitions (v1.8). Execution runs
+	// inside a read-only transaction with QueryTimeout applied.
+	ExplainQuery(query string) error
+	IntrospectQuery(query string) ([]LiveColumn, []string, error)
+	ListQueryRows(p QueryParams) ([]map[string]any, error)
+	CountQueryRows(p QueryParams) (int, error)
+
 	ListRows(p ListParams) ([]map[string]any, error)
 	CountRows(p ListParams) (int, error)
 	FetchByKey(schema, table string, keyCols []string, keyVals []any, cols []string) ([]map[string]any, error)

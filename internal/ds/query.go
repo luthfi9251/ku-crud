@@ -44,6 +44,11 @@ type QueryParams struct {
 }
 
 func (dt sqlDialect) buildQueryList(p QueryParams) (string, []any, error) {
+	for _, f := range p.Filters {
+		if f.Join != nil {
+			return "", nil, fmt.Errorf("fk join filters are not supported on query views")
+		}
+	}
 	// queryAlias is a fixed allowlisted identifier, rendered unquoted by design.
 	alias := queryAlias
 	cols := make([]string, len(p.Columns))
@@ -93,6 +98,11 @@ func (dt sqlDialect) buildQueryList(p QueryParams) (string, []any, error) {
 }
 
 func (dt sqlDialect) buildQueryCount(p QueryParams) (string, []any, error) {
+	for _, f := range p.Filters {
+		if f.Join != nil {
+			return "", nil, fmt.Errorf("fk join filters are not supported on query views")
+		}
+	}
 	// queryAlias is a fixed allowlisted identifier, rendered unquoted by design.
 	alias := queryAlias
 	sCond, sArgs, next := dt.searchWhere(p.Searchable, p.Search, 1, alias)

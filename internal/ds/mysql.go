@@ -1,6 +1,7 @@
 package ds
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -354,4 +355,145 @@ func (a *mysqlAdapter) queryMaps(sqlText string, args ...any) ([]map[string]any,
 		out = append(out, rowToMap(cols, deref(scan)))
 	}
 	return out, rows.Err()
+}
+
+// ---- query views (v1.8) ----
+
+type ctxQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// mysqlTypeName maps driver-level type names to field types. go-sql-driver
+// reports TEXT as "BLOB", so text columns surface only via CHAR/VARCHAR
+// result names — CAST(x AS CHAR) aliases them explicitly.
+func mysqlTypeName(ct *sql.ColumnType) string {
+	switch ct.DatabaseTypeName() {
+	case "TINY":
+		if l, ok := ct.Length(); ok && l <= 1 {
+			return "boolean"
+		}
+		return "number"
+	case "SHORT", "INT24", "LONG", "LONGLONG", "FLOAT", "DOUBLE", "NEWDECIMAL", "DECIMAL":
+		return "number"
+	case "DATE", "DATETIME", "TIMESTAMP", "TIME", "NEWDATE":
+		return "datetime"
+	case "VARCHAR", "VAR_STRING", "STRING":
+		return "text"
+	case "JSON":
+		return "json"
+	}
+	return ""
+}
+
+// withQueryConn runs fn on a dedicated conn in a READ ONLY session with the
+// execution-time cap set; both settings are restored before the conn returns
+// to the pool (layers 2-3). MySQL has no per-query read-only flag, so the
+// session-scoped switch is the available isolation.
+func (a *mysqlAdapter) withQueryConn(fn func(ctx context.Context, q ctxQuerier) error) error {
+	ctx := context.Background()
+	conn, err := a.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "SET SESSION TRANSACTION READ ONLY"); err != nil {
+		return err
+	}
+	defer conn.ExecContext(ctx, "SET SESSION TRANSACTION READ WRITE")
+	if _, err := conn.ExecContext(ctx,
+		fmt.Sprintf("SET SESSION MAX_EXECUTION_TIME = %d", QueryTimeout.Milliseconds())); err != nil {
+		return err
+	}
+	defer conn.ExecContext(ctx, "SET SESSION MAX_EXECUTION_TIME = 0")
+	return fn(ctx, conn)
+}
+
+func (a *mysqlAdapter) ExplainQuery(query string) error {
+	// EXPLAIN inside the read-only session: MySQL may execute uncorrelated
+	// subqueries during planning, so the session guard applies here too.
+	return a.withQueryConn(func(ctx context.Context, q ctxQuerier) error {
+		rows, err := q.QueryContext(ctx, "EXPLAIN "+query)
+		if err != nil {
+			return err
+		}
+		rows.Close()
+		return rows.Err()
+	})
+}
+
+func (a *mysqlAdapter) IntrospectQuery(query string) ([]LiveColumn, []string, error) {
+	var cols []LiveColumn
+	var dropped []string
+	err := a.withQueryConn(func(ctx context.Context, q ctxQuerier) error {
+		rows, err := q.QueryContext(ctx,
+			fmt.Sprintf("SELECT * FROM (%s) AS %s LIMIT 0", query, queryAlias))
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		ct, err := rows.ColumnTypes()
+		if err != nil {
+			return err
+		}
+		for _, c := range ct {
+			ft := mysqlTypeName(c)
+			if _, qerr := QuoteIdent(c.Name()); qerr != nil || ft == "" {
+				dropped = append(dropped, c.Name())
+				continue
+			}
+			nullable, _ := c.Nullable()
+			cols = append(cols, LiveColumn{Name: c.Name(), FieldType: ft, Nullable: nullable})
+		}
+		return nil
+	})
+	return cols, dropped, err
+}
+
+func (a *mysqlAdapter) ListQueryRows(p QueryParams) ([]map[string]any, error) {
+	sqlText, args, err := mysqlDialect.buildQueryList(p)
+	if err != nil {
+		return nil, err
+	}
+	var out []map[string]any
+	err = a.withQueryConn(func(ctx context.Context, q ctxQuerier) error {
+		rows, err := q.QueryContext(ctx, sqlText, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		names, err := rows.Columns()
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			scan := scanTargets(len(names))
+			if err := rows.Scan(scan...); err != nil {
+				return err
+			}
+			out = append(out, rowToMap(names, deref(scan)))
+		}
+		return rows.Err()
+	})
+	return out, err
+}
+
+func (a *mysqlAdapter) CountQueryRows(p QueryParams) (int, error) {
+	sqlText, args, err := mysqlDialect.buildQueryCount(p)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	err = a.withQueryConn(func(ctx context.Context, q ctxQuerier) error {
+		rows, err := q.QueryContext(ctx, sqlText, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		if !rows.Next() {
+			return rows.Err()
+		}
+		return rows.Scan(&n)
+	})
+	return n, err
 }

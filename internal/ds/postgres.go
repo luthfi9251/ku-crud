@@ -1,6 +1,7 @@
 package ds
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -329,4 +330,127 @@ func (a *pgAdapter) queryMaps(sqlText string, args ...any) ([]map[string]any, er
 		out = append(out, rowToMap(cols, deref(scan)))
 	}
 	return out, rows.Err()
+}
+
+// ---- query views (v1.8) ----
+
+// pgTypeName maps driver-level type names (pgx DatabaseTypeName) to field
+// types; "" = excluded (arrays, bytea, unknown).
+func pgTypeName(n string) string {
+	switch n {
+	case "BOOL":
+		return "boolean"
+	case "INT2", "INT4", "INT8", "NUMERIC", "FLOAT4", "FLOAT8":
+		return "number"
+	case "DATE", "TIMESTAMP", "TIMESTAMPTZ", "TIME", "TIMETZ":
+		return "datetime"
+	case "TEXT", "VARCHAR", "BPCHAR":
+		return "text"
+	case "UUID":
+		return "uuid"
+	case "JSON", "JSONB":
+		return "json"
+	}
+	return ""
+}
+
+// queryExec runs fn inside a read-only tx with the statement timeout set
+// (layers 2-3). SET LOCAL auto-resets at tx end.
+func (a *pgAdapter) queryExec(fn func(tx *sql.Tx) error) error {
+	ctx := context.Background()
+	tx, err := a.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
+		fmt.Sprintf("SET LOCAL statement_timeout = '%dms'", QueryTimeout.Milliseconds())); err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func queryMapsTx(tx *sql.Tx, sqlText string, args ...any) ([]map[string]any, error) {
+	rows, err := tx.Query(sqlText, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	var out []map[string]any
+	for rows.Next() {
+		scan := scanTargets(len(cols))
+		if err := rows.Scan(scan...); err != nil {
+			return nil, err
+		}
+		out = append(out, rowToMap(cols, deref(scan)))
+	}
+	return out, rows.Err()
+}
+
+func (a *pgAdapter) ExplainQuery(query string) error {
+	rows, err := a.db.Query("EXPLAIN " + query)
+	if err != nil {
+		return err
+	}
+	rows.Close()
+	return rows.Err()
+}
+
+func (a *pgAdapter) IntrospectQuery(query string) ([]LiveColumn, []string, error) {
+	var cols []LiveColumn
+	var dropped []string
+	err := a.queryExec(func(tx *sql.Tx) error {
+		rows, err := tx.Query(fmt.Sprintf("SELECT * FROM (%s) AS %s LIMIT 0", query, queryAlias))
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		ct, err := rows.ColumnTypes()
+		if err != nil {
+			return err
+		}
+		for _, c := range ct {
+			ft := pgTypeName(c.DatabaseTypeName())
+			if _, qerr := QuoteIdent(c.Name()); qerr != nil || ft == "" {
+				dropped = append(dropped, c.Name())
+				continue
+			}
+			nullable, _ := c.Nullable()
+			cols = append(cols, LiveColumn{Name: c.Name(), FieldType: ft, Nullable: nullable})
+		}
+		return nil
+	})
+	return cols, dropped, err
+}
+
+func (a *pgAdapter) ListQueryRows(p QueryParams) ([]map[string]any, error) {
+	sqlText, args, err := pgDialect.buildQueryList(p)
+	if err != nil {
+		return nil, err
+	}
+	var out []map[string]any
+	err = a.queryExec(func(tx *sql.Tx) error {
+		out, err = queryMapsTx(tx, sqlText, args...)
+		return err
+	})
+	return out, err
+}
+
+func (a *pgAdapter) CountQueryRows(p QueryParams) (int, error) {
+	sqlText, args, err := pgDialect.buildQueryCount(p)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	err = a.queryExec(func(tx *sql.Tx) error {
+		return tx.QueryRow(sqlText, args...).Scan(&n)
+	})
+	return n, err
 }
