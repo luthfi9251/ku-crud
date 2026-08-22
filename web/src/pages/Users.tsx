@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Users as UsersIcon, Plus, KeyRound, Ban, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import type { Role, User } from "../lib/types";
+import { useT } from "../lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +27,7 @@ const emptyForm: UserForm = { mode: "new", user: null, username: "", password: "
 
 export default function Users() {
   const qc = useQueryClient();
+  const t = useT();
   const users = useQuery({ queryKey: ["users"], queryFn: () => api<User[]>("/users") });
   const roles = useQuery({ queryKey: ["roles"], queryFn: () => api<Role[]>("/roles") });
   const [form, setForm] = useState<UserForm | null>(null);
@@ -66,40 +68,40 @@ export default function Users() {
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <div>
             <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <UsersIcon className="h-4 w-4 text-blue-500" /> Users
+              <UsersIcon className="h-4 w-4 text-blue-500" /> {t("users.title")}
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Manage login accounts and their role assignment
+              {t("users.subtitle")}
             </p>
           </div>
           <Button
             onClick={() => setForm({ ...emptyForm })}
             className="bg-blue-600 text-white hover:bg-blue-700 shadow-xs"
           >
-            <Plus className="h-4 w-4 mr-1.5" /> Add User
+            <Plus className="h-4 w-4 mr-1.5" /> {t("users.add")}
           </Button>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="w-[25%]">Username</TableHead>
-                <TableHead className="w-[25%]">Role</TableHead>
-                <TableHead className="w-[15%]">Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="w-[25%]">{t("users.username")}</TableHead>
+                <TableHead className="w-[25%]">{t("users.role")}</TableHead>
+                <TableHead className="w-[15%]">{t("users.status")}</TableHead>
+                <TableHead className="text-right">{t("data.actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {users.isLoading ? (
                 <TableRow>
                   <TableCell colSpan={4} className="h-24 text-center text-xs text-muted-foreground">
-                    Loading users...
+                    {t("users.loading")}
                   </TableCell>
                 </TableRow>
               ) : (users.data ?? []).length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="h-24 text-center text-xs text-muted-foreground">
-                    No users found
+                    {t("users.empty")}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -109,7 +111,7 @@ export default function Users() {
                       <span className="font-mono text-sm">{u.username}</span>
                       {u.isFirst && (
                         <Badge variant="outline" className="ml-2 text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
-                          First User
+                          {t("users.firstUser")}
                         </Badge>
                       )}
                     </TableCell>
@@ -122,20 +124,20 @@ export default function Users() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {u.disabled ? (
+                       {u.disabled ? (
                         <Badge variant="outline" className="text-[10px] bg-destructive/10 text-destructive border-destructive/20">
-                          Disabled
+                          {t("users.disabled")}
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
-                          Active
+                          {t("users.active")}
                         </Badge>
                       )}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         {u.isFirst ? (
-                          <span className="text-[11px] text-muted-foreground italic mr-2">Protected</span>
+                          <span className="text-[11px] text-muted-foreground italic mr-2">{t("users.protected")}</span>
                         ) : (
                           <>
                             <Button
@@ -152,18 +154,18 @@ export default function Users() {
                                   disabled: u.disabled,
                                 })
                               }
-                              title="Edit user"
-                            >
-                              <KeyRound className="h-3.5 w-3.5" />
+                               title={t("users.editTitle")}
+                             >
+                               <KeyRound className="h-3.5 w-3.5" />
                             </Button>
                             <Button
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 text-muted-foreground hover:text-destructive"
                               onClick={() => {
-                                if (confirm(`Delete user "${u.username}"?`)) del.mutate(u.id);
+                                if (confirm(t("users.deleteConfirm", { name: u.username }))) del.mutate(u.id);
                               }}
-                              title="Delete user"
+                              title={t("users.deleteTitle")}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
@@ -182,43 +184,43 @@ export default function Users() {
       <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{form?.mode === "new" ? "Add User" : `Edit User: ${form?.user?.username}`}</DialogTitle>
+            <DialogTitle>{form?.mode === "new" ? t("users.add") : t("users.editDialog", { name: form?.user?.username ?? "" })}</DialogTitle>
             <DialogDescription className="text-xs">
               {form?.mode === "new"
-                ? "Create a login account and assign a role"
-                : "Change password, role or disabled state (username is immutable)"}
+                ? t("users.newDesc")
+                : t("users.editDesc")}
             </DialogDescription>
           </DialogHeader>
           {form && (
             <div className="space-y-4 py-1">
               {form.mode === "new" && (
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">Username</Label>
-                  <Input
-                    className="h-9 text-xs"
-                    value={form.username}
-                    onChange={(e) => setForm({ ...form, username: e.target.value })}
-                    placeholder="e.g. budi"
+                   <Label className="text-xs font-medium">{t("users.username")}</Label>
+                   <Input
+                     className="h-9 text-xs"
+                     value={form.username}
+                     onChange={(e) => setForm({ ...form, username: e.target.value })}
+                     placeholder={t("users.usernamePh")}
                   />
                 </div>
               )}
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">
-                  Password {form.mode === "edit" && <span className="text-muted-foreground">(leave blank to keep)</span>}
-                </Label>
-                <Input
-                  type="password"
-                  className="h-9 text-xs"
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  placeholder="min 4 characters"
+                 <Label className="text-xs font-medium">
+                   {t("users.password")} {form.mode === "edit" && <span className="text-muted-foreground">{t("users.passwordKeepHint")}</span>}
+                 </Label>
+                 <Input
+                   type="password"
+                   className="h-9 text-xs"
+                   value={form.password}
+                   onChange={(e) => setForm({ ...form, password: e.target.value })}
+                   placeholder={t("users.passwordPh")}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Role</Label>
-                <Select value={form.roleId} onValueChange={(v) => setForm({ ...form, roleId: v })}>
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Choose a role..." />
+                 <Label className="text-xs font-medium">{t("users.role")}</Label>
+                 <Select value={form.roleId} onValueChange={(v) => setForm({ ...form, roleId: v })}>
+                   <SelectTrigger className="h-9 text-xs">
+                     <SelectValue placeholder={t("users.rolePh")} />
                   </SelectTrigger>
                   <SelectContent>
                     {(roles.data ?? []).map((r) => (
@@ -234,8 +236,8 @@ export default function Users() {
                   <div className="flex items-center gap-2">
                     <Ban className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <p className="text-xs font-medium">Disabled</p>
-                      <p className="text-[11px] text-muted-foreground">Blocked from logging in</p>
+                      <p className="text-xs font-medium">{t("users.disabled")}</p>
+                      <p className="text-[11px] text-muted-foreground">{t("users.disabledDesc")}</p>
                     </div>
                   </div>
                   <Switch checked={form.disabled} onCheckedChange={(v) => setForm({ ...form, disabled: v })} />
@@ -250,14 +252,14 @@ export default function Users() {
           )}
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setForm(null)}>
-              Cancel
+              {t("form.cancel")}
             </Button>
             <Button
               onClick={() => save.mutate()}
               disabled={save.isPending || !form?.roleId || (form.mode === "new" && (!form.username || form.password.length < 4))}
               className="bg-blue-600 text-white hover:bg-blue-700"
             >
-              {save.isPending ? "Saving..." : "Save User"}
+              {save.isPending ? t("form.saving") : t("users.save")}
             </Button>
           </DialogFooter>
         </DialogContent>

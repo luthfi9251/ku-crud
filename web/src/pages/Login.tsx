@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Database, User, Lock, ArrowRight, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { api, ApiError } from "../lib/api";
+import { useT } from "../lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 
 export default function Login() {
   const nav = useNavigate();
+  const t = useT();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -33,7 +35,7 @@ export default function Login() {
       });
       nav("/");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Invalid username or password");
+      setError(err instanceof ApiError ? err.message : t("login.error"));
     } finally {
       setLoading(false);
     }
@@ -53,7 +55,7 @@ export default function Login() {
           <div>
             <CardTitle className="text-2xl font-extrabold tracking-tight">Ku-CRUD</CardTitle>
             <CardDescription className="text-xs text-muted-foreground mt-1">
-              Sign in to manage database schemas and records
+              {t("login.subtitle")}
             </CardDescription>
           </div>
         </CardHeader>
@@ -68,13 +70,13 @@ export default function Login() {
             )}
 
             <div className="space-y-1.5">
-              <Label htmlFor="u" className="text-xs font-medium">Username</Label>
+              <Label htmlFor="u" className="text-xs font-medium">{t("login.username")}</Label>
               <div className="relative">
                 <User className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="u"
                   type="text"
-                  placeholder="Enter username"
+                  placeholder={t("login.usernamePh")}
                   className="pl-9 text-sm"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
@@ -84,13 +86,13 @@ export default function Login() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="p" className="text-xs font-medium">Password</Label>
+              <Label htmlFor="p" className="text-xs font-medium">{t("login.password")}</Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="p"
                   type={showPassword ? "text" : "password"}
-                  placeholder="Enter password"
+                  placeholder={t("login.passwordPh")}
                   className="pl-9 pr-9 text-sm"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -112,10 +114,10 @@ export default function Login() {
               disabled={loading}
             >
               {loading ? (
-                "Signing in..."
+                t("login.signingIn")
               ) : (
                 <span className="flex items-center justify-center gap-2">
-                  Sign In <ArrowRight className="h-4 w-4" />
+                  {t("login.signIn")} <ArrowRight className="h-4 w-4" />
                 </span>
               )}
             </Button>
@@ -124,7 +126,7 @@ export default function Login() {
 
         <CardFooter className="flex justify-center border-t border-border/40 py-4 text-center">
           <p className="text-[11px] text-muted-foreground">
-            Protected Admin Portal &bull; Ku-CRUD Engine
+            {t("login.footer")} &bull; {t("login.footerEngine")}
           </p>
         </CardFooter>
       </Card>

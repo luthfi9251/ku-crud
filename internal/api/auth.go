@@ -155,5 +155,26 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
 	writeJSON(w, 200, map[string]any{
 		"username": u.Username, "isAdmin": u.IsAdmin, "platformManage": u.PlatformManage,
+		"language": u.Language,
 	})
+}
+
+func (s *Server) handleMeUpdate(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
+	var in struct {
+		Language string `json:"language"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+	if in.Language != "en" && in.Language != "id" {
+		writeErr(w, 400, "VALIDATION", "language must be en or id", nil)
+		return
+	}
+	if err := s.store.UpdateUserLanguage(u.ID, in.Language); err != nil {
+		writeErr(w, 500, "INTERNAL", "server error", nil)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"language": in.Language})
 }

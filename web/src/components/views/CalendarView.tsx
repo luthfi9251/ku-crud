@@ -5,10 +5,9 @@ import { api } from "../../lib/api";
 import { serializeFilters, type ActiveFilter } from "../FilterBar";
 import type { ColumnDef, Row, RowsRes, TableDefPayload } from "../../lib/types";
 import { formatCell } from "../../lib/format";
+import { useT } from "../../lib/i18n";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 // Month calendar over a datetime start column (optional end column spans
 // events across days). All rows in the visible month are fetched page by
@@ -20,9 +19,18 @@ export function CalendarView({ def, startCol, endCol, filters, search, pageSize,
   onEdit: (row: Row) => void;
   onDayCreate: (date: string) => void;
 }) {
+  const t = useT();
   const [cursor, setCursor] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
   const first = new Date(cursor.y, cursor.m, 1);
   const last = new Date(cursor.y, cursor.m + 1, 0);
+  const locale = lang === "id" ? "id-ID" : "en-US";
+  const monthName = new Intl.DateTimeFormat(locale, { month: "short" }).format(first);
+  // 2024-01-01 is a Monday — derive short weekday names for the header row
+  const weekdays = useMemo(
+    () => Array.from({ length: 7 }, (_, i) =>
+      new Intl.DateTimeFormat(locale, { weekday: "short" }).format(new Date(2024, 0, 1 + i))),
+    [locale],
+  );
 
   // helpers declared before the query that closes over them
   const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -83,15 +91,15 @@ export function CalendarView({ def, startCol, endCol, filters, search, pageSize,
   return (
     <div className="rounded-lg border bg-card">
       <div className="flex items-center justify-between border-b px-4 py-2">
-        <h3 className="text-sm font-semibold">{MONTHS[cursor.m]} {cursor.y}</h3>
+        <h3 className="text-sm font-semibold">{monthName} {cursor.y}</h3>
         <div className="flex items-center gap-1">
           <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => moveMonth(-1)}><ChevronLeft className="h-3.5 w-3.5" /></Button>
-          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => { const d = new Date(); setCursor({ y: d.getFullYear(), m: d.getMonth() }); }}>Today</Button>
+          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => { const d = new Date(); setCursor({ y: d.getFullYear(), m: d.getMonth() }); }}>{t("calendar.today")}</Button>
           <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => moveMonth(1)}><ChevronRight className="h-3.5 w-3.5" /></Button>
         </div>
       </div>
       <div className="grid grid-cols-7 text-center text-[10px] font-medium text-muted-foreground border-b py-1.5">
-        {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => <span key={d}>{d}</span>)}
+        {weekdays.map((d) => <span key={d}>{d}</span>)}
       </div>
       <div className="grid grid-cols-7">
         {cells.map((d, i) => {
@@ -110,13 +118,13 @@ export function CalendarView({ def, startCol, endCol, filters, search, pageSize,
                     {title(row)}
                   </button>
                 ))}
-                {dayEvents.length > 3 && <p className="text-[9px] text-muted-foreground">+{dayEvents.length - 3} more</p>}
+                {dayEvents.length > 3 && <p className="text-[9px] text-muted-foreground">{t("calendar.more", { count: String(dayEvents.length - 3) })}</p>}
               </div>
             </div>
           );
         })}
       </div>
-      {events.isFetching && <p className="border-t px-4 py-1.5 text-[10px] text-muted-foreground">Loading events…</p>}
+      {events.isFetching && <p className="border-t px-4 py-1.5 text-[10px] text-muted-foreground">{t("calendar.loading")}</p>}
     </div>
   );
 }

@@ -31,6 +31,7 @@ import { HelpPopover } from "../components/ColumnListEditor";
 import { FilterBar, serializeFilters, deserializeFilters, type ActiveFilter } from "../components/FilterBar";
 import { KanbanView } from "../components/views/KanbanView";
 import { CalendarView } from "../components/views/CalendarView";
+import { useT, useI18nLang } from "../lib/i18n";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,8 @@ import { Textarea } from "@/components/ui/textarea";
 export default function Data() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const t = useT();
+  const { lang } = useI18nLang();
   const [searchParams, setSearchParams] = useSearchParams();
   const autoEditParam = searchParams.get("autoEdit");
   const searchParam = searchParams.get("search") || "";
@@ -301,7 +304,7 @@ export default function Data() {
           const e = await res.json();
           msg = e.message ? `${e.message}` : msg;
         } catch { /* not json */ }
-        alert(`Export failed: ${msg}`);
+        alert(t("data.exportFailed", { msg }));
         return;
       }
       const cd = res.headers.get("Content-Disposition") || "";
@@ -332,9 +335,9 @@ export default function Data() {
           ? (e.detail as { table: string; column: string; count: number }[])
               .map((x) => `${x.table}.${x.column} (${x.count} rows)`).join(", ")
           : String(e.detail ?? "");
-        setDelErr(`Row direferensikan oleh: ${d || "table lain"}`);
+        setDelErr(t("data.rowReferenced", { refs: d || t("data.otherTables") }));
       } else {
-        setDelErr(e instanceof Error ? e.message : "delete failed");
+        setDelErr(e instanceof Error ? e.message : t("data.deleteFailed"));
       }
     },
   });
@@ -356,7 +359,7 @@ export default function Data() {
     .filter((x) => x.key !== "");
   const allPageSelected = pageKeys.length > 0 && pageKeys.every((x) => sel.has(x.key));
   const runBulkDelete = async () => {
-    if (!confirm(`Delete ${sel.size} selected rows? This cannot be undone.`)) return;
+    if (!confirm(t("data.bulkDeleteConfirm", { count: String(sel.size) }))) return;
     setBulkBusy(true);
     setBulkMsg("");
     try {
@@ -373,16 +376,16 @@ export default function Data() {
       }
       setBulkMsg(
         failed.length
-          ? `${deleted} deleted, ${failed.length} failed: ` +
+          ? t("data.bulkPartial", { deleted: String(deleted), failed: String(failed.length) }) +
               failed.slice(0, 5).map((f) => `[${f.code}] ${f.message}`).join("; ") +
-              (failed.length > 5 ? ` … (+${failed.length - 5} more)` : "")
-          : `${deleted} rows deleted.`
+              (failed.length > 5 ? t("data.bulkMore", { count: String(failed.length - 5) }) : "")
+          : t("data.bulkDeleted", { count: String(deleted) })
       );
       setSel(new Set());
       rows.refetch();
       setDataVersion((v) => v + 1);
     } catch (e) {
-      setBulkMsg(e instanceof Error ? e.message : "bulk delete failed");
+      setBulkMsg(e instanceof Error ? e.message : t("data.bulkDeleteFailed"));
     } finally {
       setBulkBusy(false);
     }
@@ -408,7 +411,7 @@ export default function Data() {
       qc.invalidateQueries({ queryKey: ["saved-filters", id] });
     },
     onError: (e) => {
-      alert(e instanceof Error ? e.message : "save filter failed");
+      alert(e instanceof Error ? e.message : t("data.saveFilterFailed"));
     },
   });
   const delFilter = useMutation({
@@ -421,7 +424,7 @@ export default function Data() {
   if (def.isLoading) {
     return (
       <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">
-        Loading table dynamic schema...
+        {t("data.loadingSchema")}
       </div>
     );
   }
@@ -430,10 +433,10 @@ export default function Data() {
     return (
       <div className="flex flex-col items-center justify-center h-64 space-y-3">
         <AlertTriangle className="h-8 w-8 text-destructive" />
-        <p className="text-sm font-semibold text-destructive">Table definition not found</p>
+        <p className="text-sm font-semibold text-destructive">{t("data.defNotFound")}</p>
         <Link to="/">
           <Button variant="outline" size="sm">
-            Back to Tables
+            {t("data.backToTables")}
           </Button>
         </Link>
       </div>
@@ -482,17 +485,17 @@ export default function Data() {
     const rowKeyStr = rowKey(row) ? encodeRowKey(rowKey(row) as string[]) : "";
     return (
       <TableRow key={key} className="hover:bg-muted/20">
-        {perms.delete && (
-          <TableCell className="w-10">
-            {rowKeyStr && (
-              <Checkbox
-                aria-label="Select row"
-                checked={sel.has(rowKeyStr)}
-                onChange={() => toggleSel(rowKeyStr)}
-              />
-            )}
-          </TableCell>
-        )}
+         {perms.delete && (
+           <TableCell className="w-10">
+             {rowKeyStr && (
+               <Checkbox
+                 aria-label={t("data.selectRow")}
+                 checked={sel.has(rowKeyStr)}
+                 onChange={() => toggleSel(rowKeyStr)}
+               />
+             )}
+           </TableCell>
+         )}
         {cols.map((c) => {
           const disp = fkDisplay(c, row);
           return (
@@ -506,11 +509,11 @@ export default function Data() {
                 <Badge variant="outline" className={`text-[10px] ${enumColorClass(c, String(row[c.name]))}`}>
                   {row[c.name] === null || row[c.name] === undefined ? <span className="italic text-muted-foreground/50">—</span> : String(row[c.name])}
                 </Badge>
-              ) : c.fieldType === "number" || c.fieldType === "datetime" ? (
-                <span className="font-sans">
-                  {formatCell(c, row[c.name], me.data?.language ?? "en") || <span className="italic text-muted-foreground/50">—</span>}
-                </span>
-              ) : (
+               ) : c.fieldType === "number" || c.fieldType === "datetime" ? (
+                 <span className="font-sans">
+                   {formatCell(c, row[c.name], lang) || <span className="italic text-muted-foreground/50">—</span>}
+                 </span>
+               ) : (
                 renderValue(row[c.name], c.fieldType === "fk" ? "text" : c.fieldType)
               )}
             </TableCell>
@@ -518,42 +521,42 @@ export default function Data() {
         })}
         <TableCell className="text-right">
           <div className="flex items-center justify-end gap-1">
-            {perms.create && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-muted-foreground hover:text-blue-600"
-                onClick={() => handleCopy(row)}
-                title="Copy / Duplicate record"
-              >
-                <Copy className="h-3.5 w-3.5" />
-              </Button>
-            )}
-            {rowKey(row) && perms.update && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                onClick={() => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
-                title="Edit row"
-              >
-                <Edit className="h-3.5 w-3.5" />
-              </Button>
-            )}
-            {rowKey(row) && perms.delete && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                onClick={() => {
-                  const key = rowKey(row);
-                  if (key && confirm("Delete this record permanently?")) del.mutate(key);
-                }}
-                title="Delete row"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            )}
+             {perms.create && (
+               <Button
+                 variant="ghost"
+                 size="icon"
+                 className="h-7 w-7 text-muted-foreground hover:text-blue-600"
+                 onClick={() => handleCopy(row)}
+                 title={t("data.copyRow")}
+               >
+                 <Copy className="h-3.5 w-3.5" />
+               </Button>
+             )}
+             {rowKey(row) && perms.update && (
+               <Button
+                 variant="ghost"
+                 size="icon"
+                 className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                 onClick={() => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
+                 title={t("data.editRow")}
+               >
+                 <Edit className="h-3.5 w-3.5" />
+               </Button>
+             )}
+             {rowKey(row) && perms.delete && (
+               <Button
+                 variant="ghost"
+                 size="icon"
+                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                 onClick={() => {
+                   const key = rowKey(row);
+                   if (key && confirm(t("data.deleteConfirm"))) del.mutate(key);
+                 }}
+                 title={t("data.deleteRow")}
+               >
+                 <Trash2 className="h-3.5 w-3.5" />
+               </Button>
+             )}
           </div>
         </TableCell>
       </TableRow>
@@ -576,7 +579,7 @@ export default function Data() {
               </Badge>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Key: <span className="font-mono text-foreground font-semibold">{keyCols.join(" + ")}</span> &bull; {r?.total ?? 0} total records
+              {t("data.key")}: <span className="font-mono text-foreground font-semibold">{keyCols.join(" + ")}</span> &bull; {t("data.totalRecords", { count: String(r?.total ?? 0) })}
             </p>
           </div>
         </div>
@@ -586,9 +589,9 @@ export default function Data() {
             <FilterBar key={id} cols={cols} filters={filters} onChange={(fs) => { setFilters(fs); setPage(1); }} />
             {effectiveView === "grid" && groupable.length > 0 && (
               <Select value={groupBy || "none"} onValueChange={(v) => { setGroupBy(v === "none" ? "" : v); setPage(1); }}>
-                <SelectTrigger className="h-8 w-36 text-xs"><SelectValue placeholder="Group by…" /></SelectTrigger>
+                <SelectTrigger className="h-8 w-36 text-xs"><SelectValue placeholder={t("data.groupBy")} /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none" className="text-xs">No grouping</SelectItem>
+                  <SelectItem value="none" className="text-xs">{t("data.noGrouping")}</SelectItem>
                   {groupable.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -596,24 +599,24 @@ export default function Data() {
             <div className="flex items-center gap-1">
               <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px]"
                 disabled={filters.length === 0}
-                onClick={() => { const name = prompt("Save current filters as:"); if (name && name.trim()) saveFilter.mutate(name.trim()); }}>
-                <Save className="h-3 w-3" /> Save filter
+                onClick={() => { const name = prompt(t("data.saveFilterPrompt")); if (name && name.trim()) saveFilter.mutate(name.trim()); }}>
+                <Save className="h-3 w-3" /> {t("data.saveFilter")}
               </Button>
               <div className="relative">
                 <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px]" onClick={() => setFilterMenu(!filterMenu)}>
-                  <Bookmark className="h-3 w-3" /> Saved ({savedF.data?.length ?? 0})
+                  <Bookmark className="h-3 w-3" /> {t("data.saved", { count: String(savedF.data?.length ?? 0) })}
                 </Button>
                 {filterMenu && (
                   <div className="absolute right-0 z-20 mt-1 w-56 rounded-md border bg-popover p-1 shadow text-xs text-popover-foreground">
-                    {(savedF.data ?? []).length === 0 && <p className="px-2 py-1 text-muted-foreground">No saved filters</p>}
+                    {(savedF.data ?? []).length === 0 && <p className="px-2 py-1 text-muted-foreground">{t("data.noSavedFilters")}</p>}
                     {(savedF.data ?? []).map((f) => (
                       <div key={f.id} className="flex items-center justify-between rounded-sm px-2 py-1 hover:bg-accent">
                         <button className="flex-1 text-left truncate"
                           onClick={() => { setFilters(deserializeFilters(f.filters)); setPage(1); setFilterMenu(false); }}>
                           {f.name}
                         </button>
-                        <button className="text-muted-foreground hover:text-destructive" title="Delete"
-                          onClick={() => { if (confirm(`Delete saved filter "${f.name}"?`)) delFilter.mutate(f.id); }}>
+                        <button className="text-muted-foreground hover:text-destructive" title={t("btn.delete")}
+                          onClick={() => { if (confirm(t("data.deleteFilterConfirm", { name: f.name }))) delFilter.mutate(f.id); }}>
                           <Trash2 className="h-3 w-3" />
                         </button>
                       </div>
@@ -629,14 +632,14 @@ export default function Data() {
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search rows..."
+                  placeholder={t("data.search")}
                   className="h-9 w-48 pl-8 text-xs md:w-64"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              <HelpPopover title="Search Guide" placement="bottom">
-                <p>Filters rows across all searchable columns using parameterized SQL <code>LIKE</code> wildcard matching.</p>
+              <HelpPopover title={t("help.searchTitle")} placement="bottom">
+                <p>{t("help.searchBody")}</p>
               </HelpPopover>
             </div>
           )}
@@ -645,7 +648,7 @@ export default function Data() {
               <button key={v} onClick={() => setView(v)}
                 className={cn("rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                   effectiveView === v ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                {v === "grid" ? "Grid" : v === "kanban" ? "Kanban" : "Calendar"}
+                {v === "grid" ? t("data.viewGrid") : v === "kanban" ? t("data.viewKanban") : t("data.viewCalendar")}
               </button>
             ))}
           </div>
@@ -655,9 +658,9 @@ export default function Data() {
               size="sm"
               className="h-9 gap-1 text-xs"
               onClick={() => navigate(`/tables/${id}/edit`)}
-              title="Open table definition"
+              title={t("data.openDefinition")}
             >
-              <Settings2 className="h-3.5 w-3.5" /> Definition
+              <Settings2 className="h-3.5 w-3.5" /> {t("data.definition")}
             </Button>
           )}
           <Button
@@ -665,7 +668,7 @@ export default function Data() {
             size="sm"
             className="h-9 gap-1 text-xs"
             onClick={() => rows.refetch()}
-            title="Refresh rows"
+            title={t("data.refresh")}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${rows.isFetching ? "animate-spin" : ""}`} />
           </Button>
@@ -676,14 +679,14 @@ export default function Data() {
               className="h-9 gap-1 text-xs"
               onClick={() => exportCSV()}
               disabled={exporting}
-              title="Export the current result (search & sort applied) as CSV"
+              title={t("data.exportTitle")}
             >
               <Download className="h-3.5 w-3.5" />
-              {exporting ? "Exporting..." : "Export CSV"}
+              {exporting ? t("data.exporting") : t("data.export")}
             </Button>
-            <HelpPopover title="Export CSV Guide" placement="bottom">
-              <p>Downloads all matching records (up to 100,000 rows) with active search and sort filters applied as a UTF-8 BOM CSV file.</p>
-              <p className="pt-1 text-[10px]">💡 FK and Many-to-Many relations are resolved into human-readable display titles.</p>
+            <HelpPopover title={t("help.exportTitle")} placement="bottom">
+              <p>{t("help.exportBody1")}</p>
+              <p className="pt-1 text-[10px]">💡 {t("help.exportBody2")}</p>
             </HelpPopover>
           </div>
           {perms.create && (
@@ -694,20 +697,20 @@ export default function Data() {
                   size="sm"
                   className="h-9 gap-1 text-xs"
                   onClick={() => navigate(`/data/${id}/import`)}
-                  title="Import rows from a CSV file"
+                  title={t("data.importTitle")}
                 >
-                  <Upload className="h-3.5 w-3.5" /> Import CSV
+                  <Upload className="h-3.5 w-3.5" /> {t("data.import")}
                 </Button>
-                <HelpPopover title="Import CSV Guide" placement="bottom">
-                  <p>Bulk upload records from a CSV file (up to 5MB / 10,000 rows).</p>
-                  <p className="pt-1 text-[10px]">💡 Includes delimiter sniffing (comma/semicolon/tab), header mapping, and per-row validation preview.</p>
+                <HelpPopover title={t("help.importTitle")} placement="bottom">
+                  <p>{t("help.importBody1")}</p>
+                  <p className="pt-1 text-[10px]">💡 {t("help.importBody2")}</p>
                 </HelpPopover>
               </div>
               <Button
                 onClick={() => setForm({ mode: "new", row: {} })}
                 className="h-9 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1 text-xs"
               >
-                <Plus className="h-4 w-4" /> New Row
+                <Plus className="h-4 w-4" /> {t("data.newRow")}
               </Button>
             </>
           )}
@@ -729,9 +732,9 @@ export default function Data() {
           <div className="flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold">Schema Drift Detected!</p>
+              <p className="font-semibold">{t("data.driftTitle")}</p>
               <p className="text-[11px] text-amber-600/90 dark:text-amber-300/80 mt-0.5">
-                The database schema has changed since this table was mapped.
+                {t("data.driftBody")}
                 {["missing", "added", "typeChanged"].map((k) => {
                   const v = (drift as never as Record<string, string[]>)[k] ?? [];
                   return v.length ? (
@@ -751,7 +754,7 @@ export default function Data() {
             disabled={resync.isPending}
           >
             <RefreshCw className={`h-3.5 w-3.5 mr-1 ${resync.isPending ? "animate-spin" : ""}`} />
-            Re-sync Definition
+            {t("data.resync")}
           </Button>
         </div>
       )}
@@ -760,7 +763,7 @@ export default function Data() {
         <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3.5 text-xs text-destructive">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span className="flex-1">{delErr}</span>
-          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setDelErr("")}>Tutup</Button>
+          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setDelErr("")}>{t("data.close")}</Button>
         </div>
       )}
 
@@ -769,13 +772,13 @@ export default function Data() {
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-xs">
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
-              {sel.size} selected
+              {t("data.selectedCount", { count: String(sel.size) })}
             </Badge>
             {bulkMsg && <span className="text-muted-foreground">{bulkMsg}</span>}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setSel(new Set()); setBulkMsg(""); }}>
-              Clear
+              {t("data.clear")}
             </Button>
             <Button
               size="sm"
@@ -783,7 +786,7 @@ export default function Data() {
               disabled={sel.size === 0 || bulkBusy}
               onClick={() => runBulkDelete()}
             >
-              <Trash2 className="h-3.5 w-3.5" /> {bulkBusy ? "Deleting..." : `Delete ${sel.size} rows`}
+              <Trash2 className="h-3.5 w-3.5" /> {bulkBusy ? t("data.deleting") : t("data.deleteRows", { count: String(sel.size) })}
             </Button>
           </div>
         </div>
@@ -796,9 +799,9 @@ export default function Data() {
           <KanbanView
             def={d} boardCol={boardCol} displayCol={displayCol} dataVersion={dataVersion}
             search={debounced} filters={serializeFilters(filters)} pageSize={d.pageSize}
-            lang={me.data?.language ?? "en"}
+            lang={lang}
             onEdit={(row) => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
-            onDelete={(key) => { if (confirm("Delete this record permanently?")) del.mutate(key); }}
+            onDelete={(key) => { if (confirm(t("data.deleteConfirm"))) del.mutate(key); }}
             onCreate={() => setForm({ mode: "new", row: {} })}
           />
         );
@@ -811,7 +814,7 @@ export default function Data() {
           <CalendarView
             def={d} startCol={startCol} endCol={endCol} dataVersion={dataVersion}
             filters={filters} search={debounced} pageSize={d.pageSize}
-            lang={me.data?.language ?? "en"}
+            lang={lang}
             onEdit={(row) => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
             onDayCreate={(date) => setForm({ mode: "new", row: { [startCol.name]: date } })}
           />
@@ -828,8 +831,8 @@ export default function Data() {
                 <TableRow className="bg-muted/50 hover:bg-muted/50">
                   {perms.delete && (
                     <TableHead className="w-10">
-                      <Checkbox
-                        aria-label="Select all rows on this page"
+                     <Checkbox
+                       aria-label={t("data.selectAll")}
                         checked={allPageSelected}
                         onChange={(e) => {
                           const on = e.target.checked;
@@ -879,27 +882,27 @@ export default function Data() {
                       </div>
                     </TableHead>
                   ))}
-                  <TableHead className="text-right">Actions</TableHead>
+                   <TableHead className="text-right">{t("data.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {groupBy ? (
-                  !groupedRows.data ? (
-                    <TableRow>
-                      <TableCell colSpan={colsLen} className="h-24 text-center text-xs text-muted-foreground">
-                        Fetching records...
-                      </TableCell>
-                    </TableRow>
-                  ) : groupedRows.data.rows.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={colsLen} className="h-32 text-center">
-                        <div className="flex flex-col items-center justify-center space-y-1">
-                          <Database className="h-7 w-7 text-muted-foreground/30" />
-                          <p className="text-xs font-medium text-muted-foreground">No records found</p>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ) : (() => {
+                   !groupedRows.data ? (
+                     <TableRow>
+                       <TableCell colSpan={colsLen} className="h-24 text-center text-xs text-muted-foreground">
+                         {t("data.fetching")}
+                       </TableCell>
+                     </TableRow>
+                   ) : groupedRows.data.rows.length === 0 ? (
+                     <TableRow>
+                       <TableCell colSpan={colsLen} className="h-32 text-center">
+                         <div className="flex flex-col items-center justify-center space-y-1">
+                           <Database className="h-7 w-7 text-muted-foreground/30" />
+                           <p className="text-xs font-medium text-muted-foreground">{t("data.noRecords")}</p>
+                         </div>
+                       </TableCell>
+                     </TableRow>
+                   ) : (() => {
                     const groups = new Map<string, Row[]>();
                     for (const row of groupedRows.data.rows) {
                       const v = row[groupBy] === null || row[groupBy] === undefined ? "" : String(row[groupBy]);
@@ -929,7 +932,7 @@ export default function Data() {
                 ) : rows.isLoading ? (
                   <TableRow>
                     <TableCell colSpan={colsLen} className="h-24 text-center text-xs text-muted-foreground">
-                      Fetching records...
+                      {t("data.fetching")}
                     </TableCell>
                   </TableRow>
                 ) : (r?.rows ?? []).length === 0 ? (
@@ -937,7 +940,7 @@ export default function Data() {
                     <TableCell colSpan={colsLen} className="h-32 text-center">
                       <div className="flex flex-col items-center justify-center space-y-1">
                         <Database className="h-7 w-7 text-muted-foreground/30" />
-                        <p className="text-xs font-medium text-muted-foreground">No records found</p>
+                        <p className="text-xs font-medium text-muted-foreground">{t("data.noRecords")}</p>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -953,15 +956,15 @@ export default function Data() {
         {groupBy ? (
           <div className="flex items-center justify-between border-t bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
             <span>
-              Grouped {groupedRows.data?.rows.length ?? 0} rows by <strong className="text-foreground">{groupByLabel}</strong>
-              {groupedRows.data?.truncated && <span className="ml-2 text-amber-600">— grouping truncated at 2,000 rows</span>}
+              {t("data.groupedRows", { count: String(groupedRows.data?.rows.length ?? 0) })} <strong className="text-foreground">{groupByLabel}</strong>
+              {groupedRows.data?.truncated && <span className="ml-2 text-amber-600">{t("data.groupTruncated")}</span>}
             </span>
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setGroupBy("")}>Clear grouping</Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setGroupBy("")}>{t("data.clearGrouping")}</Button>
           </div>
         ) : (
         <div className="flex items-center justify-between border-t bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
           <span>
-            Page <strong className="text-foreground">{page}</strong> of <strong className="text-foreground">{pages}</strong> &bull; Total {r?.total ?? 0} rows
+            {t("data.pageOf", { page: String(page), pages: String(pages) })} &bull; {t("data.totalRows", { total: String(r?.total ?? 0) })}
           </span>
           <div className="flex items-center gap-1">
             <Button
@@ -971,7 +974,7 @@ export default function Data() {
               disabled={page <= 1}
               onClick={() => setPage(page - 1)}
             >
-              <ChevronLeft className="h-3.5 w-3.5" /> Prev
+              <ChevronLeft className="h-3.5 w-3.5" /> {t("data.prev")}
             </Button>
             <Button
               variant="outline"
@@ -980,7 +983,7 @@ export default function Data() {
               disabled={page >= pages}
               onClick={() => setPage(page + 1)}
             >
-              Next <ChevronRight className="h-3.5 w-3.5" />
+              {t("data.next")} <ChevronRight className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>
@@ -991,37 +994,37 @@ export default function Data() {
       {/* Row Editor Modal */}
       <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
         <DialogContent className="max-w-3xl w-[90vw] max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <div className="flex items-center gap-2">
-              <DialogTitle>{form?.mode === "new" ? "Insert New Record" : "Edit Record"}</DialogTitle>
-              {form && (
-                <HelpPopover placement="bottom-start" title={form.mode === "new" ? "Insert Record Guide" : "Edit Record Guide"}>
-                  {form.mode === "new" ? (
-                    <div className="space-y-1">
-                      <p>
-                        Provide values for new record fields.
-                      </p>
-                      <p className="pt-1 text-[10px]">
-                        💡 <strong>Primary Key Policy:</strong> PK fields accept manual values or can be left blank if your database auto-generates IDs via sequence / SERIAL defaults.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-1">
-                      <p>
-                        Modify attribute values for existing record <strong>{keyCols.join(" + ")}</strong>.
-                      </p>
-                      <p className="pt-1 text-[10px]">
-                        💡 <strong>Primary Key Policy:</strong> Primary Key fields are displayed as <strong>Read-Only</strong> on Edit Mode to protect record identity.
-                      </p>
-                    </div>
-                  )}
-                </HelpPopover>
-              )}
-            </div>
-            <DialogDescription className="text-xs">
-              {form?.mode === "new" ? "Provide values for editable table fields" : `Editing record ${keyCols.join(" + ")}`}
-            </DialogDescription>
-          </DialogHeader>
+           <DialogHeader>
+             <div className="flex items-center gap-2">
+               <DialogTitle>{form?.mode === "new" ? t("form.insert") : t("form.edit")}</DialogTitle>
+               {form && (
+                 <HelpPopover placement="bottom-start" title={form.mode === "new" ? t("form.insertHelpTitle") : t("form.editHelpTitle")}>
+                   {form.mode === "new" ? (
+                     <div className="space-y-1">
+                       <p>
+                         {t("form.insertHelpBody")}
+                       </p>
+                       <p className="pt-1 text-[10px]">
+                         💡 <strong>{t("col.pkPolicyLabel")}</strong> {t("form.pkPolicyInsert")}
+                       </p>
+                     </div>
+                   ) : (
+                     <div className="space-y-1">
+                       <p>
+                         {t("form.editHelpBody")} <strong>{keyCols.join(" + ")}</strong>.
+                       </p>
+                       <p className="pt-1 text-[10px]">
+                         💡 <strong>{t("col.pkPolicyLabel")}</strong> {t("form.pkPolicyEdit")}
+                       </p>
+                     </div>
+                   )}
+                 </HelpPopover>
+               )}
+             </div>
+             <DialogDescription className="text-xs">
+               {form?.mode === "new" ? t("form.insertDesc") : t("form.editDesc", { keys: keyCols.join(" + ") })}
+             </DialogDescription>
+           </DialogHeader>
 
           {form && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
@@ -1031,7 +1034,7 @@ export default function Data() {
                   <div key={c.name} className="space-y-1">
                     <Label className="text-xs font-medium">{c.label} <Badge variant="outline" className="ml-1 text-[9px] font-mono text-emerald-600 border-emerald-500/30 bg-emerald-500/10">fx</Badge></Label>
                     <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs font-mono">
-                      {formatCell(c, form!.row[c.name], me.data?.language ?? "en") || <span className="italic text-muted-foreground/50">—</span>}
+                      {formatCell(c, form!.row[c.name], lang) || <span className="italic text-muted-foreground/50">—</span>}
                     </div>
                   </div>
                 ) : c.fieldType === "fk" ? (
@@ -1074,7 +1077,7 @@ export default function Data() {
               </p>
               {String((save.error as ApiError).detail ?? "").includes("violates not-null constraint") && (
                 <p className="text-[11px] opacity-90 border-t pt-1 border-destructive/20 font-sans">
-                  💡 <strong>Solution Tip:</strong> This column is defined as <code>NOT NULL</code> in the database without an auto-increment sequence default. Go to <strong>Table Definitions</strong> (Step 3) and enable the <strong>Edit</strong> switch for this column so it appears on the form, or add a <code>DEFAULT nextval(...)</code> / <code>SERIAL</code> sequence in your database.
+                  💡 <strong>{t("form.notNullTip")}</strong>
                 </p>
               )}
             </div>
@@ -1082,7 +1085,7 @@ export default function Data() {
 
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setForm(null)}>
-              Cancel
+              {t("form.cancel")}
             </Button>
             <Button
               onClick={() => {
@@ -1090,21 +1093,21 @@ export default function Data() {
                   (c) => c.required && !keyCols.includes(c.name) && (form!.row[c.name] === undefined || form!.row[c.name] === null || form!.row[c.name] === "")
                 );
                 if (missing.length) {
-                  return alert(`Required fields missing: ${missing.map((c) => c.label).join(", ")}`);
+                  return alert(t("form.requiredMissing", { fields: missing.map((c) => c.label).join(", ") }));
                 }
                 const badJson = modalFields.filter(
                   (c) => c.fieldType === "json" && typeof form!.row[c.name] === "string" &&
                     (() => { try { JSON.parse(form!.row[c.name] as string); return false; } catch { return true; } })()
                 );
                 if (badJson.length) {
-                  return alert(`Invalid JSON: ${badJson.map((c) => c.label).join(", ")}`);
+                  return alert(t("form.invalidJson", { fields: badJson.map((c) => c.label).join(", ") }));
                 }
                 save.mutate();
               }}
               disabled={save.isPending}
               className="bg-blue-600 text-white hover:bg-blue-700"
             >
-              {save.isPending ? "Saving..." : "Save Record"}
+              {save.isPending ? t("form.saving") : t("form.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1160,6 +1163,7 @@ function FieldInput({
 }: {
   col: ColumnDef; row: Row; disabled?: boolean; onChange: (v: unknown) => void;
 }) {
+  const t = useT();
   const raw = row[col.name];
   const val = raw === null || raw === undefined ? "" : String(raw);
 
@@ -1168,7 +1172,7 @@ function FieldInput({
       <div className="flex items-center justify-between">
         <Label className="text-xs font-medium">
           {col.label} {col.required && <span className="text-destructive">*</span>}
-          {disabled && <span className="text-[10px] text-muted-foreground font-mono ml-1.5">(Read Only)</span>}
+          {disabled && <span className="text-[10px] text-muted-foreground font-mono ml-1.5">{t("form.readOnly")}</span>}
         </Label>
         <span className="text-[10px] text-muted-foreground font-mono">{col.fieldType}</span>
       </div>
@@ -1181,7 +1185,7 @@ function FieldInput({
       ) : col.fieldType === "enum" ? (
         <Select value={val || undefined} disabled={disabled} onValueChange={onChange}>
           <SelectTrigger className="h-9 text-xs">
-            <SelectValue placeholder="Select option..." />
+            <SelectValue placeholder={t("form.selectOption")} />
           </SelectTrigger>
           <SelectContent>
             {(col.enumOptions ?? []).map((o) => (
@@ -1229,6 +1233,7 @@ function FkField({
   col: ColumnDef; tableId?: string; row: Row;
   rels?: Record<string, Record<string, Row>>; onChange: (v: unknown) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -1289,9 +1294,9 @@ function FkField({
               size="sm"
               className="h-7 text-[11px] gap-1 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
               onClick={handleEditRelated}
-              title="Edit record relasi di halaman tabelnya"
+              title={t("fk.editRelatedTitle")}
             >
-              <ExternalLink className="h-3.5 w-3.5" /> Edit di table terkait
+              <ExternalLink className="h-3.5 w-3.5" /> {t("fk.editRelated")}
             </Button>
           )}
           <Button
@@ -1301,7 +1306,7 @@ function FkField({
             className="h-7 text-[11px] gap-1"
             onClick={() => setOpen(true)}
           >
-            <Search className="h-3.5 w-3.5" /> Pilih…
+            <Search className="h-3.5 w-3.5" /> {t("fk.pick")}
           </Button>
           {row[col.name] !== null && row[col.name] !== undefined && (
             <Button
@@ -1311,7 +1316,7 @@ function FkField({
               className="h-7 text-[11px] text-muted-foreground hover:text-destructive"
               onClick={() => { setSelectedRel(null); onChange(null); }}
             >
-              Clear
+              {t("data.clear")}
             </Button>
           )}
         </div>
@@ -1320,7 +1325,7 @@ function FkField({
       {/* Individual Read-Only Display Fields */}
       {row[col.name] === null || row[col.name] === undefined ? (
         <div className="text-xs text-muted-foreground italic py-2 px-1">
-          Belum ada relasi dipilih (Kosong)
+          {t("fk.noneSelected")}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
@@ -1336,7 +1341,7 @@ function FkField({
                   readOnly
                   disabled
                   value={displayVal}
-                  placeholder="— not set —"
+                  placeholder={t("fk.notSet")}
                   className="h-8 text-xs font-mono bg-muted/50 cursor-not-allowed opacity-90 text-foreground"
                 />
               </div>
@@ -1349,16 +1354,16 @@ function FkField({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Pilih {col.label}</DialogTitle>
-            <DialogDescription className="text-xs">Cari lalu klik baris untuk menghubungkan</DialogDescription>
+            <DialogTitle>{t("fk.select", { label: col.label })}</DialogTitle>
+            <DialogDescription className="text-xs">{t("fk.searchClickHint")}</DialogDescription>
           </DialogHeader>
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input className="h-9 pl-8 text-xs" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Input className="h-9 pl-8 text-xs" placeholder={t("fk.search")} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <div className="max-h-64 overflow-y-auto rounded-md border">
             {(opts.data?.rows ?? []).length === 0 ? (
-              <p className="p-4 text-center text-xs text-muted-foreground">Tidak ada data ditemukan</p>
+              <p className="p-4 text-center text-xs text-muted-foreground">{t("fk.noResults")}</p>
             ) : (
               (opts.data?.rows ?? []).map((r, i) => (
                 <button
@@ -1387,13 +1392,13 @@ function FkField({
               disabled={!col.fkTableDefId || col.fkTableDefId === "self"}
               onClick={() => col.fkTableDefId && navigate(`/data/${col.fkTableDefId}`)}
             >
-              <Plus className="h-3.5 w-3.5" /> Tambah baru
+              <Plus className="h-3.5 w-3.5" /> {t("fk.addNew")}
             </Button>
             <div className="flex items-center gap-1">
               <Button type="button" variant="outline" size="sm" className="h-8 text-xs" disabled={page <= 1} onClick={() => setPage(page - 1)}>
                 <ChevronLeft className="h-3.5 w-3.5" />
               </Button>
-              <span>Page {opts.data?.page ?? page} of {pages}</span>
+              <span>{t("data.pageOf", { page: String(opts.data?.page ?? page), pages: String(pages) })}</span>
               <Button type="button" variant="outline" size="sm" className="h-8 text-xs" disabled={page >= pages} onClick={() => setPage(page + 1)}>
                 <ChevronRight className="h-3.5 w-3.5" />
               </Button>
@@ -1415,6 +1420,7 @@ function M2MField({
   value: unknown[];
   onChange: (v: unknown[]) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -1486,7 +1492,7 @@ function M2MField({
         <Label className="text-xs font-medium">
           {col.label} <Badge variant="outline" className="ml-1 text-[9px] font-mono">m2m</Badge>
         </Label>
-        <span className="text-[10px] text-muted-foreground font-mono">{value?.length ?? 0} selected</span>
+        <span className="text-[10px] text-muted-foreground font-mono">{t("m2m.selectedCount", { count: String(value?.length ?? 0) })}</span>
       </div>
       <div className="flex flex-wrap gap-1.5 rounded-md border border-input bg-transparent p-2 min-h-[38px]">
         {(value ?? []).map((v) => (
@@ -1499,14 +1505,14 @@ function M2MField({
               type="button"
               className="text-violet-500/70 hover:text-destructive"
               onClick={() => toggle(v)}
-              title="Remove"
+              title={t("m2m.remove")}
             >
               ×
             </button>
           </span>
         ))}
         {(value ?? []).length === 0 && (
-          <span className="text-[11px] text-muted-foreground italic">Belum ada relasi dipilih</span>
+          <span className="text-[11px] text-muted-foreground italic">{t("m2m.noneSelected")}</span>
         )}
         <Button
           type="button"
@@ -1515,30 +1521,30 @@ function M2MField({
           className="ml-auto h-7 gap-1 text-[11px]"
           onClick={() => setOpen(true)}
         >
-          Pilih…
+          {t("fk.pick")}
         </Button>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Select {col.label}</DialogTitle>
+            <DialogTitle>{t("fk.select", { label: col.label })}</DialogTitle>
             <DialogDescription className="text-xs">
-              Multi-select; picked records are linked via the junction table on save.
+              {t("m2m.multiSelectHint")}
             </DialogDescription>
           </DialogHeader>
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               autoFocus
-              placeholder="Search related records..."
+              placeholder={t("m2m.search")}
               className="h-9 pl-8 text-xs"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           <div className="max-h-72 space-y-1 overflow-y-auto">
-            {opts.isLoading && <p className="py-6 text-center text-xs text-muted-foreground">Loading...</p>}
+            {opts.isLoading && <p className="py-6 text-center text-xs text-muted-foreground">{t("btn.loading")}</p>}
             {(opts.data?.rows ?? []).map((row) => {
               const refV = row[targetRef];
               const on = selectedKeys.has(String(refV));
@@ -1561,12 +1567,12 @@ function M2MField({
               );
             })}
             {(opts.data?.rows ?? []).length === 0 && !opts.isLoading && (
-              <p className="py-6 text-center text-xs text-muted-foreground">No records found</p>
+              <p className="py-6 text-center text-xs text-muted-foreground">{t("data.noRecords")}</p>
             )}
           </div>
           <div className="flex items-center justify-between border-t pt-3">
             <span className="text-[11px] text-muted-foreground">
-              {opts.data?.total ?? 0} records • page {opts.data?.page ?? 1}
+              {t("m2m.recordsInfo", { total: String(opts.data?.total ?? 0), page: String(opts.data?.page ?? 1) })}
             </span>
             <div className="flex gap-1">
               <Button variant="outline" size="sm" className="h-7 text-xs" disabled={(opts.data?.page ?? 1) <= 1} onClick={() => setPage((p) => p - 1)}>
