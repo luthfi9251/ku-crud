@@ -24,6 +24,15 @@ type TableDef struct {
 	ViewConfig     string   `json:"viewConfig,omitempty"`
 	GroupID        int64    `json:"groupId,omitempty"`
 	Hooks          string   `json:"hooks,omitempty"`
+	SourceType     string   `json:"sourceType,omitempty"` // "table" (default) | "query"
+	QuerySQL       string   `json:"querySql,omitempty"`
+}
+
+func normalizeSource(d *TableDef) {
+	if d.SourceType != "query" {
+		d.SourceType = "table"
+		d.QuerySQL = ""
+	}
 }
 
 // ValidationRule is one optional per-column rule enforced on every write.
@@ -110,6 +119,7 @@ func insertCols(tx *sql.Tx, defID int64, cols []ColumnDef) error {
 }
 
 func (s *Store) SaveTableDef(def *TableDef, cols []ColumnDef) error {
+	normalizeSource(def)
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -125,8 +135,8 @@ func (s *Store) SaveTableDef(def *TableDef, cols []ColumnDef) error {
 	if def.GroupID > 0 {
 		gid = def.GroupID
 	}
-	res, err := tx.Exec(`INSERT INTO table_defs(datasource_id,schema_name,table_name,label,description,key_columns,page_size,default_sort_col,default_sort_dir,default_view,view_config,group_id,hooks)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, def.Description, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir, def.DefaultView, def.ViewConfig, gid, def.Hooks)
+	res, err := tx.Exec(`INSERT INTO table_defs(datasource_id,schema_name,table_name,label,description,key_columns,page_size,default_sort_col,default_sort_dir,default_view,view_config,group_id,hooks,source_type,query_sql)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, def.Description, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir, def.DefaultView, def.ViewConfig, gid, def.Hooks, def.SourceType, def.QuerySQL)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -141,6 +151,7 @@ func (s *Store) SaveTableDef(def *TableDef, cols []ColumnDef) error {
 }
 
 func (s *Store) UpdateTableDef(def *TableDef, cols []ColumnDef) error {
+	normalizeSource(def)
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -157,8 +168,8 @@ func (s *Store) UpdateTableDef(def *TableDef, cols []ColumnDef) error {
 	if def.GroupID > 0 {
 		gid = def.GroupID
 	}
-	res, err := tx.Exec(`UPDATE table_defs SET datasource_id=?,schema_name=?,table_name=?,label=?,description=?,key_columns=?,page_size=?,default_sort_col=?,default_sort_dir=?,default_view=?,view_config=?,group_id=?,hooks=?
-		WHERE id=?`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, def.Description, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir, def.DefaultView, def.ViewConfig, gid, def.Hooks, def.ID)
+	res, err := tx.Exec(`UPDATE table_defs SET datasource_id=?,schema_name=?,table_name=?,label=?,description=?,key_columns=?,page_size=?,default_sort_col=?,default_sort_dir=?,default_view=?,view_config=?,group_id=?,hooks=?,source_type=?,query_sql=?
+		WHERE id=?`, def.DatasourceID, def.SchemaName, def.TableName, def.Label, def.Description, string(kj), def.PageSize, def.DefaultSortCol, def.DefaultSortDir, def.DefaultView, def.ViewConfig, gid, def.Hooks, def.SourceType, def.QuerySQL, def.ID)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -196,7 +207,7 @@ func (s *Store) ReplaceColumns(defID int64, cols []ColumnDef) error {
 }
 
 func (s *Store) ListTableDefs() ([]TableDef, error) {
-	rows, err := s.db.Query(`SELECT id,datasource_id,schema_name,table_name,label,description,key_columns,page_size,default_sort_col,default_sort_dir,default_view,view_config,group_id,hooks
+	rows, err := s.db.Query(`SELECT id,datasource_id,schema_name,table_name,label,description,key_columns,page_size,default_sort_col,default_sort_dir,default_view,view_config,group_id,hooks,source_type,query_sql
 		FROM table_defs ORDER BY label`)
 	if err != nil {
 		return nil, err
@@ -207,11 +218,12 @@ func (s *Store) ListTableDefs() ([]TableDef, error) {
 		var d TableDef
 		var kj string
 		var gid sql.NullInt64
-		if err := rows.Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &d.Description, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir, &d.DefaultView, &d.ViewConfig, &gid, &d.Hooks); err != nil {
+		if err := rows.Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &d.Description, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir, &d.DefaultView, &d.ViewConfig, &gid, &d.Hooks, &d.SourceType, &d.QuerySQL); err != nil {
 			return nil, err
 		}
 		d.GroupID = gid.Int64
 		json.Unmarshal([]byte(kj), &d.KeyColumns)
+		normalizeSource(&d)
 		out = append(out, d)
 	}
 	return out, rows.Err()
@@ -221,9 +233,9 @@ func (s *Store) GetTableDef(id int64) (*TableDef, []ColumnDef, error) {
 	d := &TableDef{}
 	var kj string
 	var gid sql.NullInt64
-	err := s.db.QueryRow(`SELECT id,datasource_id,schema_name,table_name,label,description,key_columns,page_size,default_sort_col,default_sort_dir,default_view,view_config,group_id,hooks
+	err := s.db.QueryRow(`SELECT id,datasource_id,schema_name,table_name,label,description,key_columns,page_size,default_sort_col,default_sort_dir,default_view,view_config,group_id,hooks,source_type,query_sql
 		FROM table_defs WHERE id=?`, id).
-		Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &d.Description, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir, &d.DefaultView, &d.ViewConfig, &gid, &d.Hooks)
+		Scan(&d.ID, &d.DatasourceID, &d.SchemaName, &d.TableName, &d.Label, &d.Description, &kj, &d.PageSize, &d.DefaultSortCol, &d.DefaultSortDir, &d.DefaultView, &d.ViewConfig, &gid, &d.Hooks, &d.SourceType, &d.QuerySQL)
 	if err == sql.ErrNoRows {
 		return nil, nil, ErrNotFound
 	}
@@ -232,6 +244,7 @@ func (s *Store) GetTableDef(id int64) (*TableDef, []ColumnDef, error) {
 	}
 	d.GroupID = gid.Int64
 	json.Unmarshal([]byte(kj), &d.KeyColumns)
+	normalizeSource(d)
 	cols, err := s.getColumns(id)
 	return d, cols, err
 }

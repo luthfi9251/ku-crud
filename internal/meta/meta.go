@@ -163,6 +163,9 @@ UPDATE roles SET manage_datasources=platform_manage, manage_tables=platform_mana
 	view_audit=platform_manage, view_outbox=platform_manage;
 ALTER TABLE roles DROP COLUMN platform_manage;
 ALTER TABLE table_defs ADD COLUMN description TEXT NOT NULL DEFAULT '';`,
+	// v1.8: query-backed table definitions (custom views).
+	`ALTER TABLE table_defs ADD COLUMN source_type TEXT NOT NULL DEFAULT 'table';
+ALTER TABLE table_defs ADD COLUMN query_sql TEXT NOT NULL DEFAULT '';`,
 }
 
 func Open(path string) (*Store, error) {
