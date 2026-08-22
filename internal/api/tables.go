@@ -954,7 +954,16 @@ func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer db.Close()
-	live, err := db.InspectTable(def.SchemaName, def.TableName)
+	var live []ds.LiveColumn
+	if isQueryDef(def) {
+		if err := db.ExplainQuery(def.QuerySQL); err != nil {
+			writeErr(w, 502, "CONN", "query validation failed", err.Error())
+			return
+		}
+		live, _, err = db.IntrospectQuery(def.QuerySQL)
+	} else {
+		live, err = db.InspectTable(def.SchemaName, def.TableName)
+	}
 	if err != nil {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
@@ -979,7 +988,12 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer db.Close()
-	live, err := db.InspectTable(def.SchemaName, def.TableName)
+	var live []ds.LiveColumn
+	if isQueryDef(def) {
+		live, _, err = db.IntrospectQuery(def.QuerySQL)
+	} else {
+		live, err = db.InspectTable(def.SchemaName, def.TableName)
+	}
 	if err != nil {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
