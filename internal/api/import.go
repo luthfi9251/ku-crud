@@ -61,6 +61,9 @@ func (s *Server) importCtx(w http.ResponseWriter, r *http.Request) (*meta.TableD
 		s.writeDefErr(w, err)
 		return nil, nil, false
 	}
+	if writeQueryReadOnly(w, def) {
+		return nil, nil, false
+	}
 	if !s.hasTablePerm(u, def.ID, "create") {
 		writeErr(w, 403, "FORBIDDEN", "no create access to this table", nil)
 		return nil, nil, false

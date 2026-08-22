@@ -26,6 +26,8 @@ type tableDefInput struct {
 	DefaultView    string          `json:"defaultView"`
 	ViewConfig     json.RawMessage `json:"viewConfig"`
 	Hooks          json.RawMessage `json:"hooks"`
+	SourceType     string          `json:"sourceType"`
+	QuerySQL       string          `json:"querySql"`
 	Columns        []columnInput   `json:"columns"`
 }
 
@@ -102,12 +104,20 @@ func (s *Server) toDef(in tableDefInput) (*meta.TableDef, error) {
 	if len(in.Description) > 200 {
 		return nil, errors.New("description too long (max 200 chars)")
 	}
+	if in.SourceType != "query" {
+		in.SourceType = "table"
+		in.QuerySQL = ""
+	}
+	if in.SourceType == "query" {
+		in.SchemaName, in.TableName = "", ""
+	}
 	return &meta.TableDef{DatasourceID: dsID, SchemaName: in.SchemaName,
 		TableName: in.TableName, Label: in.Label, Description: in.Description,
 		KeyColumns:     in.KeyColumns,
 		PageSize:       in.PageSize,
 		DefaultSortCol: in.DefaultSortCol, DefaultSortDir: in.DefaultSortDir,
-		DefaultView: in.DefaultView, ViewConfig: string(in.ViewConfig), Hooks: string(in.Hooks)}, nil
+		DefaultView: in.DefaultView, ViewConfig: string(in.ViewConfig), Hooks: string(in.Hooks),
+		SourceType: in.SourceType, QuerySQL: in.QuerySQL}, nil
 }
 
 type permsDTO struct {
@@ -197,6 +207,8 @@ type tableDefDTO struct {
 	DefaultView    string          `json:"defaultView,omitempty"`
 	ViewConfig     json.RawMessage `json:"viewConfig,omitempty"`
 	Hooks          json.RawMessage `json:"hooks,omitempty"`
+	SourceType     string          `json:"sourceType,omitempty"`
+	QuerySQL       string          `json:"querySql,omitempty"`
 	GroupID        string          `json:"groupId,omitempty"`
 	GroupName      string          `json:"groupName,omitempty"`
 	Columns        []columnDTO     `json:"columns,omitempty"`
@@ -216,6 +228,8 @@ func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDT
 		DefaultSortCol: def.DefaultSortCol,
 		DefaultSortDir: def.DefaultSortDir,
 		DefaultView:    def.DefaultView,
+		SourceType:     def.SourceType,
+		QuerySQL:       def.QuerySQL,
 		Permissions:    p,
 	}
 	if def.GroupID > 0 {
@@ -241,16 +255,24 @@ func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDT
 // tablePerms resolves the caller's grants for a table def. Only Admin has
 // implicit full access; everyone else (including platform managers) needs
 // stored per-table grants — platform management and table CRUD are separate
-// permission dimensions.
-func (s *Server) tablePerms(u CtxUser, defID int64) permsDTO {
+// permission dimensions. Query views are always read-only: create/update/
+// delete are zeroed regardless of grants (this is what makes the frontend
+// grid render read-only with no client changes).
+func (s *Server) tablePerms(u CtxUser, def *meta.TableDef) permsDTO {
+	var p permsDTO
 	if u.IsAdmin {
-		return permsDTO{true, true, true, true}
+		p = permsDTO{true, true, true, true}
+	} else {
+		g, err := s.store.GrantsFor(u.RoleID, def.ID)
+		if err != nil {
+			return permsDTO{}
+		}
+		p = permsDTO{g.CanRead, g.CanCreate, g.CanUpdate, g.CanDelete}
 	}
-	g, err := s.store.GrantsFor(u.RoleID, defID)
-	if err != nil {
-		return permsDTO{}
+	if isQueryDef(def) {
+		p.Create, p.Update, p.Delete = false, false, false
 	}
-	return permsDTO{g.CanRead, g.CanCreate, g.CanUpdate, g.CanDelete}
+	return p
 }
 
 // hasTablePerm checks one row action ("read"|"create"|"update"|"delete").
@@ -377,17 +399,91 @@ func (s *Server) checkViewConfig(def *meta.TableDef, cols []meta.ColumnDef) stri
 	return ""
 }
 
+const querySQLMax = 20000
+
+// checkQuerySQL enforces the query-view SQL constraints: non-empty, within
+// the size cap, and SELECT/WITH-prefixed. This is a lexical guard only —
+// the real validation is the EXPLAIN run at save time.
+func checkQuerySQL(q string) string {
+	if q == "" {
+		return "querySql is required for query views"
+	}
+	if len(q) > querySQLMax {
+		return "querySql exceeds 20000 characters"
+	}
+	head := strings.ToUpper(strings.TrimSpace(q))
+	if !strings.HasPrefix(head, "SELECT") && !strings.HasPrefix(head, "WITH") {
+		return "query must start with SELECT or WITH"
+	}
+	return ""
+}
+
+func isQueryDef(def *meta.TableDef) bool { return def.SourceType == "query" }
+
+// writeQueryErr maps query-view execution failures: statement timeouts get
+// their own 502 code so clients can tell slow queries from broken ones.
+func writeQueryErr(w http.ResponseWriter, err error) {
+	if ds.IsQueryTimeout(err) {
+		writeErr(w, 502, "QUERY_TIMEOUT", "query exceeded the execution time limit", err.Error())
+		return
+	}
+	writeErr(w, 502, "CONN", "query failed", err.Error())
+}
+
+// writeQueryReadOnly rejects any write attempt against a query view.
+func writeQueryReadOnly(w http.ResponseWriter, def *meta.TableDef) bool {
+	if isQueryDef(def) {
+		writeErr(w, 403, "QUERY_READONLY", "query views are read-only", nil)
+		return true
+	}
+	return false
+}
+
+// explainQueryDef runs EXPLAIN-on-save for query defs. Returns true when it
+// already wrote the error response. A datasource that cannot be reached
+// fails validation too — a query view may only be saved in a state the
+// database has vouched for.
+func (s *Server) explainQueryDef(w http.ResponseWriter, def *meta.TableDef) bool {
+	if !isQueryDef(def) {
+		return false
+	}
+	a, err := s.liveAdapter(def.DatasourceID)
+	if err != nil {
+		if errors.Is(err, errDSNotFound) {
+			s.writeLiveErr(w, err)
+			return true
+		}
+		writeErr(w, 400, "QUERY_INVALID", "query failed validation", err.Error())
+		return true
+	}
+	defer a.Close()
+	if err := a.ExplainQuery(def.QuerySQL); err != nil {
+		writeErr(w, 400, "QUERY_INVALID", "query failed validation", err.Error())
+		return true
+	}
+	return false
+}
+
 func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
-	if def.DatasourceID == 0 || def.SchemaName == "" || def.TableName == "" ||
-		def.Label == "" || len(def.KeyColumns) == 0 {
+	query := isQueryDef(def)
+	if def.DatasourceID == 0 || def.Label == "" {
+		return "datasourceId and label are required"
+	}
+	if query {
+		if msg := checkQuerySQL(def.QuerySQL); msg != "" {
+			return msg
+		}
+	} else if def.SchemaName == "" || def.TableName == "" || len(def.KeyColumns) == 0 {
 		return "datasourceId, schemaName, tableName, label, keyColumns are required"
 	}
 	if def.PageSize <= 0 || def.PageSize > 200 {
 		return "pageSize must be 1..200"
 	}
-	for _, name := range append([]string{def.SchemaName, def.TableName}, def.KeyColumns...) {
-		if _, err := ds.QuoteIdent(name); err != nil {
-			return "invalid identifier: " + name
+	if !query {
+		for _, name := range append([]string{def.SchemaName, def.TableName}, def.KeyColumns...) {
+			if _, err := ds.QuoteIdent(name); err != nil {
+				return "invalid identifier: " + name
+			}
 		}
 	}
 	keySeen := make([]bool, len(def.KeyColumns))
@@ -396,6 +492,12 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 		sortable[c.Name] = c.Sortable
 		if !validFieldTypes[c.FieldType] {
 			return "column " + c.Name + ": invalid fieldType " + c.FieldType
+		}
+		if query && (c.FieldType == "fk" || c.FieldType == "m2m") {
+			return "column " + c.Name + ": query views cannot use fk or m2m columns"
+		}
+		if query && len(c.Validations) > 0 {
+			return "column " + c.Name + ": query views cannot define validation rules"
 		}
 		if c.FieldType == "enum" && len(c.EnumOptions) == 0 {
 			return "column " + c.Name + ": enum needs options"
@@ -477,8 +579,13 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 	if msg := s.checkViewConfig(def, cols); msg != "" {
 		return msg
 	}
-	if msg := s.checkHooks(def); msg != "" {
-		return msg
+	if query && def.Hooks != "" {
+		return "query views cannot assign hooks"
+	}
+	if !query {
+		if msg := s.checkHooks(def); msg != "" {
+			return msg
+		}
 	}
 	return ""
 }
@@ -653,6 +760,9 @@ func (s *Server) handleTableCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", msg, nil)
 		return
 	}
+	if s.explainQueryDef(w, def) {
+		return
+	}
 	if err := s.store.SaveTableDef(def, cols); err != nil {
 		writeErr(w, 400, "VALIDATION", "save failed", err.Error())
 		return
@@ -670,7 +780,7 @@ func (s *Server) handleTableList(w http.ResponseWriter, r *http.Request) {
 	out := []tableDefDTO{}
 	groups := s.groupNameMap()
 	for i := range list {
-		p := s.tablePerms(u, list[i].ID)
+		p := s.tablePerms(u, &list[i])
 		// Table managers see every definition (they define them); everyone
 		// else only sees tables they can read. The permissions object always
 		// reflects actual row-CRUD grants.
@@ -714,7 +824,7 @@ func (s *Server) handleTableGet(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
-	p := s.tablePerms(u, def.ID)
+	p := s.tablePerms(u, def)
 	if !u.ManageTables && !p.Read {
 		writeErr(w, 403, "FORBIDDEN", "no access to this table", nil)
 		return
@@ -746,6 +856,9 @@ func (s *Server) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if msg := s.validateDef(def, cols); msg != "" {
 		writeErr(w, 400, "VALIDATION", msg, nil)
+		return
+	}
+	if s.explainQueryDef(w, def) {
 		return
 	}
 	if err := s.store.UpdateTableDef(def, cols); err != nil {

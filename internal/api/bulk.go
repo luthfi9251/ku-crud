@@ -26,6 +26,9 @@ func (s *Server) handleRowBulkDelete(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
+	if writeQueryReadOnly(w, def) {
+		return
+	}
 	if !s.hasTablePerm(u, def.ID, "delete") {
 		writeErr(w, 403, "FORBIDDEN", "no delete access to this table", nil)
 		return

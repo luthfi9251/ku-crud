@@ -130,6 +130,10 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
+	if isQueryDef(def) && len(def.KeyColumns) == 0 {
+		writeErr(w, 400, "QUERY_NO_KEY", "this query view has no key columns", nil)
+		return
+	}
 	if !s.hasTablePerm(userFrom(r), def.ID, "read") {
 		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
 		return
@@ -254,6 +258,9 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
+	if writeQueryReadOnly(w, def) {
+		return
+	}
 	if !s.hasTablePerm(u, def.ID, "create") {
 		writeErr(w, 403, "FORBIDDEN", "no create access to this table", nil)
 		return
@@ -342,6 +349,9 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 	def, cols, err := s.tableCtx(r)
 	if err != nil {
 		s.writeDefErr(w, err)
+		return
+	}
+	if writeQueryReadOnly(w, def) {
 		return
 	}
 	if !s.hasTablePerm(u, def.ID, "update") {
@@ -462,6 +472,9 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 	def, cols, err := s.tableCtx(r)
 	if err != nil {
 		s.writeDefErr(w, err)
+		return
+	}
+	if writeQueryReadOnly(w, def) {
 		return
 	}
 	if !s.hasTablePerm(u, def.ID, "delete") {
