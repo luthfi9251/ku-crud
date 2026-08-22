@@ -662,7 +662,7 @@ func (s *Server) handleTableList(w http.ResponseWriter, r *http.Request) {
 	groups := s.groupNameMap()
 	for i := range list {
 		p := s.tablePerms(u, list[i].ID)
-		// Platform users see every definition (they manage them); everyone
+		// Table managers see every definition (they define them); everyone
 		// else only sees tables they can read. The permissions object always
 		// reflects actual row-CRUD grants.
 		if !u.ManageTables && !p.Read {
