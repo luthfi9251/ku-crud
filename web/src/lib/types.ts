@@ -54,7 +54,8 @@ export interface ViewConfig {
 
 export interface TableDef {
   id: Id; datasourceId: Id; schemaName: string; tableName: string;
-  label: string; keyColumns: string[]; pageSize: number;
+  label: string; description?: string;
+  keyColumns: string[]; pageSize: number;
   defaultSortCol: string; defaultSortDir: "ASC" | "DESC";
   defaultView?: ViewMode;
   viewConfig?: ViewConfig | null;

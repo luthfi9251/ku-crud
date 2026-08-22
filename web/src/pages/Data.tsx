@@ -577,6 +577,11 @@ export default function Data() {
                 {def.data.schemaName}.{def.data.tableName}
               </Badge>
             </div>
+            {def.data.description && (
+              <p className="text-xs text-muted-foreground mt-0.5 truncate" title={def.data.description}>
+                {def.data.description}
+              </p>
+            )}
             <p className="text-xs text-muted-foreground mt-0.5">
               {t("data.key")}: <span className="font-mono text-foreground font-semibold">{keyCols.join(" + ")}</span> &bull; {t("data.totalRecords", { count: String(r?.total ?? 0) })}
             </p>

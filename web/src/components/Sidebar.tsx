@@ -138,7 +138,7 @@ export function Sidebar({ className }: SidebarProps) {
               : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
           )}
           title={
-            collapsed ? tb.label : `${tb.schemaName}.${tb.tableName}`
+            collapsed ? tb.label : tb.description || `${tb.schemaName}.${tb.tableName}`
           }
         >
           <div className="flex items-center gap-2.5 truncate">
