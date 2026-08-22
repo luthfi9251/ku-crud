@@ -13,7 +13,7 @@ import {
   Key,
 } from "lucide-react";
 import { api } from "../lib/api";
-import type { BaseFieldType, ColumnDef, Datasource, LiveColumn, TableDefPayload, ViewConfig } from "../lib/types";
+import type { BaseFieldType, ColumnDef, Datasource, HooksConfig, HooksListRes, LiveColumn, TableDefPayload, ViewConfig } from "../lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ColumnListEditor, M2MRelationsEditor, HelpPopover, type FormCol } from "../components/ColumnListEditor";
+import HooksEditor from "../components/HooksEditor";
 import { useT } from "../lib/i18n";
 
 export const fieldTypes = ["boolean", "text", "number", "datetime", "enum", "uuid", "json", "fk"] as const;
@@ -55,6 +56,7 @@ export default function TableForm() {
   const [cols, setCols] = useState<FormCol[]>([]);
   const [defaultView, setDefaultView] = useState<"grid" | "kanban" | "calendar">("grid");
   const [viewConfig, setViewConfig] = useState<ViewConfig>({});
+  const [hooksCfg, setHooksCfg] = useState<HooksConfig>({});
 
   // Existing definition query for Edit mode
   const existingDef = useQuery({
@@ -73,6 +75,12 @@ export default function TableForm() {
   const defs = useQuery({
     queryKey: ["defs"],
     queryFn: () => api<TableDefPayload[]>("/tables"),
+  });
+
+  // Compiled-in hook registry (Platform-gated; failure just hides the editor)
+  const hookNames = useQuery({
+    queryKey: ["hooks"],
+    queryFn: () => api<HooksListRes>("/hooks"),
   });
 
   // Database tables query
@@ -102,6 +110,7 @@ export default function TableForm() {
       setDefaultSortDir(d.defaultSortDir === "DESC" ? "DESC" : "ASC");
       setDefaultView(d.defaultView ?? "grid");
       setViewConfig(d.viewConfig ?? {});
+      setHooksCfg(d.hooks ?? {});
       setKeys(d.keyColumns ?? []);
       setCols(d.columns);
     }
@@ -151,6 +160,7 @@ export default function TableForm() {
         defaultSortDir,
         defaultView,
         viewConfig,
+        hooks: Object.keys(hooksCfg).length ? hooksCfg : undefined,
         columns: cols.map(({ livePk: _lp, origType: _ot, fkDs: _fd, ...c }) =>
           c.fieldType === "fk"
             ? { ...c, m2mJunctionDefId: undefined, m2mJunctionSrcCol: undefined, m2mJunctionTgtCol: undefined, m2mDisplayColumns: undefined, m2mRefColumn: undefined }
@@ -512,6 +522,24 @@ export default function TableForm() {
               viewConfig={viewConfig}
               setViewConfig={setViewConfig}
             />
+
+            <Card className="border-border/60">
+              <CardHeader className="pb-3 border-b">
+                <CardTitle className="text-sm font-semibold">{t("tf.hooks.title")}</CardTitle>
+                <CardDescription className="text-xs">{t("tf.hooks.hint")}</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-4">
+                {(hookNames.data?.hooks ?? []).length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{t("tf.hooks.none")}</p>
+                ) : (
+                  <HooksEditor
+                    value={hooksCfg}
+                    names={hookNames.data?.hooks ?? []}
+                    onChange={setHooksCfg}
+                  />
+                )}
+              </CardContent>
+            </Card>
 
             {save.isError && (
               <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive">

@@ -58,6 +58,7 @@ export interface TableDef {
   defaultSortCol: string; defaultSortDir: "ASC" | "DESC";
   defaultView?: ViewMode;
   viewConfig?: ViewConfig | null;
+  hooks?: HooksConfig | null;
   groupId?: string; groupName?: string;
   permissions: Permissions;
 }
@@ -111,3 +112,27 @@ export interface Role {
   id: Id; name: string; isAdmin: boolean; platformManage: boolean;
   tables: TableGrant[]; userCount: number;
 }
+
+export type HookEvent =
+  | "beforeCreate" | "afterCreate"
+  | "beforeUpdate" | "afterUpdate"
+  | "beforeDelete" | "afterDelete";
+
+export interface HookAssignment {
+  hook: string;
+  config?: Record<string, unknown> | null;
+  order: number;
+}
+
+export type HooksConfig = Partial<Record<HookEvent, HookAssignment[]>>;
+
+export interface HooksListRes { hooks: string[] }
+
+export interface OutboxEntry {
+  id: Id; tableDefId: Id; event: string; hookName: string;
+  status: "pending" | "done" | "dead"; attempts: number;
+  nextRetryAt?: string; lastError?: string;
+  createdAt: string; updatedAt: string;
+}
+
+export interface OutboxListRes { entries: OutboxEntry[]; total: number; page: number }
