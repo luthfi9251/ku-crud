@@ -165,3 +165,35 @@ func TestFKRefSources(t *testing.T) {
 		t.Fatalf("leaf table should have no sources: %+v", srcs)
 	}
 }
+
+func TestTableDefDescription(t *testing.T) {
+	s := openTest(t)
+	if err := s.CreateDatasource(&Datasource{Name: "d", Host: "h", Port: 1, DBName: "db",
+		Username: "u", Password: "p", SSLMode: "disable"}); err != nil {
+		t.Fatal(err)
+	}
+	def := &TableDef{DatasourceID: 1, SchemaName: "public", TableName: "t",
+		Label: "T", KeyColumns: []string{"id"}, PageSize: 20, Description: "Daily orders"}
+	if err := s.SaveTableDef(def, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := s.GetTableDef(def.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Description != "Daily orders" {
+		t.Fatalf("description after save: %q", got.Description)
+	}
+	list, err := s.ListTableDefs()
+	if err != nil || len(list) != 1 || list[0].Description != "Daily orders" {
+		t.Fatalf("list: %v %+v", err, list)
+	}
+	def.Description = "All orders"
+	if err := s.UpdateTableDef(def, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _ = s.GetTableDef(def.ID)
+	if got.Description != "All orders" {
+		t.Fatalf("description after update: %q", got.Description)
+	}
+}

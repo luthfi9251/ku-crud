@@ -166,16 +166,16 @@ func (s *Store) ApplyImport(p ImportPlan) (createdDefs, updatedDefs int, err err
 			return 0, 0, e
 		}
 		if d.LocalID > 0 {
-			if _, e := tx.Exec(`UPDATE table_defs SET datasource_id=?,schema_name=?,table_name=?,label=?,key_columns=?,page_size=?,default_sort_col=?,default_sort_dir=?,default_view=?,view_config=?,group_id=?,hooks=? WHERE id=?`,
-				d.Def.DatasourceID, d.Def.SchemaName, d.Def.TableName, d.Def.Label, string(kj), d.Def.PageSize,
+			if _, e := tx.Exec(`UPDATE table_defs SET datasource_id=?,schema_name=?,table_name=?,label=?,description=?,key_columns=?,page_size=?,default_sort_col=?,default_sort_dir=?,default_view=?,view_config=?,group_id=?,hooks=? WHERE id=?`,
+				d.Def.DatasourceID, d.Def.SchemaName, d.Def.TableName, d.Def.Label, d.Def.Description, string(kj), d.Def.PageSize,
 				d.Def.DefaultSortCol, d.Def.DefaultSortDir, d.Def.DefaultView, d.Def.ViewConfig, gid, d.Def.Hooks, d.LocalID); e != nil {
 				return 0, 0, e
 			}
 			d.Def.ID = d.LocalID
 			updatedDefs++
 		} else {
-			res, e := tx.Exec(`INSERT INTO table_defs(datasource_id,schema_name,table_name,label,key_columns,page_size,default_sort_col,default_sort_dir,default_view,view_config,group_id,hooks) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-				d.Def.DatasourceID, d.Def.SchemaName, d.Def.TableName, d.Def.Label, string(kj), d.Def.PageSize,
+			res, e := tx.Exec(`INSERT INTO table_defs(datasource_id,schema_name,table_name,label,description,key_columns,page_size,default_sort_col,default_sort_dir,default_view,view_config,group_id,hooks) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				d.Def.DatasourceID, d.Def.SchemaName, d.Def.TableName, d.Def.Label, d.Def.Description, string(kj), d.Def.PageSize,
 				d.Def.DefaultSortCol, d.Def.DefaultSortDir, d.Def.DefaultView, d.Def.ViewConfig, gid, d.Def.Hooks)
 			if e != nil {
 				return 0, 0, e
