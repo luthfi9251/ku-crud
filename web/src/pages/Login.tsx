@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Database, User, Lock, ArrowRight, Eye, EyeOff, AlertCircle } from "lucide-react";
-import { api, ApiError } from "../lib/api";
+import { api } from "../lib/api";
+import { humanError } from "../lib/errors";
 import { useT } from "../lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +36,7 @@ export default function Login() {
       });
       nav("/");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t("login.error"));
+      setError(humanError(err, t).title);
     } finally {
       setLoading(false);
     }
