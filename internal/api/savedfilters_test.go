@@ -8,6 +8,32 @@ import (
 	"ku-crud/internal/meta"
 )
 
+func TestSavedFilterComputedColumnRejected(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	seedDS(t, s)
+	body := `{"datasourceId":"` + s.ids.Encode("ds", 1) + `","schemaName":"public","tableName":"orders2",
+"label":"Orders2","keyColumns":["id"],"pageSize":20,"columns":[
+ {"name":"id","label":"ID","fieldType":"number","editable":true,"required":true,
+  "visible":true,"searchable":true,"sortable":true,"position":0},
+ {"name":"qty","label":"Qty","fieldType":"number","editable":true,
+  "visible":true,"position":1},
+ {"name":"total","label":"Total","fieldType":"number","isComputed":true,"computedFormula":"qty * 2",
+  "visible":true,"position":2}]}`
+	if w := do(s, "POST", "/api/tables", body, c); w.Code != 200 {
+		t.Fatalf("create computed def = %d %s", w.Code, w.Body)
+	}
+	tok := tdTok(s, 1)
+
+	// a filter on a computed column must never reach SQL — saved-filters
+	// create routes through parseFilters and must reject it
+	w := do(s, "POST", "/api/tables/"+tok+"/saved-filters",
+		`{"name":"Bad","filters":"[{\"column\":\"total\",\"op\":\"eq\",\"values\":[\"10\"]}]"}`, c)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "FILTER_INVALID") {
+		t.Fatalf("computed filter not rejected: %d %s", w.Code, w.Body)
+	}
+}
+
 func TestSavedFiltersAPI(t *testing.T) {
 	s := newTestServer(t)
 	c := login(s)

@@ -135,8 +135,10 @@ export default function Data() {
     /* eslint-disable-line */
   }, [id]);
 
+  // keyed on dataVersion so save/delete/bulk/resync (and kanban drops via
+  // onRowMoved) refresh the grid page too
   const rows = useQuery({
-    queryKey: ["rows", id, debounced, sort, dir, page, filters],
+    queryKey: ["rows", id, debounced, sort, dir, page, filters, dataVersion],
     enabled: !!def.data,
     queryFn: () => {
       const p = new URLSearchParams();
@@ -277,7 +279,6 @@ export default function Data() {
     },
     onSuccess: () => {
       setForm(null);
-      rows.refetch();
       setDataVersion((v) => v + 1);
     },
   });
@@ -326,7 +327,6 @@ export default function Data() {
     mutationFn: (key: string[]) => api(`/tables/${id}/rows/${encodeRowKey(key)}`, { method: "DELETE" }),
     onSuccess: () => {
       setDelErr("");
-      rows.refetch();
       setDataVersion((v) => v + 1);
     },
     onError: (e) => {
@@ -382,7 +382,6 @@ export default function Data() {
           : t("data.bulkDeleted", { count: String(deleted) })
       );
       setSel(new Set());
-      rows.refetch();
       setDataVersion((v) => v + 1);
     } catch (e) {
       setBulkMsg(e instanceof Error ? e.message : t("data.bulkDeleteFailed"));
@@ -396,7 +395,6 @@ export default function Data() {
     onSuccess: () => {
       setDrift(null);
       qc.invalidateQueries({ queryKey: ["def", id] });
-      rows.refetch();
       setDataVersion((v) => v + 1);
     },
   });
@@ -800,6 +798,7 @@ export default function Data() {
             def={d} boardCol={boardCol} displayCol={displayCol} dataVersion={dataVersion}
             search={debounced} filters={serializeFilters(filters)} pageSize={d.pageSize}
             lang={lang}
+            onRowMoved={() => setDataVersion((v) => v + 1)}
             onEdit={(row) => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
             onDelete={(key) => { if (confirm(t("data.deleteConfirm"))) del.mutate(key); }}
             onCreate={() => setForm({ mode: "new", row: {} })}

@@ -600,8 +600,26 @@ func validateBundleTable(ft metaFileTable) string {
 			return "table " + ft.Table + ": column " + c.Name + " enum needs options"
 		}
 		if c.IsComputed {
-			if _, _, err := compileComputed(colDefs[i], colDefs); err != nil {
+			if c.FieldType != "number" && c.FieldType != "text" {
+				return "table " + ft.Table + ": column " + c.Name + ": computed columns must be number or text"
+			}
+			if c.Editable || c.Searchable || c.Sortable {
+				return "table " + ft.Table + ": column " + c.Name + ": computed columns cannot be editable/searchable/sortable"
+			}
+			for _, key := range ft.KeyColumns {
+				if c.Name == key {
+					return "table " + ft.Table + ": column " + c.Name + ": computed columns cannot be key columns"
+				}
+			}
+			if c.ComputedFml == "" {
+				return "table " + ft.Table + ": column " + c.Name + ": computed columns need computedFormula"
+			}
+			ft2, _, err := compileComputed(colDefs[i], colDefs)
+			if err != nil {
 				return "table " + ft.Table + ": column " + c.Name + ": " + err.Error()
+			}
+			if ft2 != c.FieldType {
+				return "table " + ft.Table + ": column " + c.Name + ": formula produces " + ft2 + " but the column type is " + c.FieldType
 			}
 		}
 		names[c.Name] = true

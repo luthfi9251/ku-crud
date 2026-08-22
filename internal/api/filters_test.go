@@ -21,7 +21,8 @@ func TestParseFiltersMatrix(t *testing.T) {
 	_ = login(s)
 	u := meCtx(s)
 	cols := []meta.ColumnDef{fcol("name", "text"), fcol("age", "number"), fcol("ok", "boolean"),
-		fcol("created", "datetime"), fcol("status", "enum"), fcol("tags", "json"), fcol("rel", "m2m")}
+		fcol("created", "datetime"), fcol("status", "enum"), fcol("tags", "json"), fcol("rel", "m2m"),
+		{Name: "calc", Label: "calc", FieldType: "number", IsComputed: true, Visible: true, Position: 1}}
 	def := &meta.TableDef{SchemaName: "public", TableName: "t"}
 
 	f, msg := s.parseFilters(def, cols, u, `[{"column":"name","op":"contains","values":["jo"]}]`)
@@ -59,6 +60,7 @@ func TestParseFiltersMatrix(t *testing.T) {
 		{`[{"column":"created","op":"eq","values":["tomorrow"]}]`, "not a datetime"},
 		{`[{"column":"tags","op":"eq","values":["x"]}]`, "cannot be filtered"},
 		{`[{"column":"rel","op":"eq","values":["x"]}]`, "cannot be filtered"},
+		{`[{"column":"calc","op":"eq","values":["5"]}]`, "cannot be filtered"},
 	} {
 		_, msg = s.parseFilters(def, cols, u, bad.raw)
 		if msg == "" || !strings.Contains(msg, bad.want) {

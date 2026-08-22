@@ -317,6 +317,18 @@ func rowNum(v any) (float64, bool) {
 		return float64(x), true
 	case int:
 		return float64(x), true
+	case string:
+		n, err := strconv.ParseFloat(strings.TrimSpace(x), 64)
+		if err != nil {
+			return 0, false
+		}
+		return n, true
+	case []byte:
+		n, err := strconv.ParseFloat(strings.TrimSpace(string(x)), 64)
+		if err != nil {
+			return 0, false
+		}
+		return n, true
 	}
 	return 0, false
 }

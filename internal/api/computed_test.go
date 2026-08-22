@@ -103,3 +103,48 @@ func TestComputedRejectsInjectionName(t *testing.T) {
 		t.Fatal("concat needs at least 2 args")
 	}
 }
+
+func TestRowNumStringAndBytes(t *testing.T) {
+	cases := []struct {
+		in   any
+		want float64
+		ok   bool
+	}{
+		{"10.5", 10.5, true},
+		{"7", 7, true},
+		{[]byte("3.25"), 3.25, true},
+		{[]byte("12"), 12, true},
+		{"abc", 0, false},
+		{[]byte("xyz"), 0, false},
+		{float64(4), 4, true},
+		{nil, 0, false},
+	}
+	for _, tc := range cases {
+		got, ok := rowNum(tc.in)
+		if ok != tc.ok || got != tc.want {
+			t.Fatalf("rowNum(%v) = %v,%v want %v,%v", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestComputedArithmeticFromDecimalStrings(t *testing.T) {
+	cols := []meta.ColumnDef{
+		{Name: "price", FieldType: "number"},
+		{Name: "qty", FieldType: "number"},
+	}
+	_, fn, err := compileComputed(meta.ColumnDef{Name: "total", ComputedFormula: "price * qty"}, cols)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// MySQL DECIMAL (and some sqlite scans) surface numeric columns as
+	// strings / []byte — arithmetic must still evaluate instead of yielding nil.
+	if v := fn(map[string]any{"price": "10", "qty": "3"}); v != float64(30) {
+		t.Fatalf("string operands: got %v want 30", v)
+	}
+	if v := fn(map[string]any{"price": []byte("10"), "qty": []byte("3")}); v != float64(30) {
+		t.Fatalf("[]byte operands: got %v want 30", v)
+	}
+	if v := fn(map[string]any{"price": "x", "qty": "3"}); v != nil {
+		t.Fatalf("unparseable operand must yield nil, got %v", v)
+	}
+}

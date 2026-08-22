@@ -16,7 +16,7 @@ interface ColState { rows: Row[]; page: number; total: number; loading: boolean 
 // pages. NULL board values cannot be selected with the eq filter, so the
 // "No value" column fetches whole pages (global filters only) and filters
 // NULLs client-side.
-export function KanbanView({ def, boardCol, displayCol, search, filters, pageSize, lang, dataVersion, onEdit, onDelete, onCreate }: {
+export function KanbanView({ def, boardCol, displayCol, search, filters, pageSize, lang, dataVersion, onRowMoved, onEdit, onDelete, onCreate }: {
   def: TableDefPayload;
   boardCol: ColumnDef;
   displayCol?: ColumnDef;
@@ -25,6 +25,7 @@ export function KanbanView({ def, boardCol, displayCol, search, filters, pageSiz
   pageSize: number;
   lang: string;
   dataVersion?: number;
+  onRowMoved?: () => void;
   onEdit: (row: Row) => void;
   onDelete: (key: string[]) => void;
   onCreate: () => void;
@@ -121,6 +122,9 @@ export function KanbanView({ def, boardCol, displayCol, search, filters, pageSiz
         if (next[to]) next[to] = { ...next[to], rows: [{ ...row, [boardCol.name]: newVal }, ...next[to].rows], total: next[to].total + 1 };
         return next;
       });
+      // let the parent know the server-side value changed so the grid and
+      // grouped queries refetch (the parent owns all row queries)
+      onRowMoved?.();
     } catch (e) {
       alert(e instanceof Error ? e.message : t("kanban.updateFailed"));
       // re-sync source and target columns from server truth
