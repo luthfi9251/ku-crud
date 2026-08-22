@@ -44,13 +44,36 @@ func TestExplainQueryRejectsPG(t *testing.T) {
 	}
 	for _, bad := range []string{
 		"SELECT 1 AS one; DROP TABLE x",
-		"UPDATE t SET a = 1",
 		"SELECT $1 AS one",
 		"SELECT FROM WHERE",
 	} {
 		if err := a.ExplainQuery(bad); err == nil {
 			t.Fatalf("EXPLAIN accepted %q", bad)
 		}
+	}
+}
+
+func TestQueryWrapRejectsDMLPG(t *testing.T) {
+	a := openPG(t)
+	db := a.(*pgAdapter).db
+	if _, err := db.Exec(`DROP TABLE IF EXISTS qv_dml; CREATE TABLE qv_dml(id serial PRIMARY KEY, v text)`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		db.Exec(`DROP TABLE IF EXISTS qv_dml`)
+	})
+	const dml = "UPDATE qv_dml SET v = 'x'"
+	// PG EXPLAIN plans DML without executing; rejection happens at the
+	// wrap/tx layers, so layer 1 accepts this by design.
+	if err := a.ExplainQuery(dml); err != nil {
+		t.Fatalf("EXPLAIN rejected DML on existing table: %v", err)
+	}
+	if _, _, err := a.IntrospectQuery(dml); err == nil {
+		t.Fatal("introspect accepted DML")
+	}
+	if _, err := a.ListQueryRows(QueryParams{Query: dml,
+		Columns: []string{"v"}, SortCol: "v", SortDir: "ASC", Limit: 1}); err == nil {
+		t.Fatal("list accepted DML")
 	}
 }
 
