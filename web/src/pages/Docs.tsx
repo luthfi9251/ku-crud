@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/card";
 import { BookOpen, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 
 type Audience = "business" | "developer";
 
@@ -106,6 +107,7 @@ function BusinessDocs() {
 }
 
 function DeveloperDocs() {
+  const t = useT();
   return (
     <div className="space-y-6">
       <Section title="Datasources">
@@ -171,6 +173,19 @@ function DeveloperDocs() {
           <Li>Per table, choose the default view: grid, kanban, or calendar. Users can still switch views on the data page.</Li>
           <Li>Kanban needs one enum column as the board column; each value becomes a board column. Drag-drop updates the field, subject to update grants, and is audited.</Li>
           <Li>Calendar needs a datetime column as the event date, optionally a second one as end date. Clicking a day opens the create form with the date pre-filled; clicking an event opens the row.</Li>
+        </ul>
+      </Section>
+
+      <Section title={t("docs.hooks.title")}>
+        <ul className="space-y-2">
+          <Li>{t("docs.hooks.what")}</Li>
+          <Li>{t("docs.hooks.events")}</Li>
+          <Li>{t("docs.hooks.before")}</Li>
+          <Li>{t("docs.hooks.after")}</Li>
+          <Li>{t("docs.hooks.outbox")}</Li>
+          <Li>{t("docs.hooks.devflow")}</Li>
+          <Li>{t("docs.hooks.rename")}</Li>
+          <Li>{t("docs.hooks.missing")}</Li>
         </ul>
       </Section>
 

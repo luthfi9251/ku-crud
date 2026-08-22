@@ -81,6 +81,19 @@ and CRUD away.
     locale-aware datetime); **grid group-by**; **per-user saved filters**
     (name + filter JSON, private to the owning user); and **ID/EN
     localization** (user language preference, switchable in the UI).
+14. **Automation via Go hooks (v1.6)** — write plain Go functions in `hooks/`
+    with the `HookFunc` signature; `make dev` / `make build` regenerate the
+    registry (AST codegen) so the functions appear in the table-definition
+    editor. Assign hooks per event (before/after × create/update/delete)
+    with per-assignment JSON config and execution order. Before-hooks run
+    synchronously — they may modify values or reject the write (400
+    `HOOK_REJECTED`); after-hooks run on a background worker backed by a
+    durable SQLite outbox (5 retries: 30s/2m/10m/1h/4h, then dead — monitor
+    and retry at `/hooks-outbox`). Hooks fire from every write path (form,
+    CSV import preview/apply, bulk delete, kanban drag, m2m link sync) and
+    receive full platform access (datasource adapters, metadata store,
+    logger). A definition referencing a hook absent from the binary rejects
+    writes with `HOOK_MISSING` — drift is never silent.
 
 Supported column types: `boolean`, `number` (int/float/numeric), `text`,
 `datetime` (date/time/timestamp), native Postgres `enum`, `uuid`, `json`
@@ -145,6 +158,13 @@ All API endpoints are under `/api` and return JSON. Authenticated endpoints requ
 | PUT / DELETE | `/api/roles/{id}` | Manage roles (Admin only) |
 | GET | `/api/audit` | View audit trail records (Platform management grant) |
 
+### Hooks (v1.6)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/hooks` | List hook functions compiled into the server |
+| GET | `/api/hooks/outbox` | Monitor the after-hook outbox (pending / retrying / dead entries with last error) |
+| POST | `/api/hooks/outbox/{id}/retry` | Requeue a dead outbox entry for immediate retry |
+
 
 ## First user
 
@@ -181,6 +201,8 @@ passwords in place (one-way: the metadata file then requires v1.3+).
 v1.4 runs migration 7 (table_groups, table_defs.group_id, columns.validations)
 on first start. v1.5 runs migration 8 (formatting/computed/default_view/
 view_config on definitions, users.language, saved_filters) on first start.
+v1.6 runs migration 9 (table_defs.hooks assignments, hook_outbox) on first
+start.
 Metadata import files never contain datasource passwords — re-enter them in
 the import wizard.
 
@@ -239,6 +261,12 @@ Under systemd, follow with `journalctl -u ku-crud -f`.
     cmd/main.go            server entry: flags, serves the API + embedded SPA
                            (go run ./cmd/main.go)
     cmd/seed-admin/        create an admin login user in the metadata store
+    cmd/hookgen/           go:generate AST scanner: regenerates
+                           hooks/registry_gen.go from the functions in hooks/
+    hooks/                 developer-written hook functions (HookFunc
+                           signature) + the generated registry_gen.go
+    internal/hooks/        hook contract, executor (before-hooks), outbox
+                           worker (after-hooks with retry/backoff)
     internal/meta/         SQLite metadata store: migrations, users, roles,
                            datasources, table defs, audit
     internal/ds/           Adapter layer: dialect-neutral `Adapter` interface +
@@ -294,6 +322,17 @@ Integration tests share one schema (`DROP SCHEMA public CASCADE`), so run
 packages serially under load: `go test -p 1 ./...`.
 
 Lint/format: `go vet ./...` and `gofmt -l .` must be clean.
+
+### Hooks development
+
+Add a plain Go function with the `HookFunc` signature in `hooks/`, then run
+`make dev` (or `make build`) — `go generate ./hooks` scans the package with
+cmd/hookgen and rewrites `hooks/registry_gen.go`, so the function appears in
+the table-definition editor's Hooks section on the next load. Renaming a
+function registers a **new** hook: assignments to the old name stay in the
+definition and reject writes with `HOOK_MISSING` until you re-assign them.
+Failed after-hooks land on the durable outbox and retry with backoff —
+monitor and manually retry dead entries at `/hooks-outbox`.
 
 ### Frontend
 

@@ -147,6 +147,16 @@ export default {
   "tf.hooks.event.afterUpdate": "Sesudah update",
   "tf.hooks.event.beforeDelete": "Sebelum delete",
   "tf.hooks.event.afterDelete": "Sesudah delete",
+  // seksi hook (halaman Docs, developer)
+  "docs.hooks.title": "Hook (otomasi)",
+  "docs.hooks.what": "Hook adalah fungsi Go yang dikompilasi ke dalam server (direktori hooks/) dan ditugaskan ke event tabel di editor definisi. Hook berjalan dengan signature HookFunc (ctx, *HookContext, event, payload baris, config) dan menerima user yang bertindak, definisi tabel, semua datasource, metadata store, dan logger.",
+  "docs.hooks.events": "Enam event: sebelum/sesudah × buat/ubah/hapus. Tugaskan hook sebanyak apa pun per event; setiap penugasan punya config JSON sendiri dan urutan eksekusi (angka kecil lebih dulu).",
+  "docs.hooks.before": "Hook before berjalan sinkron di dalam proses tulis: boleh mengubah nilai payload atau menolak tulisan dengan error (HTTP 400 HOOK_REJECTED).",
+  "docs.hooks.after": "Hook after berjalan asinkron di worker latar belakang — hanya untuk efek samping (notifikasi, menulis data turunan ke tempat lain); hasilnya tidak bisa mengubah tulisan yang sudah selesai.",
+  "docs.hooks.outbox": "Pemanggilan hook after dicatat di outbox SQLite yang tahan lama dan dicoba ulang dengan backoff (30 dtk, 2 mnt, 10 mnt, 1 jam, 4 jam — lalu dead). Pantau entri pending dan dead, dan coba ulang yang dead, di halaman Hook Outbox.",
+  "docs.hooks.devflow": "Alur pengembangan: tambahkan fungsi di hooks/ → jalankan make dev atau make build (meregenerasi hooks/registry_gen.go) → hook muncul di editor definisi.",
+  "docs.hooks.rename": "Mengganti nama fungsi mendaftarkan hook baru — penugasan ke nama lama tetap menunjuk nama lama.",
+  "docs.hooks.missing": "Definisi yang menunjuk hook yang tidak ada di binary menolak tulisan dengan HOOK_MISSING. Hook berjalan dari semua jalur tulis: form, impor CSV, hapus massal, seret kanban, dan perubahan tautan m2m.",
   // kartu pengaturan tampilan (TableForm)
   "view.title": "Pengaturan Tampilan (Grid / Kanban / Kalender)",
   "view.desc": "Atur tampilan default serta cara kanban & kalender memakai data",

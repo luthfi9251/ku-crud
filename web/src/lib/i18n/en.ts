@@ -147,6 +147,16 @@ export default {
   "tf.hooks.event.afterUpdate": "After update",
   "tf.hooks.event.beforeDelete": "Before delete",
   "tf.hooks.event.afterDelete": "After delete",
+  // hooks section (Docs page, developer)
+  "docs.hooks.title": "Hooks (automation)",
+  "docs.hooks.what": "Hooks are Go functions compiled into the server (hooks/ directory) and assigned to table events in the definition editor. A hook runs with the HookFunc signature (ctx, *HookContext, event, row payload, config) and receives the acting user, the table definition, every datasource, the metadata store, and a logger.",
+  "docs.hooks.events": "Six events: before/after × create/update/delete. Assign any number of hooks per event; each assignment carries its own JSON config and an execution order (lower runs first).",
+  "docs.hooks.before": "Before-hooks run synchronously inside the write: they may modify the payload values or reject the write with an error (HTTP 400 HOOK_REJECTED).",
+  "docs.hooks.after": "After-hooks run asynchronously on a background worker — for side effects only (notifications, writing derived data elsewhere); their result cannot change the completed write.",
+  "docs.hooks.outbox": "After-hook calls are recorded in a durable SQLite outbox and retried with backoff (30s, 2m, 10m, 1h, 4h — then dead). Monitor pending and dead entries, and retry dead ones, on the Hook Outbox page.",
+  "docs.hooks.devflow": "Dev flow: add a function in hooks/ → run make dev or make build (regenerates hooks/registry_gen.go) → the hook appears in the definition editor.",
+  "docs.hooks.rename": "Renaming a function registers a new hook — assignments to the old name keep pointing at the old name.",
+  "docs.hooks.missing": "A definition referencing a hook that is not in the binary rejects writes with HOOK_MISSING. Hooks fire from every write path: forms, CSV import, bulk delete, kanban drag, and m2m link changes.",
   // view settings card (TableForm)
   "view.title": "View Settings (Grid / Kanban / Calendar)",
   "view.desc": "Set the default view and how kanban & calendar use the data",
