@@ -12,6 +12,7 @@ import Data from "./pages/Data";
 import Import from "./pages/Import";
 import Datasources from "./pages/Datasources";
 import Audit from "./pages/Audit";
+import HooksOutbox from "./pages/HooksOutbox";
 import MetaTransfer from "./pages/MetaTransfer";
 import Users from "./pages/Users";
 import Roles from "./pages/Roles";
@@ -38,6 +39,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="data/:id/import" element={<Import />} />
             <Route path="datasources" element={<Datasources />} />
             <Route path="audit" element={<Audit />} />
+            <Route path="hooks-outbox" element={<HooksOutbox />} />
             <Route path="meta" element={<MetaTransfer />} />
             <Route path="users" element={<Users />} />
             <Route path="roles" element={<Roles />} />

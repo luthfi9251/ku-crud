@@ -6,6 +6,7 @@ import {
   Table2,
   Server,
   ShieldCheck,
+  Zap,
   ArrowLeftRight,
   LogOut,
   ChevronRight,
@@ -212,7 +213,10 @@ export function Sidebar({ className }: SidebarProps) {
         ]
       : []),
     ...(canPlatform
-      ? [{ label: t("nav.audit"), path: "/audit", icon: ShieldCheck }]
+      ? [
+          { label: t("nav.audit"), path: "/audit", icon: ShieldCheck },
+          { label: t("nav.hooksOutbox"), path: "/hooks-outbox", icon: Zap },
+        ]
       : []),
   ];
 
