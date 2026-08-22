@@ -1,6 +1,6 @@
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./components/Sidebar";
-import { Table2, Server, ShieldCheck, Database, Layers, Users as UsersIcon, KeyRound, ArrowLeftRight } from "lucide-react";
+import { Table2, Server, ShieldCheck, Database, Layers, Users as UsersIcon, KeyRound, ArrowLeftRight, BookOpen } from "lucide-react";
 import { useT } from "./lib/i18n";
 
 export default function App() {
@@ -30,6 +30,8 @@ export default function App() {
       return { title: t("app.header.import"), subtitle: t("app.header.importSub"), icon: Layers };
     } else if (path.startsWith("/data/")) {
       return { title: t("app.header.data"), subtitle: t("app.header.dataSub"), icon: Layers };
+    } else if (path === "/docs") {
+      return { title: t("app.header.docs"), subtitle: t("app.header.docsSub"), icon: BookOpen };
     }
     return { title: t("app.header.default"), subtitle: t("app.header.defaultSub"), icon: Database };
   };

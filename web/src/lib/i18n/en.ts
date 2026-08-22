@@ -6,6 +6,7 @@ export default {
   "nav.users": "Users",
   "nav.roles": "Roles & Access",
   "nav.audit": "Audit Trail",
+  "nav.docs": "Documentation",
   "nav.activeTables": "Active Tables ({count})",
   "nav.newGroup": "New group",
   "nav.noTables": "No tables defined yet",
@@ -51,6 +52,8 @@ export default {
   "app.header.importSub": "Upload, map and validate rows before insert",
   "app.header.data": "Data Explorer",
   "app.header.dataSub": "Live table CRUD administration",
+  "app.header.docs": "Documentation",
+  "app.header.docsSub": "How to use and configure Ku-CRUD",
   "app.header.default": "Ku-CRUD",
   "app.header.defaultSub": "Database Administration",
   // login / setup

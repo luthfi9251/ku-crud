@@ -21,6 +21,7 @@ import {
   Trash2,
   Users as UsersIcon,
   KeyRound,
+  BookOpen,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type { Me, TableDef, TableGroup } from "@/lib/types";
@@ -203,6 +204,7 @@ export function Sidebar({ className }: SidebarProps) {
         ]
       : []),
     { label: t("nav.tables"), path: "/", icon: Table2 },
+    { label: t("nav.docs"), path: "/docs", icon: BookOpen },
     ...(isAdmin
       ? [
           { label: t("nav.users"), path: "/users", icon: UsersIcon },

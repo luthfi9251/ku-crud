@@ -6,6 +6,7 @@ export default {
   "nav.users": "Pengguna",
   "nav.roles": "Peran & Akses",
   "nav.audit": "Jejak Audit",
+  "nav.docs": "Dokumentasi",
   "nav.activeTables": "Tabel Aktif ({count})",
   "nav.newGroup": "Grup baru",
   "nav.noTables": "Belum ada tabel",
@@ -51,6 +52,8 @@ export default {
   "app.header.importSub": "Unggah, petakan, dan validasi baris sebelum disisipkan",
   "app.header.data": "Penjelajah Data",
   "app.header.dataSub": "Administrasi CRUD tabel langsung",
+  "app.header.docs": "Dokumentasi",
+  "app.header.docsSub": "Cara menggunakan dan mengonfigurasi Ku-CRUD",
   "app.header.default": "Ku-CRUD",
   "app.header.defaultSub": "Administrasi Basis Data",
   // login / setup

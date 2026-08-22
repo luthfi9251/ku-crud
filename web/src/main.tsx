@@ -15,6 +15,7 @@ import Audit from "./pages/Audit";
 import MetaTransfer from "./pages/MetaTransfer";
 import Users from "./pages/Users";
 import Roles from "./pages/Roles";
+import Docs from "./pages/Docs";
 import "./index.css";
 
 const qc = new QueryClient({
@@ -40,6 +41,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="meta" element={<MetaTransfer />} />
             <Route path="users" element={<Users />} />
             <Route path="roles" element={<Roles />} />
+            <Route path="docs" element={<Docs />} />
           </Route>
         </Routes>
         </HashRouter>
