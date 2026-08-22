@@ -563,14 +563,15 @@ export default function Data() {
 
   return (
     <div className="space-y-6">
-      {/* Top Header & Search Bar */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b pb-4">
+      {/* Top Header & Action Toolbar */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b pb-4">
+        {/* Table Title & Metadata */}
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 shadow-xs">
             <Layers className="h-5 w-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-xl font-bold tracking-tight">{def.data.label}</h2>
               <Badge variant="outline" className="font-mono text-[10px] bg-muted/60">
                 {def.data.schemaName}.{def.data.tableName}
@@ -582,137 +583,167 @@ export default function Data() {
           </div>
         </div>
 
-        <div>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <FilterBar key={id} cols={cols} filters={filters} onChange={(fs) => { setFilters(fs); setPage(1); }} />
-            {effectiveView === "grid" && groupable.length > 0 && (
-              <Select value={groupBy || "none"} onValueChange={(v) => { setGroupBy(v === "none" ? "" : v); setPage(1); }}>
-                <SelectTrigger className="h-8 w-36 text-xs"><SelectValue placeholder={t("data.groupBy")} /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none" className="text-xs">{t("data.noGrouping")}</SelectItem>
-                  {groupable.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            )}
-            <div className="flex items-center gap-1">
-              <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px]"
-                disabled={filters.length === 0}
-                onClick={() => { const name = prompt(t("data.saveFilterPrompt")); if (name && name.trim()) saveFilter.mutate(name.trim()); }}>
-                <Save className="h-3 w-3" /> {t("data.saveFilter")}
-              </Button>
-              <div className="relative">
-                <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px]" onClick={() => setFilterMenu(!filterMenu)}>
-                  <Bookmark className="h-3 w-3" /> {t("data.saved", { count: String(savedF.data?.length ?? 0) })}
-                </Button>
-                {filterMenu && (
-                  <div className="absolute right-0 z-20 mt-1 w-56 rounded-md border bg-popover p-1 shadow text-xs text-popover-foreground">
-                    {(savedF.data ?? []).length === 0 && <p className="px-2 py-1 text-muted-foreground">{t("data.noSavedFilters")}</p>}
-                    {(savedF.data ?? []).map((f) => (
-                      <div key={f.id} className="flex items-center justify-between rounded-sm px-2 py-1 hover:bg-accent">
-                        <button className="flex-1 text-left truncate"
-                          onClick={() => { setFilters(deserializeFilters(f.filters)); setPage(1); setFilterMenu(false); }}>
-                          {f.name}
-                        </button>
-                        <button className="text-muted-foreground hover:text-destructive" title={t("btn.delete")}
-                          onClick={() => { if (confirm(t("data.deleteFilterConfirm", { name: f.name }))) delFilter.mutate(f.id); }}>
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-          {cols.some((c) => c.searchable) && (
-            <div className="flex items-center gap-1">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder={t("data.search")}
-                  className="h-9 w-48 pl-8 text-xs md:w-64"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              <HelpPopover title={t("help.searchTitle")} placement="bottom">
-                <p>{t("help.searchBody")}</p>
-              </HelpPopover>
-            </div>
-          )}
-          <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-muted/40 p-0.5">
-            {(["grid", "kanban", "calendar"] as const).filter((v) => viewOk[v]).map((v) => (
-              <button key={v} onClick={() => setView(v)}
-                className={cn("rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                  effectiveView === v ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                {v === "grid" ? t("data.viewGrid") : v === "kanban" ? t("data.viewKanban") : t("data.viewCalendar")}
-              </button>
-            ))}
-          </div>
+        {/* Action Buttons Toolbar */}
+        <div className="flex flex-wrap items-center gap-2">
           {me.data?.platformManage && (
             <Button
               variant="outline"
               size="sm"
-              className="h-9 gap-1 text-xs"
+              className="h-8 gap-1.5 text-xs"
               onClick={() => navigate(`/tables/${id}/edit`)}
               title={t("data.openDefinition")}
             >
-              <Settings2 className="h-3.5 w-3.5" /> {t("data.definition")}
+              <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
+              <span>{t("data.definition")}</span>
             </Button>
           )}
           <Button
             variant="outline"
             size="sm"
-            className="h-9 gap-1 text-xs"
+            className="h-8 gap-1.5 text-xs"
             onClick={() => rows.refetch()}
             title={t("data.refresh")}
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${rows.isFetching ? "animate-spin" : ""}`} />
+            <RefreshCw className={`h-3.5 w-3.5 text-muted-foreground ${rows.isFetching ? "animate-spin" : ""}`} />
+            <span>{t("data.refresh")}</span>
           </Button>
+
           <div className="flex items-center gap-1">
             <Button
               variant="outline"
               size="sm"
-              className="h-9 gap-1 text-xs"
+              className="h-8 gap-1.5 text-xs"
               onClick={() => exportCSV()}
               disabled={exporting}
               title={t("data.exportTitle")}
             >
-              <Download className="h-3.5 w-3.5" />
-              {exporting ? t("data.exporting") : t("data.export")}
+              <Download className="h-3.5 w-3.5 text-muted-foreground" />
+              <span>{exporting ? t("data.exporting") : t("data.export")}</span>
             </Button>
             <HelpPopover title={t("help.exportTitle")} placement="bottom">
               <p>{t("help.exportBody1")}</p>
               <p className="pt-1 text-[10px]">💡 {t("help.exportBody2")}</p>
             </HelpPopover>
           </div>
+
           {perms.create && (
             <>
               <div className="flex items-center gap-1">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-9 gap-1 text-xs"
+                  className="h-8 gap-1.5 text-xs"
                   onClick={() => navigate(`/data/${id}/import`)}
                   title={t("data.importTitle")}
                 >
-                  <Upload className="h-3.5 w-3.5" /> {t("data.import")}
+                  <Upload className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span>{t("data.import")}</span>
                 </Button>
                 <HelpPopover title={t("help.importTitle")} placement="bottom">
                   <p>{t("help.importBody1")}</p>
                   <p className="pt-1 text-[10px]">💡 {t("help.importBody2")}</p>
                 </HelpPopover>
               </div>
+
               <Button
                 onClick={() => setForm({ mode: "new", row: {} })}
-                className="h-9 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1 text-xs"
+                className="h-8 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1.5 text-xs font-medium"
               >
                 <Plus className="h-4 w-4" /> {t("data.newRow")}
               </Button>
             </>
           )}
+        </div>
+      </div>
+
+      {/* Control & Filter Toolbar Card */}
+      <div className="rounded-xl border border-border/60 bg-card p-3 shadow-xs space-y-3">
+        {/* Controls Row: Search, Grouping, Saved Filters, View Switcher */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            {cols.some((c) => c.searchable) && (
+              <div className="flex items-center gap-1">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder={t("data.search")}
+                    className="h-8 w-48 pl-8 text-xs sm:w-60"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+                <HelpPopover title={t("help.searchTitle")} placement="bottom">
+                  <p>{t("help.searchBody")}</p>
+                </HelpPopover>
+              </div>
+            )}
+
+            {effectiveView === "grid" && groupable.length > 0 && (
+              <Select value={groupBy || "none"} onValueChange={(v) => { setGroupBy(v === "none" ? "" : v); setPage(1); }}>
+                <SelectTrigger className="h-8 w-36 text-xs bg-muted/30">
+                  <SelectValue placeholder={t("data.groupBy")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none" className="text-xs">{t("data.noGrouping")}</SelectItem>
+                  {groupable.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+
+            {/* Saved Filters Dropdown */}
+            <div className="relative">
+              <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs bg-muted/30" onClick={() => setFilterMenu(!filterMenu)}>
+                <Bookmark className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>{t("data.saved", { count: String(savedF.data?.length ?? 0) })}</span>
+              </Button>
+              {filterMenu && (
+                <div className="absolute left-0 sm:left-auto sm:right-0 z-20 mt-1 w-56 rounded-lg border border-border bg-popover p-1 shadow-md text-xs text-popover-foreground">
+                  {(savedF.data ?? []).length === 0 && <p className="px-2 py-1.5 text-muted-foreground italic text-[11px]">{t("data.noSavedFilters")}</p>}
+                  {(savedF.data ?? []).map((f) => (
+                    <div key={f.id} className="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-accent transition-colors">
+                      <button className="flex-1 text-left truncate font-medium"
+                        onClick={() => { setFilters(deserializeFilters(f.filters)); setPage(1); setFilterMenu(false); }}>
+                        {f.name}
+                      </button>
+                      <button className="text-muted-foreground hover:text-destructive p-0.5 rounded" title={t("btn.delete")}
+                        onClick={() => { if (confirm(t("data.deleteFilterConfirm", { name: f.name }))) delFilter.mutate(f.id); }}>
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* View Switcher */}
+          <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-muted/40 p-0.5 shrink-0 self-start sm:self-auto">
+            {(["grid", "kanban", "calendar"] as const).filter((v) => viewOk[v]).map((v) => (
+              <button key={v} onClick={() => setView(v)}
+                className={cn("rounded-md px-2.5 py-1 text-xs font-medium transition-all",
+                  effectiveView === v ? "bg-card shadow-xs text-foreground font-semibold" : "text-muted-foreground hover:text-foreground")}>
+                {v === "grid" ? t("data.viewGrid") : v === "kanban" ? t("data.viewKanban") : t("data.viewCalendar")}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Filter Section Row */}
+        <div className="pt-2 border-t border-border/40 flex flex-wrap items-center gap-2">
+          <FilterBar key={id} cols={cols} filters={filters} onChange={(fs) => { setFilters(fs); setPage(1); }} />
+          {filters.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
+              onClick={() => {
+                const name = prompt(t("data.saveFilterPrompt"));
+                if (name && name.trim()) saveFilter.mutate(name.trim());
+              }}
+            >
+              <Save className="h-3 w-3" /> {t("data.saveFilter")}
+            </Button>
+          )}
         </div>
       </div>
 

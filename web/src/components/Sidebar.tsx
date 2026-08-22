@@ -321,55 +321,64 @@ export function Sidebar({ className }: SidebarProps) {
             <>
               {(groups.data ?? []).map((g) => (
                 <div key={g.id}>
-                  <div className="flex items-center gap-1 px-2 py-1">
+                  <div className="flex items-center justify-between px-2 py-1 group/gh">
                     <button
+                      type="button"
                       onClick={() => toggleGroup(g.id)}
-                      className="flex h-4 w-4 shrink-0 items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground"
+                      className="flex flex-1 items-center gap-1.5 min-w-0 text-left cursor-pointer hover:text-sidebar-foreground transition-colors py-0.5 rounded-sm hover:bg-sidebar-accent/30"
                       title={
                         collapsedGroups.has(g.id)
                           ? t("nav.expandGroup")
                           : t("nav.collapseGroup")
                       }
                     >
-                      {collapsedGroups.has(g.id) ? (
-                        <ChevronRight className="h-3 w-3" />
-                      ) : (
-                        <ChevronDown className="h-3 w-3" />
-                      )}
+                      <div className="flex h-4 w-4 shrink-0 items-center justify-center text-sidebar-foreground/40 group-hover/gh:text-sidebar-foreground">
+                        {collapsedGroups.has(g.id) ? (
+                          <ChevronRight className="h-3 w-3" />
+                        ) : (
+                          <ChevronDown className="h-3 w-3" />
+                        )}
+                      </div>
+                      <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50 group-hover/gh:text-sidebar-foreground">
+                        {g.name}
+                      </span>
                     </button>
-                    <span className="flex-1 truncate text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
-                      {g.name}
-                    </span>
                     {canPlatform && (
-                      <>
+                      <div className="flex items-center gap-0.5 shrink-0 opacity-80 group-hover/gh:opacity-100">
                         <button
-                          onClick={() =>
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
                             groupMut.mutate({
                               method: "PATCH",
                               path: `/groups/${g.id}`,
                               body: { move: "up" },
-                            })
-                          }
+                            });
+                          }}
                           className="flex h-4 w-4 items-center justify-center rounded text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
                           title={t("nav.moveUp")}
                         >
                           <ChevronUp className="h-3 w-3" />
                         </button>
                         <button
-                          onClick={() =>
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
                             groupMut.mutate({
                               method: "PATCH",
                               path: `/groups/${g.id}`,
                               body: { move: "down" },
-                            })
-                          }
+                            });
+                          }}
                           className="flex h-4 w-4 items-center justify-center rounded text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
                           title={t("nav.moveDown")}
                         >
                           <ChevronDown className="h-3 w-3" />
                         </button>
                         <button
-                          onClick={() => {
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
                             const name = prompt(t("nav.groupNamePrompt"), g.name);
                             if (name)
                               groupMut.mutate({
@@ -384,7 +393,9 @@ export function Sidebar({ className }: SidebarProps) {
                           <Pencil className="h-3 w-3" />
                         </button>
                         <button
-                          onClick={() => {
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
                             if (
                               confirm(
                                 t("nav.deleteGroupConfirm", { name: g.name }),
@@ -400,7 +411,7 @@ export function Sidebar({ className }: SidebarProps) {
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>
-                      </>
+                      </div>
                     )}
                   </div>
                   {!collapsedGroups.has(g.id) && byGroup(g.id).map(renderTable)}

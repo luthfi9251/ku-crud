@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ColumnListEditor, M2MRelationsEditor, type FormCol } from "../components/ColumnListEditor";
+import { ColumnListEditor, M2MRelationsEditor, HelpPopover, type FormCol } from "../components/ColumnListEditor";
 import { useT } from "../lib/i18n";
 
 export const fieldTypes = ["boolean", "text", "number", "datetime", "enum", "uuid", "json", "fk"] as const;
@@ -555,9 +555,15 @@ function ViewSettingsCard({ cols, defaultView, setDefaultView, viewConfig, setVi
         <CardDescription className="text-xs">{t("view.desc")}</CardDescription>
       </CardHeader>
       <CardContent className="pt-4 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+           {/* Default View Select */}
            <div className="space-y-1.5">
-             <Label className="text-xs font-medium">{t("view.default")}</Label>
+             <div className="flex items-center gap-1.5">
+               <Label className="text-xs font-medium">{t("view.default")}</Label>
+               <HelpPopover title={t("view.default")} placement="bottom">
+                 <p>{t("view.defaultHelp")}</p>
+               </HelpPopover>
+             </div>
              <Select value={defaultView} onValueChange={(v) => setDefaultView(v as "grid" | "kanban" | "calendar")}>
                <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
                <SelectContent>
@@ -567,57 +573,90 @@ function ViewSettingsCard({ cols, defaultView, setDefaultView, viewConfig, setVi
                </SelectContent>
              </Select>
            </div>
-           <div className="space-y-1.5">
-             <Label className="text-xs font-medium">{t("view.boardCol")}</Label>
-             <Select value={viewConfig.kanbanBoardColumn ?? "none"}
-               onValueChange={(v) => setViewConfig({ ...viewConfig, kanbanBoardColumn: v === "none" ? undefined : v })}>
-               <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={t("view.noneKanban")} /></SelectTrigger>
-               <SelectContent>
-                 <SelectItem value="none" className="text-xs">{t("view.noneKanban")}</SelectItem>
-                 {enums.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
-               </SelectContent>
-             </Select>
-             <p className="text-[10px] text-muted-foreground">{t("view.boardColHint")}</p>
-           </div>
-           <div className="space-y-1.5">
-             <Label className="text-xs font-medium">{t("view.cardTitle")}</Label>
-             <Select value={viewConfig.kanbanDisplayColumn ?? "none"}
-               onValueChange={(v) => setViewConfig({ ...viewConfig, kanbanDisplayColumn: v === "none" ? undefined : v })}>
-               <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={t("tform.noneKey")} /></SelectTrigger>
-               <SelectContent>
-                 <SelectItem value="none" className="text-xs">{t("tform.noneKey")}</SelectItem>
-                 {visibleCols.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
-               </SelectContent>
-             </Select>
-           </div>
-           <div className="space-y-1.5">
-             <Label className="text-xs font-medium">{t("view.startCol")}</Label>
-             <Select value={viewConfig.calendarStartColumn ?? "none"}
-               onValueChange={(v) => setViewConfig({ ...viewConfig, calendarStartColumn: v === "none" ? undefined : v })}>
-               <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={t("view.noneCalendar")} /></SelectTrigger>
-               <SelectContent>
-                 <SelectItem value="none" className="text-xs">{t("view.noneCalendar")}</SelectItem>
-                 {datetimes.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
-               </SelectContent>
-             </Select>
-           </div>
-           <div className="space-y-1.5">
-             <Label className="text-xs font-medium">{t("view.endCol")}</Label>
-             <Select value={viewConfig.calendarEndColumn ?? "none"}
-               onValueChange={(v) => setViewConfig({ ...viewConfig, calendarEndColumn: v === "none" ? undefined : v })}>
-               <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={t("view.noneEnd")} /></SelectTrigger>
-               <SelectContent>
-                 <SelectItem value="none" className="text-xs">{t("view.noneEnd")}</SelectItem>
-                 {datetimes.filter((c) => c.name !== viewConfig.calendarStartColumn)
-                   .map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
-               </SelectContent>
-             </Select>
-           </div>
-         </div>
-         <p className="text-[10px] text-muted-foreground">
-           {t("view.hint")}
-         </p>
-      </CardContent>
+
+           {/* Kanban Settings - Shown ONLY when defaultView === 'kanban' */}
+           {defaultView === "kanban" && (
+             <>
+               <div className="space-y-1.5">
+                 <div className="flex items-center gap-1.5">
+                   <Label className="text-xs font-medium">{t("view.boardCol")}</Label>
+                   <HelpPopover title={t("view.boardCol")} placement="bottom">
+                     <p>{t("view.boardColHint")}</p>
+                   </HelpPopover>
+                 </div>
+                 <Select value={viewConfig.kanbanBoardColumn ?? "none"}
+                   onValueChange={(v) => setViewConfig({ ...viewConfig, kanbanBoardColumn: v === "none" ? undefined : v })}>
+                   <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={t("view.noneKanban")} /></SelectTrigger>
+                   <SelectContent>
+                     <SelectItem value="none" className="text-xs">{t("view.noneKanban")}</SelectItem>
+                     {enums.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+                   </SelectContent>
+                 </Select>
+               </div>
+
+               <div className="space-y-1.5">
+                 <div className="flex items-center gap-1.5">
+                   <Label className="text-xs font-medium">{t("view.cardTitle")}</Label>
+                   <HelpPopover title={t("view.cardTitle")} placement="bottom">
+                     <p>{t("view.cardTitleHelp")}</p>
+                   </HelpPopover>
+                 </div>
+                 <Select value={viewConfig.kanbanDisplayColumn ?? "none"}
+                   onValueChange={(v) => setViewConfig({ ...viewConfig, kanbanDisplayColumn: v === "none" ? undefined : v })}>
+                   <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={t("tform.noneKey")} /></SelectTrigger>
+                   <SelectContent>
+                     <SelectItem value="none" className="text-xs">{t("tform.noneKey")}</SelectItem>
+                     {visibleCols.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+                   </SelectContent>
+                 </Select>
+               </div>
+             </>
+           )}
+
+           {/* Calendar Settings - Shown ONLY when defaultView === 'calendar' */}
+           {defaultView === "calendar" && (
+             <>
+               <div className="space-y-1.5">
+                 <div className="flex items-center gap-1.5">
+                   <Label className="text-xs font-medium">{t("view.startCol")}</Label>
+                   <HelpPopover title={t("view.startCol")} placement="bottom">
+                     <p>{t("view.startColHelp")}</p>
+                   </HelpPopover>
+                 </div>
+                 <Select value={viewConfig.calendarStartColumn ?? "none"}
+                   onValueChange={(v) => setViewConfig({ ...viewConfig, calendarStartColumn: v === "none" ? undefined : v })}>
+                   <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={t("view.noneCalendar")} /></SelectTrigger>
+                   <SelectContent>
+                     <SelectItem value="none" className="text-xs">{t("view.noneCalendar")}</SelectItem>
+                     {datetimes.map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+                   </SelectContent>
+                 </Select>
+               </div>
+
+               <div className="space-y-1.5">
+                 <div className="flex items-center gap-1.5">
+                   <Label className="text-xs font-medium">{t("view.endCol")}</Label>
+                   <HelpPopover title={t("view.endCol")} placement="bottom">
+                     <p>{t("view.endColHelp")}</p>
+                   </HelpPopover>
+                 </div>
+                 <Select value={viewConfig.calendarEndColumn ?? "none"}
+                   onValueChange={(v) => setViewConfig({ ...viewConfig, calendarEndColumn: v === "none" ? undefined : v })}>
+                   <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={t("view.noneEnd")} /></SelectTrigger>
+                   <SelectContent>
+                     <SelectItem value="none" className="text-xs">{t("view.noneEnd")}</SelectItem>
+                     {datetimes.filter((c) => c.name !== viewConfig.calendarStartColumn)
+                       .map((c) => <SelectItem key={c.name} value={c.name} className="text-xs font-mono">{c.label}</SelectItem>)}
+                   </SelectContent>
+                 </Select>
+               </div>
+             </>
+           )}
+          </div>
+          <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/40">
+            {t("view.hint")}
+          </p>
+       </CardContent>
     </Card>
   );
 }

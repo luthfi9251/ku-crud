@@ -513,9 +513,19 @@ function ComputedEditor({ col, index, setCol }: {
       <div className="flex items-center gap-2">
         <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">{t("col.computed")}</span>
         <HelpPopover title={t("col.computedTitle")} placement="bottom">
-          <p>{t("col.computed1")}</p>
-          <p className="pt-1 text-[10px] font-mono">price * qty + 5 · CONCAT(first, " ", last)</p>
-          <p className="pt-1">{t("col.computed2")}</p>
+          <p className="text-xs font-normal">{t("col.computed1")}</p>
+          <div className="pt-2 space-y-1">
+            <p className="text-[11px] font-semibold text-foreground">{t("col.computedCmdTitle")}</p>
+            <ul className="text-[10px] font-mono space-y-0.5 text-muted-foreground list-disc pl-3">
+              <li>{t("col.computedOpAdd")}</li>
+              <li>{t("col.computedOpSub")}</li>
+              <li>{t("col.computedOpMul")}</li>
+              <li>{t("col.computedOpDiv")}</li>
+              <li>{t("col.computedOpParen")}</li>
+              <li>{t("col.computedOpConcat")}</li>
+            </ul>
+          </div>
+          <p className="pt-2 text-[10px]">{t("col.computed2")}</p>
         </HelpPopover>
       </div>
       <div className="flex flex-wrap items-center gap-3">
