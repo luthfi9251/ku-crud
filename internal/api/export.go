@@ -70,25 +70,52 @@ func (s *Server) handleRowExport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "FILTER_INVALID", fmsg, nil)
 		return
 	}
-	lp := ds.ListParams{Schema: def.SchemaName, Table: def.TableName, Columns: realColNames(cols),
-		Searchable: searchable, Search: q.Get("search"),
-		SortCol: sortCol, SortDir: sortDir, Filters: filters,
-		Limit: exportRowCap + 1, Offset: 0}
-
-	total, err := a.CountRows(lp)
-	if err != nil {
-		writeErr(w, 502, "CONN", "count failed", err.Error())
-		return
-	}
-	if total > exportRowCap {
-		writeErr(w, 400, "EXPORT_TOO_LARGE",
-			fmt.Sprintf("export is limited to %d rows; this query matches %d — narrow the search", exportRowCap, total), nil)
-		return
-	}
-	rows, err := a.ListRows(lp)
-	if err != nil {
-		writeErr(w, 502, "CONN", "query failed", err.Error())
-		return
+	var total int
+	var rows []map[string]any
+	if isQueryDef(def) {
+		if sortCol == "" {
+			writeErr(w, 400, "VALIDATION", "query view has no sortable column", nil)
+			return
+		}
+		qp := ds.QueryParams{Query: def.QuerySQL, Columns: realColNames(cols),
+			Searchable: searchable, Search: q.Get("search"),
+			SortCol: sortCol, SortDir: sortDir, Filters: filters,
+			Limit: exportRowCap + 1, Offset: 0}
+		total, err = a.CountQueryRows(qp)
+		if err != nil {
+			writeQueryErr(w, err)
+			return
+		}
+		if total > exportRowCap {
+			writeErr(w, 400, "EXPORT_TOO_LARGE",
+				fmt.Sprintf("export is limited to %d rows; this query matches %d — narrow the search", exportRowCap, total), nil)
+			return
+		}
+		rows, err = a.ListQueryRows(qp)
+		if err != nil {
+			writeQueryErr(w, err)
+			return
+		}
+	} else {
+		lp := ds.ListParams{Schema: def.SchemaName, Table: def.TableName, Columns: realColNames(cols),
+			Searchable: searchable, Search: q.Get("search"),
+			SortCol: sortCol, SortDir: sortDir, Filters: filters,
+			Limit: exportRowCap + 1, Offset: 0}
+		total, err = a.CountRows(lp)
+		if err != nil {
+			writeErr(w, 502, "CONN", "count failed", err.Error())
+			return
+		}
+		if total > exportRowCap {
+			writeErr(w, 400, "EXPORT_TOO_LARGE",
+				fmt.Sprintf("export is limited to %d rows; this query matches %d — narrow the search", exportRowCap, total), nil)
+			return
+		}
+		rows, err = a.ListRows(lp)
+		if err != nil {
+			writeErr(w, 502, "CONN", "query failed", err.Error())
+			return
+		}
 	}
 	applyComputed(cols, rows)
 

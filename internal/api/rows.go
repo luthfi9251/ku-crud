@@ -57,7 +57,15 @@ func resolveSort(def *meta.TableDef, cols []meta.ColumnDef, sortCol, sortDir str
 		}
 		return def.DefaultSortCol, d
 	}
-	return def.KeyColumns[0], "ASC"
+	if len(def.KeyColumns) > 0 {
+		return def.KeyColumns[0], "ASC"
+	}
+	for _, c := range cols {
+		if c.Sortable && c.FieldType != "m2m" && !c.IsComputed {
+			return c.Name, "ASC"
+		}
+	}
+	return "", ""
 }
 
 func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
@@ -98,23 +106,45 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	names := realColNames(cols)
-	lp := ds.ListParams{Schema: def.SchemaName, Table: def.TableName, Columns: names,
-		Searchable: searchable, Search: q.Get("search"),
-		SortCol: sortCol, SortDir: sortDir,
-		Filters: filters,
-		Limit:   def.PageSize, Offset: (page - 1) * def.PageSize}
-
-	rows, err := a.ListRows(lp)
-	if err != nil {
-		writeErr(w, 502, "CONN", "query failed", err.Error())
-		return
+	var rows []map[string]any
+	var total int
+	if isQueryDef(def) {
+		if sortCol == "" {
+			writeErr(w, 400, "VALIDATION", "query view has no sortable column", nil)
+			return
+		}
+		qp := ds.QueryParams{Query: def.QuerySQL, Columns: names,
+			Searchable: searchable, Search: q.Get("search"),
+			SortCol: sortCol, SortDir: sortDir, Filters: filters,
+			Limit: def.PageSize, Offset: (page - 1) * def.PageSize}
+		rows, err = a.ListQueryRows(qp)
+		if err != nil {
+			writeQueryErr(w, err)
+			return
+		}
+		total, err = a.CountQueryRows(qp)
+		if err != nil {
+			writeQueryErr(w, err)
+			return
+		}
+	} else {
+		lp := ds.ListParams{Schema: def.SchemaName, Table: def.TableName, Columns: names,
+			Searchable: searchable, Search: q.Get("search"),
+			SortCol: sortCol, SortDir: sortDir,
+			Filters: filters,
+			Limit:   def.PageSize, Offset: (page - 1) * def.PageSize}
+		rows, err = a.ListRows(lp)
+		if err != nil {
+			writeErr(w, 502, "CONN", "query failed", err.Error())
+			return
+		}
+		total, err = a.CountRows(lp)
+		if err != nil {
+			writeErr(w, 502, "CONN", "count failed", err.Error())
+			return
+		}
 	}
 	applyComputed(cols, rows)
-	total, err := a.CountRows(lp)
-	if err != nil {
-		writeErr(w, 502, "CONN", "count failed", err.Error())
-		return
-	}
 	rels := s.buildRels(u, cols, rows)
 	m2mRels := s.buildM2MRels(u, def, cols, rows)
 	if rows == nil {
@@ -151,16 +181,36 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return
 	}
-	rowsOut, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, keyVals, names)
-	if err != nil {
-		writeErr(w, 502, "CONN", "query failed", err.Error())
-		return
+	var row map[string]any
+	if isQueryDef(def) {
+		kf := make([]ds.ColumnFilter, len(keyVals))
+		for i, k := range def.KeyColumns {
+			kf[i] = ds.ColumnFilter{Column: k, Op: "eq", Values: []any{keyVals[i]}}
+		}
+		qp := ds.QueryParams{Query: def.QuerySQL, Columns: names,
+			SortCol: def.KeyColumns[0], SortDir: "ASC", Filters: kf, Limit: 1}
+		rowsOut, err := a.ListQueryRows(qp)
+		if err != nil {
+			writeQueryErr(w, err)
+			return
+		}
+		if len(rowsOut) == 0 {
+			writeErr(w, 404, "NOT_FOUND", "row not found", nil)
+			return
+		}
+		row = rowsOut[0]
+	} else {
+		rowsOut, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, keyVals, names)
+		if err != nil {
+			writeErr(w, 502, "CONN", "query failed", err.Error())
+			return
+		}
+		if len(rowsOut) == 0 {
+			writeErr(w, 404, "NOT_FOUND", "row not found", nil)
+			return
+		}
+		row = rowsOut[0]
 	}
-	if len(rowsOut) == 0 {
-		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
-		return
-	}
-	row := rowsOut[0]
 	applyComputed(cols, []map[string]any{row})
 	rels := s.buildRels(userFrom(r), cols, []map[string]any{row})
 	writeJSON(w, 200, map[string]any{"row": row, "rels": rels})
