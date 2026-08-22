@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"ku-crud/internal/ds"
+	"ku-crud/internal/hooks"
 	"ku-crud/internal/meta"
 )
 
@@ -285,6 +286,20 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
+	if err := s.hookGuard(def); err != nil {
+		writeHookErr(w, err)
+		return
+	}
+	body, err = s.runBefore(r.Context(), u, def, cols, hooks.BeforeCreate, body, nil)
+	if err != nil {
+		writeHookErr(w, err)
+		return
+	}
+	names, vals, err = editablePayload(body, cols, def.KeyColumns, true)
+	if err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
 	a, err := s.liveAdapter(def.DatasourceID)
 	if err != nil {
 		s.writeLiveErr(w, err)
@@ -317,6 +332,7 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditBestEffort(u, def.ID, "INSERT", "", nil, body)
+	s.enqueueAfter(u, def, hooks.AfterCreate, nil, body)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -372,6 +388,16 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer a.Close()
 
+	oldRows, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals, realColNames(cols))
+	if err != nil {
+		writeErr(w, 502, "CONN", "fetch old failed", err.Error())
+		return
+	}
+	if len(oldRows) == 0 {
+		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
+		return
+	}
+
 	if err := s.checkFKValues(cols, names, vals); err != nil {
 		if errors.Is(err, errFKRefNotFound) {
 			writeErr(w, 400, "VALIDATION", err.Error(), nil)
@@ -381,13 +407,18 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	oldRows, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals, realColNames(cols))
-	if err != nil {
-		writeErr(w, 502, "CONN", "fetch old failed", err.Error())
+	if err := s.hookGuard(def); err != nil {
+		writeHookErr(w, err)
 		return
 	}
-	if len(oldRows) == 0 {
-		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
+	body, err = s.runBefore(r.Context(), u, def, cols, hooks.BeforeUpdate, body, oldRows[0])
+	if err != nil {
+		writeHookErr(w, err)
+		return
+	}
+	names, vals, err = editablePayload(body, cols, def.KeyColumns, false)
+	if err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
 
@@ -400,6 +431,7 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// ponytail: per-row new = old merged with payload (computed cols not re-read)
+	var mergedLast map[string]any
 	for _, old := range oldRows {
 		merged := map[string]any{}
 		for k, v := range old {
@@ -408,8 +440,10 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		for k, v := range body {
 			merged[k] = v
 		}
+		mergedLast = merged
 		s.auditBestEffort(u, def.ID, "UPDATE", rowKeyString(def, old), old, merged)
 	}
+	s.enqueueAfter(u, def, hooks.AfterUpdate, oldRows[0], mergedLast)
 	if err := s.applyM2MPayload(u, def, cols, body, oldRows[0], selections); err != nil {
 		var ae *apiError
 		if errors.As(err, &ae) {
@@ -467,6 +501,16 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, "CONFLICT", "row is referenced by other rows", conflicts)
 		return
 	}
+	if err := s.hookGuard(def); err != nil {
+		writeHookErr(w, err)
+		return
+	}
+	for _, old := range oldRows {
+		if _, err := s.runBefore(r.Context(), u, def, cols, hooks.BeforeDelete, nil, old); err != nil {
+			writeHookErr(w, err)
+			return
+		}
+	}
 	if _, err := a.DeleteByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals); err != nil {
 		if a.IsFKViolation(err) {
 			writeErr(w, 409, "CONFLICT", "row is referenced by other rows (database constraint)", nil)
@@ -477,6 +521,9 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, old := range oldRows {
 		s.auditBestEffort(u, def.ID, "DELETE", rowKeyString(def, old), old, nil)
+	}
+	for _, old := range oldRows {
+		s.enqueueAfter(u, def, hooks.AfterDelete, old, nil)
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "affected": len(oldRows)})
 }
