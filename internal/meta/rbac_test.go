@@ -27,7 +27,7 @@ func TestUserLifecycleWithRoles(t *testing.T) {
 		t.Fatal("first user not created")
 	}
 	// custom role
-	r := &Role{Name: "Editor", PlatformManage: false}
+	r := &Role{Name: "Editor"}
 	grants := []TableGrant{{TableDefID: 1, CanRead: true, CanCreate: true}}
 	if err := s.CreateRole(r, grants); err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestUserLifecycleWithRoles(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("GetUserContext bob: %v %v", ok, err)
 	}
-	if u.IsAdmin || u.PlatformManage || u.RoleID != r.ID {
+	if u.IsAdmin || u.ManageDatasources || u.ManageTables || u.ViewAudit || u.ViewOutbox || u.RoleID != r.ID {
 		t.Fatalf("bob context: %+v", u)
 	}
 	f, ok, _ := s.GetUserContext("first")
@@ -106,7 +106,7 @@ func TestUserLifecycleWithRoles(t *testing.T) {
 func TestRoleCRUDAndGuards(t *testing.T) {
 	s := openTest(t)
 	seedDefs(t, s, 8) // table defs 1..8 exist for grants
-	r := &Role{Name: "Viewer", PlatformManage: true}
+	r := &Role{Name: "Viewer", ManageTables: true}
 	if err := s.CreateRole(r, []TableGrant{{TableDefID: 7, CanRead: true}}); err != nil {
 		t.Fatal(err)
 	}
@@ -115,12 +115,12 @@ func TestRoleCRUDAndGuards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Name != "Viewer" || !got.PlatformManage || len(grants) != 1 || !grants[0].CanRead {
+	if got.Name != "Viewer" || !got.ManageTables || len(grants) != 1 || !grants[0].CanRead {
 		t.Fatalf("role=%+v grants=%+v", got, grants)
 	}
 
 	// update replaces grants atomically
-	r2 := &Role{ID: r.ID, Name: "Viewer2", PlatformManage: false}
+	r2 := &Role{ID: r.ID, Name: "Viewer2"}
 	if err := s.UpdateRole(r2, []TableGrant{
 		{TableDefID: 7, CanRead: true, CanUpdate: true},
 		{TableDefID: 8, CanDelete: true},

@@ -665,7 +665,7 @@ func (s *Server) handleTableList(w http.ResponseWriter, r *http.Request) {
 		// Platform users see every definition (they manage them); everyone
 		// else only sees tables they can read. The permissions object always
 		// reflects actual row-CRUD grants.
-		if !u.PlatformManage && !p.Read {
+		if !u.ManageTables && !p.Read {
 			continue
 		}
 		out = append(out, s.toTableDTO(&list[i], nil, p, groups))
@@ -706,7 +706,7 @@ func (s *Server) handleTableGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := s.tablePerms(u, def.ID)
-	if !u.PlatformManage && !p.Read {
+	if !u.ManageTables && !p.Read {
 		writeErr(w, 403, "FORBIDDEN", "no access to this table", nil)
 		return
 	}

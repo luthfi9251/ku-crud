@@ -74,10 +74,12 @@ func (s *Server) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // RequirePlatform gates Platform Management (datasources, table definitions,
-// audit). Admin passes implicitly (Admin role has platform_manage=1).
+// audit). Interim v1.7 shim: any platform grant passes; Task 3 splits this
+// into per-grant gates. Admin passes via the backfilled grants.
 func (s *Server) RequirePlatform(next http.HandlerFunc) http.HandlerFunc {
 	return s.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
-		if !userFrom(r).PlatformManage {
+		u := userFrom(r)
+		if !u.ManageDatasources && !u.ManageTables && !u.ViewAudit && !u.ViewOutbox {
 			writeErr(w, 403, "FORBIDDEN", "platform management requires a role with platform access", nil)
 			return
 		}
@@ -154,7 +156,9 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
 	writeJSON(w, 200, map[string]any{
-		"username": u.Username, "isAdmin": u.IsAdmin, "platformManage": u.PlatformManage,
+		"username": u.Username, "isAdmin": u.IsAdmin,
+		"manageDatasources": u.ManageDatasources, "manageTables": u.ManageTables,
+		"viewAudit": u.ViewAudit, "viewOutbox": u.ViewOutbox,
 		"language": u.Language,
 	})
 }

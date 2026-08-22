@@ -154,6 +154,15 @@ CREATE TABLE hook_outbox(
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX idx_hook_outbox_due ON hook_outbox(status, next_retry_at);`,
+	// v1.7: split platform_manage into four grants; table descriptions.
+	`ALTER TABLE roles ADD COLUMN manage_datasources INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE roles ADD COLUMN manage_tables INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE roles ADD COLUMN view_audit INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE roles ADD COLUMN view_outbox INTEGER NOT NULL DEFAULT 0;
+UPDATE roles SET manage_datasources=platform_manage, manage_tables=platform_manage,
+	view_audit=platform_manage, view_outbox=platform_manage;
+ALTER TABLE roles DROP COLUMN platform_manage;
+ALTER TABLE table_defs ADD COLUMN description TEXT NOT NULL DEFAULT '';`,
 }
 
 func Open(path string) (*Store, error) {
