@@ -1,3 +1,5 @@
+import type { QueryIntrospectResult } from "./types";
+
 export class ApiError extends Error {
   code: string;
   detail: unknown;
@@ -23,4 +25,11 @@ export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
     throw new ApiError(e.code, e.message, e.detail);
   }
   return (r.status === 204 ? null : r.json()) as Promise<T>;
+}
+
+export function introspectQuery(dsId: string, query: string) {
+  return api<QueryIntrospectResult>(`/datasources/${dsId}/query-introspect`, {
+    method: "POST",
+    body: JSON.stringify({ query }),
+  });
 }

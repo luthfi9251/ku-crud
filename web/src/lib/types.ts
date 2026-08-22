@@ -55,6 +55,8 @@ export interface ViewConfig {
 export interface TableDef {
   id: Id; datasourceId: Id; schemaName: string; tableName: string;
   label: string; description?: string;
+  sourceType?: "table" | "query";
+  querySql?: string;
   keyColumns: string[]; pageSize: number;
   defaultSortCol: string; defaultSortDir: "ASC" | "DESC";
   defaultView?: ViewMode;
@@ -75,6 +77,14 @@ export interface SavedFilter { id: Id; name: string; filters: string; createdAt:
 export interface LiveColumn {
   name: string; fieldType: FieldType; nullable: boolean;
   isPk: boolean; enumOptions: string[] | null;
+}
+
+// QueryIntrospectResult is the query-view wizard's validation response:
+// resolved output columns plus expression columns that were dropped for
+// lacking a stable alias.
+export interface QueryIntrospectResult {
+  columns: { name: string; fieldType: FieldType; nullable: boolean; isPk?: boolean; enumOptions?: string[] | null }[];
+  dropped: string[];
 }
 
 export type Row = Record<string, unknown>;

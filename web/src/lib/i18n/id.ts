@@ -94,6 +94,11 @@ export default {
   "tables.emptyHint": "Klik \"Tambah Tabel\" untuk memetakan tabel basis data ke Ku-CRUD.",
   "tables.viewData": "Lihat Data",
   "tables.deleteConfirm": "Hapus definisi \"{name}\"? (Tabel datanya tetap utuh)",
+  "tables.sourceTable": "Tabel fisik",
+  "tables.sourceQuery": "Query SQL",
+  "tables.validateQuery": "Validasi & pratinjau kolom",
+  "tables.validating": "Memvalidasi...",
+  "tables.droppedCols": "Kolom tanpa alias (dilewati)",
   // formulir definisi tabel
   "tform.loading": "Memuat definisi tabel...",
   "tform.editTitle": "Ubah Definisi: {label}",
@@ -137,6 +142,8 @@ export default {
   "tform.desc": "Turun (Descending)",
   "tform.needKey": "Pilih Minimal Satu Kolom Kunci",
   "tform.computedCol": "Kolom Komputasi",
+  "tform.sqlLabel": "Query SQL",
+  "tform.queryLabelDefault": "Tampilan query",
   // editor hook (TableForm)
   "tf.hooks.title": "Hook Otomatisasi",
   "tf.hooks.hint": "Hook adalah fungsi Go yang di-compile ke dalam server. Pasang pada event tabel; before-hook dapat mengubah atau menolak penulisan data.",
@@ -666,4 +673,8 @@ export default {
   "errors.FORBIDDEN": "Anda tidak memiliki akses ke fitur ini.",
   "errors.NOT_FOUND": "Tidak ditemukan — mungkin sudah dihapus.",
   "errors.INTERNAL": "Terjadi kesalahan. Coba lagi, atau hubungi administrator Anda.",
+  "errors.QUERY_INVALID": "Query SQL tidak valid: {msg}",
+  "errors.QUERY_READONLY": "View ini hanya-baca — dibangun dari query SQL.",
+  "errors.QUERY_NO_KEY": "View ini tidak punya kolom kunci, baris tunggal tidak bisa dibuka.",
+  "errors.QUERY_TIMEOUT": "Query terlalu lama dan dihentikan. Coba query yang lebih sederhana.",
 } as const;

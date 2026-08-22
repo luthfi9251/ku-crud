@@ -12,7 +12,7 @@ import {
   Database,
   Key,
 } from "lucide-react";
-import { api } from "../lib/api";
+import { api, introspectQuery } from "../lib/api";
 import type { BaseFieldType, ColumnDef, Datasource, HooksConfig, HooksListRes, LiveColumn, TableDefPayload, ViewConfig } from "../lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ColumnListEditor, M2MRelationsEditor, HelpPopover, type FormCol } from "../components/ColumnListEditor";
 import HooksEditor from "../components/HooksEditor";
+import { ErrorBox } from "../components/ErrorBox";
 import { useT } from "../lib/i18n";
 
 export const fieldTypes = ["boolean", "text", "number", "datetime", "enum", "uuid", "json", "fk"] as const;
@@ -49,6 +50,9 @@ export default function TableForm() {
   const [dsId, setDsId] = useState("");
   const [schema, setSchema] = useState("");
   const [tableName, setTableName] = useState("");
+  const [sourceType, setSourceType] = useState<"table" | "query">("table");
+  const [querySql, setQuerySql] = useState("");
+  const [droppedCols, setDroppedCols] = useState<string[]>([]);
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
   const [pageSize, setPageSize] = useState(20);
@@ -99,6 +103,31 @@ export default function TableForm() {
     queryFn: () => api<LiveColumn[]>(`/datasources/${dsId}/tables/${schema}/${tableName}/columns`),
   });
 
+  // SQL query validation for query-view mode: introspects output columns
+  const queryIntrospect = useMutation({
+    mutationFn: () => introspectQuery(dsId, querySql),
+    onSuccess: (res) => {
+      setDroppedCols(res.dropped);
+      setLabel((l) => l || t("tform.queryLabelDefault"));
+      setKeys((prev) => (prev.length ? prev : res.columns.filter((c) => c.isPk).map((c) => c.name)));
+      setCols(
+        res.columns.map((c, i) => ({
+          name: c.name,
+          label: normalizeLabel(c.name),
+          fieldType: c.fieldType,
+          enumOptions: c.enumOptions ?? null,
+          editable: false,
+          required: false,
+          visible: true,
+          searchable: true,
+          sortable: true,
+          position: i,
+          livePk: c.isPk,
+        })),
+      );
+    },
+  });
+
   // Populate form state when editing existing definition
   useEffect(() => {
     if (isEditing && existingDef.data) {
@@ -106,6 +135,8 @@ export default function TableForm() {
       setDsId(String(d.datasourceId));
       setSchema(d.schemaName);
       setTableName(d.tableName);
+      setSourceType(d.sourceType === "query" ? "query" : "table");
+      setQuerySql(d.querySql ?? "");
       setLabel(d.label);
       setDescription(d.description ?? "");
       setPageSize(d.pageSize);
@@ -154,8 +185,10 @@ export default function TableForm() {
     mutationFn: () => {
       const body = JSON.stringify({
         datasourceId: dsId,
-        schemaName: schema,
-        tableName: tableName,
+        schemaName: sourceType === "query" ? "" : schema,
+        tableName: sourceType === "query" ? "" : tableName,
+        sourceType,
+        querySql: sourceType === "query" ? querySql : "",
         label,
         description,
         keyColumns: keys,
@@ -185,10 +218,28 @@ export default function TableForm() {
   });
 
   const step1Complete = !!dsId;
-  const step2Complete = step1Complete && !!schema && !!tableName;
-  const keysValid = keys.length > 0 && keys.every((k) => cols.some((c) => c.name === k));
+  const step2Complete =
+    step1Complete &&
+    (sourceType === "query"
+      ? !!querySql.trim() && (isEditing || cols.length > 0)
+      : !!schema && !!tableName);
+  // Query views may have no key columns (single-row open is disabled then);
+  // physical tables still require at least one.
+  const keysValid =
+    sourceType === "query"
+      ? keys.every((k) => cols.some((c) => c.name === k))
+      : keys.length > 0 && keys.every((k) => cols.some((c) => c.name === k));
   const toggleKey = (name: string) =>
     setKeys((prev) => (prev.includes(name) ? prev.filter((k) => k !== name) : [...prev, name]));
+
+  const switchSource = (st: "table" | "query") => {
+    if (st === sourceType) return;
+    setSourceType(st);
+    setCols([]);
+    setKeys([]);
+    setDroppedCols([]);
+    queryIntrospect.reset();
+  };
 
   if (isEditing && existingDef.isLoading) {
     return (
@@ -320,6 +371,52 @@ export default function TableForm() {
           </div>
         </CardHeader>
         <CardContent className="pt-4 space-y-4">
+          {/* Source toggle: physical table or SQL query */}
+          <div className="flex items-center gap-2">
+            {(["table", "query"] as const).map((st) => (
+              <Button
+                key={st}
+                type="button"
+                size="sm"
+                variant={sourceType === st ? "default" : "outline"}
+                className="h-8 text-xs"
+                disabled={isEditing}
+                onClick={() => switchSource(st)}
+              >
+                {st === "table" ? t("tables.sourceTable") : t("tables.sourceQuery")}
+              </Button>
+            ))}
+          </div>
+
+          {sourceType === "query" ? (
+            <div className="max-w-xl space-y-2">
+              <Label className="text-xs font-medium">{t("tform.sqlLabel")}</Label>
+              <Textarea
+                value={querySql}
+                onChange={(e) => setQuerySql(e.target.value)}
+                placeholder="SELECT …"
+                className="font-mono text-xs min-h-[160px]"
+                disabled={!step1Complete}
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 text-xs"
+                  disabled={!dsId || !querySql.trim() || queryIntrospect.isPending}
+                  onClick={() => queryIntrospect.mutate()}
+                >
+                  {queryIntrospect.isPending ? t("tables.validating") : t("tables.validateQuery")}
+                </Button>
+              </div>
+              {queryIntrospect.isError && <ErrorBox e={queryIntrospect.error} />}
+              {droppedCols.length > 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 p-3 rounded-lg border border-amber-500/20">
+                  {t("tables.droppedCols")}: {droppedCols.join(", ")}
+                </p>
+              )}
+            </div>
+          ) : (
           <fieldset disabled={!step1Complete || isEditing} className="max-w-xl space-y-2">
             <Label className="text-xs font-medium">{t("tform.dbTable")}</Label>
             <Select
@@ -345,23 +442,28 @@ export default function TableForm() {
               </SelectContent>
             </Select>
           </fieldset>
+          )}
 
           {/* Introspected Database Schema Preview */}
-          {step2Complete && (
+          {(step2Complete && (sourceType === "table" || cols.length > 0)) && (
             <div className="space-y-2 pt-2 border-t border-border/40">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Database className="h-4 w-4 text-blue-500" />
                   <span className="text-xs font-semibold text-foreground">
-                    {t("tform.inspected", { name: `${schema}.${tableName}` })}
+                    {t("tform.inspected", {
+                      name: sourceType === "query"
+                        ? (label || t("tform.queryLabelDefault"))
+                        : `${schema}.${tableName}`,
+                    })}
                   </span>
                 </div>
                 <Badge variant="outline" className="text-[10px] font-mono bg-blue-500/10 text-blue-600 border-blue-500/20">
-                  {t("tform.rawCols", { count: String(isEditing ? cols.length : (liveCols.data?.length ?? 0)) })}
+                  {t("tform.rawCols", { count: String(isEditing || sourceType === "query" ? cols.length : (liveCols.data?.length ?? 0)) })}
                 </Badge>
               </div>
 
-              {liveCols.isLoading && !isEditing ? (
+              {liveCols.isLoading && !isEditing && sourceType === "table" ? (
                 <div className="p-4 text-center text-xs text-muted-foreground italic rounded-lg border bg-muted/20">
                   {t("tform.inspecting")}
                 </div>
@@ -376,11 +478,12 @@ export default function TableForm() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {(isEditing ? cols : (liveCols.data ?? [])).map((col) => {
+                      {((isEditing || sourceType === "query") ? cols : (liveCols.data ?? [])).map((col) => {
                         const colName = col.name;
                         const colType = col.fieldType;
-                        const isPk = isEditing ? keys.includes(col.name) : (col as LiveColumn).isPk;
-                        const isNullable = isEditing ? !(col as ColumnDef).required : (col as LiveColumn).nullable;
+                        const fromDef = isEditing || sourceType === "query";
+                        const isPk = fromDef ? keys.includes(col.name) : (col as LiveColumn).isPk;
+                        const isNullable = fromDef ? !(col as ColumnDef).required : (col as LiveColumn).nullable;
 
                         return (
                           <TableRow key={colName} className="hover:bg-muted/30 text-xs">
@@ -524,6 +627,7 @@ export default function TableForm() {
               defs={defs.data ?? []}
               dsList={dsList.data ?? []}
               isLoadingCols={liveCols.isLoading}
+              queryMode={sourceType === "query"}
               onAddComputed={() =>
                 setCols((prev) => [
                   ...prev,
@@ -535,7 +639,9 @@ export default function TableForm() {
               }
             />
 
-            <M2MRelationsEditor cols={cols} setCols={setCols} defs={defs.data ?? []} currentId={id} />
+            {sourceType === "table" && (
+              <M2MRelationsEditor cols={cols} setCols={setCols} defs={defs.data ?? []} currentId={id} />
+            )}
 
             <ViewSettingsCard
               cols={cols}
@@ -545,28 +651,30 @@ export default function TableForm() {
               setViewConfig={setViewConfig}
             />
 
-            <Card className="border-border/60">
-              <CardHeader className="pb-3 border-b">
-                <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
-                  {t("tf.hooks.title")}
-                  <HelpPopover title={t("tf.hooks.title")} placement="bottom">
-                    <p>{t("tf.hooks.help")}</p>
-                  </HelpPopover>
-                </CardTitle>
-                <CardDescription className="text-xs">{t("tf.hooks.hint")}</CardDescription>
-              </CardHeader>
-              <CardContent className="pt-4">
-                {(hookNames.data?.hooks ?? []).length === 0 ? (
-                  <p className="text-xs text-muted-foreground">{t("tf.hooks.none")}</p>
-                ) : (
-                  <HooksEditor
-                    value={hooksCfg}
-                    names={hookNames.data?.hooks ?? []}
-                    onChange={setHooksCfg}
-                  />
-                )}
-              </CardContent>
-            </Card>
+            {sourceType === "table" && (
+              <Card className="border-border/60">
+                <CardHeader className="pb-3 border-b">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+                    {t("tf.hooks.title")}
+                    <HelpPopover title={t("tf.hooks.title")} placement="bottom">
+                      <p>{t("tf.hooks.help")}</p>
+                    </HelpPopover>
+                  </CardTitle>
+                  <CardDescription className="text-xs">{t("tf.hooks.hint")}</CardDescription>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  {(hookNames.data?.hooks ?? []).length === 0 ? (
+                    <p className="text-xs text-muted-foreground">{t("tf.hooks.none")}</p>
+                  ) : (
+                    <HooksEditor
+                      value={hooksCfg}
+                      names={hookNames.data?.hooks ?? []}
+                      onChange={setHooksCfg}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {save.isError && (
               <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive">

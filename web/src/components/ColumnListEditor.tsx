@@ -45,6 +45,10 @@ interface ColumnListEditorProps {
   dsList: Datasource[];
   isLoadingCols?: boolean;
   onAddComputed?: () => void;
+  // queryMode hides write-oriented affordances (fk type, validations) for
+  // read-only SQL query views; labels, visibility, search/sort, formatting
+  // and computed columns stay available.
+  queryMode?: boolean;
 }
 
 export function HelpPopover({
@@ -124,6 +128,7 @@ export function ColumnListEditor({
   dsList,
   isLoadingCols = false,
   onAddComputed,
+  queryMode = false,
 }: ColumnListEditorProps) {
   // Store expanded state per column name
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -132,6 +137,8 @@ export function ColumnListEditor({
   const toggleExpand = (colName: string) => {
     setExpanded((prev) => ({ ...prev, [colName]: !prev[colName] }));
   };
+
+  const typeOptions = queryMode ? fieldTypes.filter((ft) => ft !== "fk") : fieldTypes;
 
   const setTypeAndExpand = (i: number, colName: string, newType: ColumnDef["fieldType"], origCol: FormCol) => {
     setCol(i, {
@@ -289,7 +296,7 @@ export function ColumnListEditor({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {fieldTypes.map((t) => (
+                          {typeOptions.map((t) => (
                             <SelectItem key={t} value={t} className="text-xs">
                               <span className="font-mono">{t}</span>
                             </SelectItem>
@@ -372,7 +379,7 @@ export function ColumnListEditor({
                     <FormattingEditor col={c} index={i} setCol={setCol} />
                   )}
 
-                  {c.editable && c.fieldType !== "m2m" && c.fieldType !== "fk" && (
+                  {!queryMode && c.editable && c.fieldType !== "m2m" && c.fieldType !== "fk" && (
                     <ValidationsEditor col={c} index={i} setCol={setCol} />
                   )}
 

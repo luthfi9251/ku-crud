@@ -94,6 +94,11 @@ export default {
   "tables.emptyHint": "Click \"Add Table\" to map a database table into Ku-CRUD.",
   "tables.viewData": "View Data",
   "tables.deleteConfirm": "Delete definition \"{name}\"? (Data table itself remains intact)",
+  "tables.sourceTable": "Physical table",
+  "tables.sourceQuery": "SQL query",
+  "tables.validateQuery": "Validate & preview columns",
+  "tables.validating": "Validating...",
+  "tables.droppedCols": "Columns needing an alias (skipped)",
   // table form (definition editor)
   "tform.loading": "Loading table definition...",
   "tform.editTitle": "Edit Definition: {label}",
@@ -137,6 +142,8 @@ export default {
   "tform.desc": "Descending",
   "tform.needKey": "Select at Least One Key Column",
   "tform.computedCol": "Computed Column",
+  "tform.sqlLabel": "SQL Query",
+  "tform.queryLabelDefault": "Query view",
   // hooks editor (TableForm)
   "tf.hooks.title": "Automation Hooks",
   "tf.hooks.hint": "Hooks are Go functions compiled into the server. Assign them to table events; before-hooks may modify or reject writes.",
@@ -666,4 +673,8 @@ export default {
   "errors.FORBIDDEN": "You do not have access to this feature.",
   "errors.NOT_FOUND": "Not found — it may have been removed.",
   "errors.INTERNAL": "Something went wrong. Try again, or contact your administrator.",
+  "errors.QUERY_INVALID": "The SQL query is invalid: {msg}",
+  "errors.QUERY_READONLY": "This view is read-only — it is built from a SQL query.",
+  "errors.QUERY_NO_KEY": "This view has no key columns, so single rows cannot be opened.",
+  "errors.QUERY_TIMEOUT": "The query took too long and was stopped. Try a simpler query.",
 } as const;
