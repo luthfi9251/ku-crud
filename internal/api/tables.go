@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"ku-crud/internal/ds"
+	"ku-crud/internal/hooks"
 	"ku-crud/internal/meta"
 )
 
@@ -22,6 +23,7 @@ type tableDefInput struct {
 	DefaultSortDir string          `json:"defaultSortDir"`
 	DefaultView    string          `json:"defaultView"`
 	ViewConfig     json.RawMessage `json:"viewConfig"`
+	Hooks          json.RawMessage `json:"hooks"`
 	Columns        []columnInput   `json:"columns"`
 }
 
@@ -98,7 +100,7 @@ func (s *Server) toDef(in tableDefInput) (*meta.TableDef, error) {
 		TableName: in.TableName, Label: in.Label, KeyColumns: in.KeyColumns,
 		PageSize:       in.PageSize,
 		DefaultSortCol: in.DefaultSortCol, DefaultSortDir: in.DefaultSortDir,
-		DefaultView: in.DefaultView, ViewConfig: string(in.ViewConfig)}, nil
+		DefaultView: in.DefaultView, ViewConfig: string(in.ViewConfig), Hooks: string(in.Hooks)}, nil
 }
 
 type permsDTO struct {
@@ -186,6 +188,7 @@ type tableDefDTO struct {
 	DefaultSortDir string          `json:"defaultSortDir"`
 	DefaultView    string          `json:"defaultView,omitempty"`
 	ViewConfig     json.RawMessage `json:"viewConfig,omitempty"`
+	Hooks          json.RawMessage `json:"hooks,omitempty"`
 	GroupID        string          `json:"groupId,omitempty"`
 	GroupName      string          `json:"groupName,omitempty"`
 	Columns        []columnDTO     `json:"columns,omitempty"`
@@ -212,6 +215,9 @@ func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDT
 	}
 	if def.ViewConfig != "" {
 		dto.ViewConfig = json.RawMessage(def.ViewConfig)
+	}
+	if def.Hooks != "" {
+		dto.Hooks = json.RawMessage(def.Hooks)
 	}
 	if dto.KeyColumns == nil {
 		dto.KeyColumns = []string{}
@@ -461,6 +467,25 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 	}
 	if msg := s.checkViewConfig(def, cols); msg != "" {
 		return msg
+	}
+	if msg := s.checkHooks(def); msg != "" {
+		return msg
+	}
+	return ""
+}
+
+// checkHooks rejects assignments that don't parse or that name hooks absent
+// from this binary's registry.
+func (s *Server) checkHooks(def *meta.TableDef) string {
+	if def.Hooks == "" {
+		return ""
+	}
+	asgs, err := hooks.ParseAssignments(def.Hooks)
+	if err != nil {
+		return err.Error()
+	}
+	if err := s.hooks.CheckMissing(asgs); err != nil {
+		return err.Error()
 	}
 	return ""
 }

@@ -80,6 +80,7 @@ type metaFileTable struct {
 	DefaultSortDir string           `json:"defaultSortDir"`
 	DefaultView    string           `json:"defaultView,omitempty"`
 	ViewConfig     json.RawMessage  `json:"viewConfig,omitempty"`
+	Hooks          json.RawMessage  `json:"hooks,omitempty"`
 	GroupRef       string           `json:"groupRef,omitempty"`
 	Columns        []metaFileColumn `json:"columns"`
 }
@@ -177,6 +178,9 @@ func (s *Server) buildMetaFile() (*metaFile, error) {
 		if d.ViewConfig != "" {
 			ft.ViewConfig = json.RawMessage(d.ViewConfig)
 		}
+		if d.Hooks != "" {
+			ft.Hooks = json.RawMessage(d.Hooks)
+		}
 		for _, c := range cols {
 			fc := metaFileColumn{Name: c.Name, Label: c.Label, FieldType: c.FieldType,
 				EnumOptions: nonNil(c.EnumOptions), Editable: c.Editable, Required: c.Required,
@@ -243,6 +247,7 @@ func tblEqual(ft metaFileTable, def *meta.TableDef, cols []meta.ColumnDef, dsNam
 		ft.Label != def.Label || ft.PageSize != def.PageSize ||
 		ft.DefaultSortCol != def.DefaultSortCol || ft.DefaultSortDir != def.DefaultSortDir ||
 		ft.DefaultView != def.DefaultView || string(ft.ViewConfig) != def.ViewConfig ||
+		string(ft.Hooks) != def.Hooks ||
 		ft.GroupRef != groupName || len(ft.KeyColumns) != len(def.KeyColumns) {
 		return false
 	}
@@ -533,7 +538,7 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 			Def: meta.TableDef{SchemaName: ft.Schema, TableName: ft.Table, Label: ft.Label,
 				KeyColumns: ft.KeyColumns, PageSize: ft.PageSize,
 				DefaultSortCol: ft.DefaultSortCol, DefaultSortDir: ft.DefaultSortDir,
-				DefaultView: ft.DefaultView, ViewConfig: string(ft.ViewConfig)}}
+				DefaultView: ft.DefaultView, ViewConfig: string(ft.ViewConfig), Hooks: string(ft.Hooks)}}
 		if mode == "overwrite" {
 			for i := range defs {
 				if tableRef(dsName[defs[i].DatasourceID], defs[i].SchemaName, defs[i].TableName) == ref {

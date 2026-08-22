@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"ku-crud/internal/hooks"
 	"ku-crud/internal/meta"
 	"ku-crud/internal/tokenid"
 )
@@ -16,15 +17,22 @@ type Server struct {
 	// loginLimit throttles credential endpoints (brute-force protection);
 	// in-memory, per instance.
 	loginLimit *loginLimiter
+	// hooks is the compiled-in hook registry; nil = no hooks. All
+	// Registry methods are nil-safe.
+	hooks *hooks.Registry
 }
 
-func New(store *meta.Store) (*Server, error) {
+func New(store *meta.Store, reg ...*hooks.Registry) (*Server, error) {
 	secret, err := store.IDSecret()
 	if err != nil {
 		return nil, err
 	}
+	var hr *hooks.Registry
+	if len(reg) > 0 {
+		hr = reg[0]
+	}
 	return &Server{store: store, ids: tokenid.New(secret),
-		loginLimit: newLoginLimiter(5, 15*time.Minute)}, nil
+		loginLimit: newLoginLimiter(5, 15*time.Minute), hooks: hr}, nil
 }
 
 // CtxUser is the per-request auth context (role included).
@@ -117,6 +125,10 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("PUT /api/tables/{id}/saved-filters/{fid}", s.RequireAuth(s.handleSavedFilterUpdate))
 	mux.HandleFunc("DELETE /api/tables/{id}/saved-filters/{fid}", s.RequireAuth(s.handleSavedFilterDelete))
 	mux.HandleFunc("GET /api/audit", s.RequirePlatform(s.handleAuditList))
+
+	mux.HandleFunc("GET /api/hooks", s.RequirePlatform(s.handleHooksList))
+	mux.HandleFunc("GET /api/hooks/outbox", s.RequirePlatform(s.handleOutboxList))
+	mux.HandleFunc("POST /api/hooks/outbox/{id}/retry", s.RequirePlatform(s.handleOutboxRetry))
 
 	mux.HandleFunc("GET /api/users", s.RequireAdmin(s.handleUserList))
 	mux.HandleFunc("POST /api/users", s.RequireAdmin(s.handleUserCreate))
