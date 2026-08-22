@@ -89,6 +89,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/datasources/{id}/test", s.RequireDSManage(s.handleDSTest))
 	mux.HandleFunc("GET /api/datasources/{id}/tables", s.RequireDSManage(s.handleDSTables))
 	mux.HandleFunc("GET /api/datasources/{id}/tables/{schema}/{table}/columns", s.RequireDSManage(s.handleDSColumns))
+	mux.HandleFunc("POST /api/datasources/{id}/query-introspect", s.RequireDSManage(s.handleDSQueryIntrospect))
 
 	mux.HandleFunc("GET /api/tables", s.RequireAuth(s.handleTableList))
 	mux.HandleFunc("POST /api/tables", s.RequireTablesManage(s.handleTableCreate))
