@@ -45,7 +45,7 @@ func TestMeReturnsRoleInfo(t *testing.T) {
 	}
 }
 
-func TestPlatformGate(t *testing.T) {
+func TestNoGrantsForbidden(t *testing.T) {
 	s := newTestServer(t)
 	seedDS(t, s)
 	// save one def (id 1) via admin
