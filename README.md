@@ -42,8 +42,8 @@ and CRUD away.
 6. **Audit trail** — every insert/update/delete writes best-effort audit rows
    (user, action, row key, old/new values) viewable at `/audit`.
 7. **Roles & users** — the first user becomes the builtin **Admin**. Admins define
-   custom roles: a *Platform Management* bundle (datasources, table definitions,
-   audit trail) plus independent read/create/update/delete grants per table.
+   custom roles: four independent platform grants (datasources, table definitions,
+   audit trail, hook outbox) plus independent read/create/update/delete grants per table.
    User & role management is admin-only; the first user is immutable.
 8. **CSV import/export (v1.3)** — export the grid as CSV (active search/sort
    applied, all pages, fk/m2m relations resolved to display values, BOM-prefixed
@@ -94,6 +94,14 @@ and CRUD away.
     receive full platform access (datasource adapters, metadata store,
     logger). A definition referencing a hook absent from the binary rejects
     writes with `HOOK_MISSING` — drift is never silent.
+15. **Business UI polish (v1.7)** — the monolithic *Platform Management*
+    grant is split into four independent grants (datasources, table
+    definitions, audit trail, hook outbox), so a role can see exactly the
+    management menus it needs — the sidebar follows the grants. Table
+    definitions gain an optional **description** surfaced in the sidebar
+    tooltip and under the data-page title, and the definition wizard makes
+    the menu label prominent with a live preview. API errors render as
+    friendly sentences (ID/EN) with the technical detail collapsed.
 
 Supported column types: `boolean`, `number` (int/float/numeric), `text`,
 `datetime` (date/time/timestamp), native Postgres `enum`, `uuid`, `json`
@@ -202,7 +210,12 @@ v1.4 runs migration 7 (table_groups, table_defs.group_id, columns.validations)
 on first start. v1.5 runs migration 8 (formatting/computed/default_view/
 view_config on definitions, users.language, saved_filters) on first start.
 v1.6 runs migration 9 (table_defs.hooks assignments, hook_outbox) on first
-start.
+start. v1.7 runs migration 10 (split `platform_manage` into `manage_datasources`,
+`manage_tables`, `view_audit`, `view_outbox`; `table_defs.description`) on
+first start. Roles that had platform management get **all four** grants —
+revisit the Roles editor after upgrading to remove what business users
+should not see. The migration is one-way: a v1.7 metadata file cannot be
+read by older binaries.
 Metadata import files never contain datasource passwords — re-enter them in
 the import wizard.
 
@@ -214,10 +227,13 @@ the import wizard.
   so this is hardening rather than a security boundary — still protect the file
   (file permissions). Upgrading from ≤ v1.2 encrypts existing passwords
   automatically on first start, and the DB then requires v1.3+ to read.
-- **RBAC**: users hold exactly one role. The builtin Admin role implicitly has
-  every permission (full platform access and full CRUD on all tables). Custom
-  roles combine the Platform Management bundle (datasources + table definitions
-  + audit trail) with independent read/create/update/delete grants per table.
+- **RBAC**: users hold exactly one role. The builtin Admin role implicitly
+  has every permission (full platform access and full CRUD on all tables).
+  Custom roles combine four independent platform grants — **manage
+  datasources**, **manage table definitions**, **view audit trail**,
+  **view hook outbox** (definition transfer needs datasource + definition;
+  users/roles stay Admin-only) — with independent read/create/update/delete
+  grants per table.
   User and role management is Admin-only. Disabled users are rejected at login
   and on every request. `fk` relations follow the same grants: related display
   values (and the fk record picker) resolve only for users with read access to
