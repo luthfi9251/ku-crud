@@ -146,6 +146,35 @@ func TestIntrospectQueryPG(t *testing.T) {
 	}
 }
 
+// Enum output columns must survive introspection with their options —
+// verify/resync drift detection depends on them. The fixture lives in its
+// own schema: the api package's tests drop schema public mid-run when the
+// two packages test in parallel.
+func TestIntrospectQueryEnumPG(t *testing.T) {
+	a := openPG(t)
+	db := a.(*pgAdapter).db
+	if _, err := db.Exec(`DROP SCHEMA IF EXISTS qv_enum_test CASCADE;
+		CREATE SCHEMA qv_enum_test;
+		CREATE TYPE qv_enum_test.weather AS ENUM ('sunny','rainy');
+		CREATE TABLE qv_enum_test.forecast(id serial PRIMARY KEY, w qv_enum_test.weather)`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		db.Exec(`DROP SCHEMA IF EXISTS qv_enum_test CASCADE`)
+	})
+	cols, dropped, err := a.IntrospectQuery("SELECT w FROM qv_enum_test.forecast")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dropped) != 0 {
+		t.Fatalf("dropped = %v", dropped)
+	}
+	if len(cols) != 1 || cols[0].Name != "w" || cols[0].FieldType != "enum" ||
+		strings.Join(cols[0].EnumOptions, ",") != "sunny,rainy" {
+		t.Fatalf("cols = %+v", cols)
+	}
+}
+
 func TestListQueryRowsMySQL(t *testing.T) {
 	a := openMy(t)
 	rows, err := a.ListQueryRows(QueryParams{Query: "SELECT 1 AS one, 'x' AS txt",

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -107,7 +108,7 @@ func (a *pgAdapter) ListTables() ([]TableInfo, error) {
 }
 
 func (a *pgAdapter) InspectTable(schema, table string) ([]LiveColumn, error) {
-	enums, err := a.loadEnums()
+	enums, _, err := a.loadEnums()
 	if err != nil {
 		return nil, err
 	}
@@ -150,24 +151,29 @@ func (a *pgAdapter) InspectTable(schema, table string) ([]LiveColumn, error) {
 	return out, rows.Err()
 }
 
-func (a *pgAdapter) loadEnums() (map[string][]string, error) {
+// loadEnums returns the database's enum types keyed by type name and by OID
+// string — information_schema exposes the name, while the pgx driver reports
+// user-defined query-result columns by OID.
+func (a *pgAdapter) loadEnums() (map[string][]string, map[string][]string, error) {
 	rows, err := a.db.Query(`
-		SELECT t.typname, array_agg(e.enumlabel ORDER BY e.enumsortorder)
+		SELECT t.oid, t.typname, array_agg(e.enumlabel ORDER BY e.enumsortorder)
 		FROM pg_type t
 		JOIN pg_enum e ON e.enumtypid = t.oid
 		JOIN pg_namespace n ON n.oid = t.typnamespace
 		WHERE n.nspname NOT IN ('pg_catalog','information_schema')
-		GROUP BY t.typname`)
+		GROUP BY t.oid, t.typname`)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
-	enums := map[string][]string{}
+	byName := map[string][]string{}
+	byOID := map[string][]string{}
 	for rows.Next() {
+		var oid int64
 		var name string
 		var opts any
-		if err := rows.Scan(&name, &opts); err != nil {
-			return nil, err
+		if err := rows.Scan(&oid, &name, &opts); err != nil {
+			return nil, nil, err
 		}
 		var s string
 		switch v := opts.(type) {
@@ -176,9 +182,11 @@ func (a *pgAdapter) loadEnums() (map[string][]string, error) {
 		case string:
 			s = v
 		}
-		enums[name] = parsePGArray(s)
+		labels := parsePGArray(s)
+		byName[name] = labels
+		byOID[strconv.FormatInt(oid, 10)] = labels
 	}
-	return enums, rows.Err()
+	return byName, byOID, rows.Err()
 }
 
 // ---- data access via sqlkit ----
@@ -406,7 +414,11 @@ func (a *pgAdapter) ExplainQuery(query string) error {
 func (a *pgAdapter) IntrospectQuery(query string) ([]LiveColumn, []string, error) {
 	var cols []LiveColumn
 	var dropped []string
-	err := a.queryExec(func(tx *sql.Tx) error {
+	_, enumOIDs, err := a.loadEnums()
+	if err != nil {
+		return nil, nil, err
+	}
+	err = a.queryExec(func(tx *sql.Tx) error {
 		rows, err := tx.Query(fmt.Sprintf("SELECT * FROM (%s) AS %s LIMIT 0", query, queryAlias))
 		if err != nil {
 			return err
@@ -418,12 +430,21 @@ func (a *pgAdapter) IntrospectQuery(query string) ([]LiveColumn, []string, error
 		}
 		for _, c := range ct {
 			ft := pgTypeName(c.DatabaseTypeName())
+			var opts []string
+			if ft == "" {
+				// user-defined result types surface as OIDs; ones backed by
+				// pg_enum are enum columns, everything else stays excluded
+				opts = enumOIDs[c.DatabaseTypeName()]
+				if opts != nil {
+					ft = "enum"
+				}
+			}
 			if _, qerr := QuoteIdent(c.Name()); qerr != nil || ft == "" {
 				dropped = append(dropped, c.Name())
 				continue
 			}
 			nullable, _ := c.Nullable()
-			cols = append(cols, LiveColumn{Name: c.Name(), FieldType: ft, Nullable: nullable})
+			cols = append(cols, LiveColumn{Name: c.Name(), FieldType: ft, Nullable: nullable, EnumOptions: opts})
 		}
 		return nil
 	})
