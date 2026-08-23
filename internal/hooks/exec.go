@@ -15,6 +15,9 @@ const (
 	BeforeTimeout = 5 * time.Second
 	// AfterTimeout bounds an after-hook on the worker.
 	AfterTimeout = 30 * time.Second
+	// ActionTimeout bounds a synchronous custom-action hook inside the
+	// request (longer than before-hooks: actions are interactive intent).
+	ActionTimeout = 15 * time.Second
 )
 
 // MissingError marks an assignment referencing a hook absent from the
@@ -95,4 +98,25 @@ func OpenDatasource(store *meta.Store, dsID int64) (ds.Adapter, error) {
 		return nil, err
 	}
 	return ds.Open(*d)
+}
+
+// RunAction executes one custom action's hook synchronously and returns
+// the hook's result message (RowPayload.Message). Modified values are NOT
+// written back — custom actions are side effect + message only; the hook
+// itself has full platform access when it wants to persist changes.
+func (r *Registry) RunAction(ctx context.Context, hc *HookContext,
+	row RowPayload, a Assignment,
+) (string, error) {
+	if r == nil {
+		return "", &MissingError{Name: a.Hook}
+	}
+	fn, ok := r.Get(a.Hook)
+	if !ok {
+		return "", &MissingError{Name: a.Hook}
+	}
+	out, err := r.runGuarded(ctx, ActionTimeout, fn, hc, OnAction, row, a.Config)
+	if err != nil {
+		return "", err
+	}
+	return out.Message, nil
 }
