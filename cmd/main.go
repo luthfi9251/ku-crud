@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	_ "ku-crud/hooks" // compiled-in hooks register via registry_gen init()
@@ -49,7 +50,28 @@ func main() {
 		slog.Error("embedded SPA missing", "err", err.Error())
 		os.Exit(1)
 	}
-	mux.Handle("/", http.FileServer(http.FS(static)))
+	fileServer := http.FileServer(http.FS(static))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path != "" {
+			if f, err := static.Open(path); err == nil {
+				f.Close()
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/api" {
+			http.NotFound(w, r)
+			return
+		}
+		indexBytes, err := fs.ReadFile(static, "index.html")
+		if err != nil {
+			http.Error(w, "index.html not found", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(indexBytes)
+	})
 
 	slog.Info("ku-crud listening", "addr", *addr)
 	httpSrv := &http.Server{Addr: *addr, Handler: srv.WithLogging(mux)}

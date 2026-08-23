@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { HashRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { LangProvider } from "./lib/i18n";
 import App from "./App";
 import Login from "./pages/Login";
@@ -27,7 +27,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={qc}>
       <LangProvider>
-        <HashRouter>
+        <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/setup" element={<Setup />} />
@@ -46,7 +46,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="docs" element={<Docs />} />
           </Route>
         </Routes>
-        </HashRouter>
+        </BrowserRouter>
       </LangProvider>
     </QueryClientProvider>
   </React.StrictMode>
