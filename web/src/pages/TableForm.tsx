@@ -13,7 +13,7 @@ import {
   Key,
 } from "lucide-react";
 import { api, introspectQuery } from "../lib/api";
-import type { BaseFieldType, ColumnDef, Datasource, HooksConfig, HooksListRes, LiveColumn, TableDefPayload, ViewConfig } from "../lib/types";
+import type { ActionsConfig, BaseFieldType, ColumnDef, Datasource, HooksConfig, HooksListRes, LiveColumn, TableDefPayload, ViewConfig } from "../lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ColumnListEditor, M2MRelationsEditor, HelpPopover, type FormCol } from "../components/ColumnListEditor";
 import HooksEditor from "../components/HooksEditor";
+import ActionsEditor from "../components/ActionsEditor";
 import { ErrorBox } from "../components/ErrorBox";
 import { useT } from "../lib/i18n";
 
@@ -63,6 +64,7 @@ export default function TableForm() {
   const [defaultView, setDefaultView] = useState<"grid" | "kanban" | "calendar">("grid");
   const [viewConfig, setViewConfig] = useState<ViewConfig>({});
   const [hooksCfg, setHooksCfg] = useState<HooksConfig>({});
+  const [actionsCfg, setActionsCfg] = useState<ActionsConfig>({});
 
   // Existing definition query for Edit mode
   const existingDef = useQuery({
@@ -145,6 +147,7 @@ export default function TableForm() {
       setDefaultView(d.defaultView ?? "grid");
       setViewConfig(d.viewConfig ?? {});
       setHooksCfg(d.hooks ?? {});
+      setActionsCfg(d.actions ?? {});
       setKeys(d.keyColumns ?? []);
       setCols(d.columns);
     }
@@ -198,6 +201,7 @@ export default function TableForm() {
         defaultView,
         viewConfig,
         hooks: Object.keys(hooksCfg).length ? hooksCfg : undefined,
+        actions: (actionsCfg.hidden?.length || actionsCfg.custom?.length) ? actionsCfg : undefined,
         columns: cols.map(({ livePk: _lp, origType: _ot, fkDs: _fd, ...c }) =>
           c.fieldType === "fk"
             ? { ...c, m2mJunctionDefId: undefined, m2mJunctionSrcCol: undefined, m2mJunctionTgtCol: undefined, m2mDisplayColumns: undefined, m2mRefColumn: undefined }
@@ -675,6 +679,25 @@ export default function TableForm() {
                 </CardContent>
               </Card>
             )}
+
+            <Card className="border-border/60">
+              <CardHeader className="pb-3 border-b">
+                <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+                  {t("tf.actions.title")}
+                  <HelpPopover title={t("tf.actions.title")} placement="bottom">
+                    <p>{t("tf.actions.help")}</p>
+                  </HelpPopover>
+                </CardTitle>
+                <CardDescription className="text-xs">{t("tf.actions.hint")}</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <ActionsEditor
+                  value={actionsCfg}
+                  names={hookNames.data?.hooks ?? []}
+                  onChange={setActionsCfg}
+                />
+              </CardContent>
+            </Card>
 
             {save.isError && <ErrorBox e={save.error} />}
 
