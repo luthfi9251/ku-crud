@@ -160,12 +160,14 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
-	if isQueryDef(def) && len(def.KeyColumns) == 0 {
-		writeErr(w, 400, "QUERY_NO_KEY", "this query view has no key columns", nil)
-		return
-	}
+	// perm check before QUERY_NO_KEY so no-grant users can't probe whether
+	// a query view has key columns
 	if !s.hasTablePerm(userFrom(r), def.ID, "read") {
 		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
+		return
+	}
+	if isQueryDef(def) && len(def.KeyColumns) == 0 {
+		writeErr(w, 400, "QUERY_NO_KEY", "this query view has no key columns", nil)
 		return
 	}
 	a, err := s.liveAdapter(def.DatasourceID)

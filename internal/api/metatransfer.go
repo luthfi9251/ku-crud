@@ -460,6 +460,46 @@ func (s *Server) handleMetaImportApply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "META_IMPORT_INVALID", msg, nil)
 		return
 	}
+	// Spec §9: every selected query def must pass EXPLAIN against its local
+	// datasource before anything is applied — ApplyImport is all-or-nothing,
+	// so a rejected bundle leaves the store untouched. Adapters are deduped
+	// per datasource (one connection validates all of that ds's defs).
+	adapters := map[int64]ds.Adapter{}
+	defer func() {
+		for _, a := range adapters {
+			a.Close()
+		}
+	}()
+	for i := range plan.Defs {
+		pd := &plan.Defs[i]
+		if pd.Def.SourceType != "query" {
+			continue
+		}
+		ref := pd.DsName + "/query/" + pd.Def.Label
+		if pd.Def.DatasourceID == 0 {
+			// datasource exists only inside this bundle — nothing local to
+			// validate against yet
+			writeErr(w, 400, "META_IMPORT_INVALID",
+				"query view "+ref+" failed validation: datasource "+pd.DsName+
+					" is new in this import — import it first, then the query view", nil)
+			return
+		}
+		a, ok := adapters[pd.Def.DatasourceID]
+		if !ok {
+			a, err = s.liveAdapter(pd.Def.DatasourceID)
+			if err != nil {
+				writeErr(w, 400, "META_IMPORT_INVALID",
+					"query view "+ref+" failed validation: "+err.Error(), nil)
+				return
+			}
+			adapters[pd.Def.DatasourceID] = a
+		}
+		if err := a.ExplainQuery(pd.Def.QuerySQL); err != nil {
+			writeErr(w, 400, "META_IMPORT_INVALID",
+				"query view "+ref+" failed validation: "+err.Error(), nil)
+			return
+		}
+	}
 	created, updated, err := s.store.ApplyImport(*plan)
 	if err != nil {
 		writeErr(w, 400, "META_IMPORT_INVALID", "import failed: "+err.Error(), nil)
@@ -482,12 +522,14 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 	}
 
 	localDS := map[string]bool{}
+	dsID := map[string]int64{}
 	dss, err := s.store.ListDatasources()
 	if err != nil {
 		return nil, "", fmt.Errorf("list datasources failed: %w", err)
 	}
 	for _, d := range dss {
 		localDS[d.Name] = true
+		dsID[d.Name] = d.ID
 	}
 	selDS := map[string]applySelectionDS{}
 	for _, x := range sel.Datasources {
@@ -579,7 +621,8 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 			srcType, querySQL = "table", ""
 		}
 		pd := meta.PlannedDef{DsName: ft.DatasourceRef, GroupName: ft.GroupRef,
-			Def: meta.TableDef{SchemaName: ft.Schema, TableName: ft.Table, Label: ft.Label,
+			Def: meta.TableDef{DatasourceID: dsID[ft.DatasourceRef],
+				SchemaName: ft.Schema, TableName: ft.Table, Label: ft.Label,
 				Description: ft.Description,
 				KeyColumns:  ft.KeyColumns, PageSize: ft.PageSize,
 				DefaultSortCol: ft.DefaultSortCol, DefaultSortDir: ft.DefaultSortDir,
