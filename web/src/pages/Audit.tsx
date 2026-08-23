@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ShieldCheck, Filter, ChevronLeft, ChevronRight, Eye, PlusCircle, Edit3, Trash2, Calendar, Database } from "lucide-react";
+import { ShieldCheck, Filter, ChevronLeft, ChevronRight, Eye, PlusCircle, Edit3, Trash2, Calendar, Database, Zap } from "lucide-react";
 import { api } from "../lib/api";
 import { displayRowPk } from "../lib/rowkey";
 import type { AuditEntry, TableDef } from "../lib/types";
@@ -85,7 +85,7 @@ export default function Audit() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">{t("audit.allActions")}</SelectItem>
-                {["INSERT", "UPDATE", "DELETE"].map((a) => (
+                {["INSERT", "UPDATE", "DELETE", "ACTION"].map((a) => (
                   <SelectItem key={a} value={a} className="text-xs">
                     {a}
                   </SelectItem>
@@ -254,6 +254,13 @@ function ActionBadge({ action }: { action: string }) {
     return (
       <Badge variant="secondary" className="gap-1 text-[10px] bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 font-semibold">
         <Trash2 className="h-3 w-3" /> DELETE
+      </Badge>
+    );
+  }
+  if (action === "ACTION") {
+    return (
+      <Badge variant="secondary" className="gap-1 text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-semibold">
+        <Zap className="h-3 w-3" /> ACTION
       </Badge>
     );
   }

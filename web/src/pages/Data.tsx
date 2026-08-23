@@ -22,13 +22,14 @@ import {
   Settings2,
   Save,
   Bookmark,
+  Zap,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { humanError } from "../lib/errors";
 import { ErrorBox } from "../components/ErrorBox";
 import { encodeRowKey } from "../lib/rowkey";
 import { enumColorClass, formatCell } from "../lib/format";
-import type { ColumnDef, FkOptionsRes, Me, Row, RowsRes, SavedFilter, TableDefPayload, ViewConfig, ViewMode } from "../lib/types";
+import type { ColumnDef, CustomAction, FkOptionsRes, Me, Row, RowsRes, SavedFilter, TableDefPayload, ViewConfig, ViewMode } from "../lib/types";
 import { HelpPopover } from "../components/ColumnListEditor";
 import { FilterBar, serializeFilters, deserializeFilters, type ActiveFilter } from "../components/FilterBar";
 import { KanbanView } from "../components/views/KanbanView";
@@ -45,6 +46,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
+import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
 
 export default function Data() {
@@ -290,6 +292,40 @@ export default function Data() {
 
   const [delErr, setDelErr] = useState("");
 
+  // custom actions + hidden built-ins (v1.9). hidden is presentation only —
+  // perms still gate everything; custom buttons additionally need the
+  // action's own grant AND only exist on physical-table defs.
+  const hidden = new Set(def.data?.actions?.hidden ?? []);
+  const customActions = (def.data?.actions?.custom ?? [])
+    .filter(() => (def.data?.sourceType ?? "table") === "table")
+    .sort((a, b) => a.order - b.order)
+    .filter((a) => perms[a.grant]);
+  const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const to = setTimeout(() => setNotice(null), 8000);
+    return () => clearTimeout(to);
+  }, [notice]);
+
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const runAction = async (key: string[], act: CustomAction) => {
+    if (act.confirm && !confirm(act.confirm)) return;
+    setActionBusy(act.id);
+    try {
+      const res = await api<{ message: string }>(
+        `/tables/${id}/rows/${encodeRowKey(key)}/action`,
+        { method: "POST", body: JSON.stringify({ actionId: act.id }) }
+      );
+      setNotice({ kind: "ok", text: `${act.label}: ${res.message || t("data.actionDone")}` });
+      setDataVersion((v) => v + 1);
+      rows.refetch();
+    } catch (e) {
+      setNotice({ kind: "error", text: `${act.label}: ${humanError(e, t).title}` });
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
   // CSV export follows the active search/sort/filters; all pages, not just current
   const [exporting, setExporting] = useState(false);
   const exportCSV = async () => {
@@ -452,7 +488,7 @@ export default function Data() {
   const d = def.data;
   const pages = r ? Math.max(1, Math.ceil(r.total / r.pageSize)) : 1;
   // total grid columns: optional bulk-select checkbox + data cols + actions
-  const colsLen = cols.length + (perms.delete ? 2 : 1);
+  const colsLen = cols.length + (perms.delete && !hidden.has("delete") ? 2 : 1);
 
   // while grouping, fk/m2m label lookups use the rel maps accumulated by the
   // grouped query (all matching rows) instead of the flat page-1 query
@@ -490,17 +526,17 @@ export default function Data() {
     const rowKeyStr = rowKey(row) ? encodeRowKey(rowKey(row) as string[]) : "";
     return (
       <TableRow key={key} className="hover:bg-muted/20">
-         {perms.delete && (
-           <TableCell className="w-10">
-             {rowKeyStr && (
-               <Checkbox
-                 aria-label={t("data.selectRow")}
-                 checked={sel.has(rowKeyStr)}
-                 onChange={() => toggleSel(rowKeyStr)}
-               />
-             )}
-           </TableCell>
-         )}
+          {perms.delete && !hidden.has("delete") && (
+            <TableCell className="w-10">
+              {rowKeyStr && (
+                <Checkbox
+                  aria-label={t("data.selectRow")}
+                  checked={sel.has(rowKeyStr)}
+                  onChange={() => toggleSel(rowKeyStr)}
+                />
+              )}
+            </TableCell>
+          )}
         {cols.map((c) => {
           const disp = fkDisplay(c, row);
           return (
@@ -525,19 +561,37 @@ export default function Data() {
           );
         })}
         <TableCell className="text-right">
-          <div className="flex items-center justify-end gap-1">
-             {perms.create && (
-               <Button
-                 variant="ghost"
-                 size="icon"
-                 className="h-7 w-7 text-muted-foreground hover:text-blue-600"
-                 onClick={() => handleCopy(row)}
-                 title={t("data.copyRow")}
-               >
-                 <Copy className="h-3.5 w-3.5" />
-               </Button>
-             )}
-             {rowKey(row) && perms.update && (
+           <div className="flex items-center justify-end gap-1">
+              {customActions.map((act) => (
+                <Button
+                  key={act.id}
+                  variant="ghost"
+                  size="icon"
+                  disabled={actionBusy === act.id}
+                  className={cn("h-7 w-7",
+                    act.style === "danger"
+                      ? "text-amber-600 hover:text-destructive"
+                      : act.style === "primary"
+                        ? "text-blue-600 hover:text-blue-500"
+                        : "text-muted-foreground hover:text-foreground")}
+                  onClick={() => { const k = rowKey(row); if (k) runAction(k, act); }}
+                  title={act.label}
+                >
+                  <Zap className={cn("h-3.5 w-3.5", actionBusy === act.id && "animate-pulse")} />
+                </Button>
+              ))}
+              {perms.create && !hidden.has("copy") && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-blue-600"
+                  onClick={() => handleCopy(row)}
+                  title={t("data.copyRow")}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+              )}
+              {rowKey(row) && perms.update && !hidden.has("edit") && (
                <Button
                  variant="ghost"
                  size="icon"
@@ -548,20 +602,20 @@ export default function Data() {
                  <Edit className="h-3.5 w-3.5" />
                </Button>
              )}
-             {rowKey(row) && perms.delete && (
-               <Button
-                 variant="ghost"
-                 size="icon"
-                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                 onClick={() => {
-                   const key = rowKey(row);
-                   if (key && confirm(t("data.deleteConfirm"))) del.mutate(key);
-                 }}
-                 title={t("data.deleteRow")}
-               >
-                 <Trash2 className="h-3.5 w-3.5" />
-               </Button>
-             )}
+              {rowKey(row) && perms.delete && !hidden.has("delete") && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                  onClick={() => {
+                    const key = rowKey(row);
+                    if (key && confirm(t("data.deleteConfirm"))) del.mutate(key);
+                  }}
+                  title={t("data.deleteRow")}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
           </div>
         </TableCell>
       </TableRow>
@@ -609,64 +663,85 @@ export default function Data() {
               <span>{t("data.definition")}</span>
             </Button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1.5 text-xs"
-            onClick={() => rows.refetch()}
-            title={t("data.refresh")}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 text-muted-foreground ${rows.isFetching ? "animate-spin" : ""}`} />
-            <span>{t("data.refresh")}</span>
-          </Button>
-
-          <div className="flex items-center gap-1">
+          {!hidden.has("refresh") && (
             <Button
               variant="outline"
               size="sm"
               className="h-8 gap-1.5 text-xs"
-              onClick={() => exportCSV()}
-              disabled={exporting}
-              title={t("data.exportTitle")}
+              onClick={() => rows.refetch()}
+              title={t("data.refresh")}
             >
-              <Download className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>{exporting ? t("data.exporting") : t("data.export")}</span>
+              <RefreshCw className={`h-3.5 w-3.5 text-muted-foreground ${rows.isFetching ? "animate-spin" : ""}`} />
+              <span>{t("data.refresh")}</span>
             </Button>
-            <HelpPopover title={t("help.exportTitle")} placement="bottom">
-              <p>{t("help.exportBody1")}</p>
-              <p className="pt-1 text-[10px]">💡 {t("help.exportBody2")}</p>
-            </HelpPopover>
-          </div>
+          )}
 
-          {perms.create && (
-            <>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1.5 text-xs"
-                  onClick={() => navigate(`/data/${id}/import`)}
-                  title={t("data.importTitle")}
-                >
-                  <Upload className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>{t("data.import")}</span>
-                </Button>
-                <HelpPopover title={t("help.importTitle")} placement="bottom">
-                  <p>{t("help.importBody1")}</p>
-                  <p className="pt-1 text-[10px]">💡 {t("help.importBody2")}</p>
-                </HelpPopover>
-              </div>
-
+          {!hidden.has("export") && (
+            <div className="flex items-center gap-1">
               <Button
-                onClick={() => setForm({ mode: "new", row: {} })}
-                className="h-8 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1.5 text-xs font-medium"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => exportCSV()}
+                disabled={exporting}
+                title={t("data.exportTitle")}
               >
-                <Plus className="h-4 w-4" /> {t("data.newRow")}
+                <Download className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>{exporting ? t("data.exporting") : t("data.export")}</span>
               </Button>
+              <HelpPopover title={t("help.exportTitle")} placement="bottom">
+                <p>{t("help.exportBody1")}</p>
+                <p className="pt-1 text-[10px]">💡 {t("help.exportBody2")}</p>
+              </HelpPopover>
+            </div>
+          )}
+
+          {perms.create && (!hidden.has("import") || !hidden.has("newRow")) && (
+            <>
+              {!hidden.has("import") && (
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    onClick={() => navigate(`/data/${id}/import`)}
+                    title={t("data.importTitle")}
+                  >
+                    <Upload className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span>{t("data.import")}</span>
+                  </Button>
+                  <HelpPopover title={t("help.importTitle")} placement="bottom">
+                    <p>{t("help.importBody1")}</p>
+                    <p className="pt-1 text-[10px]">💡 {t("help.importBody2")}</p>
+                  </HelpPopover>
+                </div>
+              )}
+
+              {!hidden.has("newRow") && (
+                <Button
+                  onClick={() => setForm({ mode: "new", row: {} })}
+                  className="h-8 bg-blue-600 text-white hover:bg-blue-700 shadow-xs gap-1.5 text-xs font-medium"
+                >
+                  <Plus className="h-4 w-4" /> {t("data.newRow")}
+                </Button>
+              )}
             </>
           )}
         </div>
       </div>
+
+      {notice && (
+        <Alert
+          variant={notice.kind === "error" ? "destructive" : "default"}
+          className={notice.kind === "ok" ? "border-emerald-500/30 bg-emerald-500/5" : ""}
+        >
+          <Zap className="h-4 w-4" />
+          <AlertTitle className="text-xs flex items-center justify-between gap-2">
+            <span className="flex-1">{notice.text}</span>
+            <button className="text-muted-foreground hover:text-foreground" onClick={() => setNotice(null)}>×</button>
+          </AlertTitle>
+        </Alert>
+      )}
 
       {/* Control & Filter Toolbar Card */}
       <div className="rounded-xl border border-border/60 bg-card p-3 shadow-xs space-y-3">
@@ -871,8 +946,8 @@ export default function Data() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50 hover:bg-muted/50">
-                  {perms.delete && (
-                    <TableHead className="w-10">
+                   {perms.delete && !hidden.has("delete") && (
+                     <TableHead className="w-10">
                      <Checkbox
                        aria-label={t("data.selectAll")}
                         checked={allPageSelected}
