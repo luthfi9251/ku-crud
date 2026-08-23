@@ -82,6 +82,7 @@ type metaFileTable struct {
 	DefaultView    string           `json:"defaultView,omitempty"`
 	ViewConfig     json.RawMessage  `json:"viewConfig,omitempty"`
 	Hooks          json.RawMessage  `json:"hooks,omitempty"`
+	Actions        json.RawMessage  `json:"actions,omitempty"`
 	GroupRef       string           `json:"groupRef,omitempty"`
 	SourceType     string           `json:"sourceType,omitempty"`
 	QuerySQL       string           `json:"querySql,omitempty"`
@@ -192,6 +193,9 @@ func (s *Server) buildMetaFile() (*metaFile, error) {
 		if d.Hooks != "" {
 			ft.Hooks = json.RawMessage(d.Hooks)
 		}
+		if d.Actions != "" {
+			ft.Actions = json.RawMessage(d.Actions)
+		}
 		for _, c := range cols {
 			fc := metaFileColumn{Name: c.Name, Label: c.Label, FieldType: c.FieldType,
 				EnumOptions: nonNil(c.EnumOptions), Editable: c.Editable, Required: c.Required,
@@ -277,6 +281,7 @@ func tblEqual(ft metaFileTable, def *meta.TableDef, cols []meta.ColumnDef, dsNam
 		ft.DefaultSortCol != def.DefaultSortCol || ft.DefaultSortDir != def.DefaultSortDir ||
 		ft.DefaultView != def.DefaultView || string(ft.ViewConfig) != def.ViewConfig ||
 		string(ft.Hooks) != def.Hooks ||
+		string(ft.Actions) != def.Actions ||
 		ft.SourceType != def.SourceType || ft.QuerySQL != def.QuerySQL ||
 		ft.GroupRef != groupName || len(ft.KeyColumns) != len(def.KeyColumns) {
 		return false
@@ -627,6 +632,7 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 				KeyColumns:  ft.KeyColumns, PageSize: ft.PageSize,
 				DefaultSortCol: ft.DefaultSortCol, DefaultSortDir: ft.DefaultSortDir,
 				DefaultView: ft.DefaultView, ViewConfig: string(ft.ViewConfig), Hooks: string(ft.Hooks),
+				Actions:    string(ft.Actions),
 				SourceType: srcType, QuerySQL: querySQL}}
 		if mode == "overwrite" {
 			for i := range defs {
