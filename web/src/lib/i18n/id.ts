@@ -208,6 +208,10 @@ export default {
   "docs.hooks.devflow": "Alur pengembangan: tambahkan fungsi di hooks/ → jalankan make dev atau make build (meregenerasi hooks/registry_gen.go) → hook muncul di editor definisi.",
   "docs.hooks.rename": "Mengganti nama fungsi mendaftarkan hook baru — penugasan ke nama lama tetap menunjuk nama lama.",
   "docs.hooks.missing": "Definisi yang menunjuk hook yang tidak ada di binary menolak tulisan dengan HOOK_MISSING. Hook berjalan dari semua jalur tulis: form, impor CSV, hapus massal, seret kanban, dan perubahan tautan m2m.",
+  // seksi aksi (halaman Docs, developer)
+  "docs.actions.title": "Kustomisasi aksi tabel",
+  "docs.actions.hide": "Di editor definisi Anda dapat menyembunyikan tombol grid bawaan mana pun — baris baru, edit, hapus, duplikat, impor, ekspor, segarkan — per tabel. Menyembunyikan hanya presentasi: grant user tetap menentukan siapa yang boleh melakukan apa.",
+  "docs.actions.custom": "Aksi baris custom menambahkan tombol yang menjalankan hook Go ter-compile saat diklik (event onAction; hook mengisi Message yang ditampilkan sebagai notifikasi). Hook berjalan sinkron (batas 15 detik), grid dimuat ulang, dan setiap eksekusi — sukses maupun gagal — masuk ke audit trail. Setiap aksi menyatakan grant yang dibutuhkan sebelum tombolnya tampil; query view tidak dapat mendefinisikan aksi custom.",
   // kartu pengaturan tampilan (TableForm)
   "view.title": "Pengaturan Tampilan (Grid / Kanban / Kalender)",
   "view.desc": "Atur tampilan default serta cara kanban & kalender memakai data",

@@ -108,6 +108,14 @@ and CRUD away.
     pagination, saved filters and CSV export. Execution is guarded in depth:
     EXPLAIN-validated single SELECT, read-only transaction, 15 s statement
     timeout and row caps; all write endpoints answer 403 `QUERY_READONLY`.
+17. **Customizable table actions (v1.9)** — the definition editor controls
+    which built-in grid actions are visible per table (new row, edit,
+    delete/bulk, copy, import, export, refresh — presentation only, grants
+    unchanged) and adds **custom row actions**: buttons on each row that run
+    an assigned Go hook synchronously (`onAction` event, 15 s guard), show
+    the hook's message as a notice, and write an `ACTION` audit entry.
+    Each action declares the grant a user needs before the button appears;
+    query views stay action-free (`QUERY_READONLY`).
 
 Supported column types: `boolean`, `number` (int/float/numeric), `text`,
 `datetime` (date/time/timestamp), native Postgres `enum`, `uuid`, `json`
@@ -160,6 +168,7 @@ All API endpoints are under `/api` and return JSON. Authenticated endpoints requ
 | POST | `/api/tables/{id}/rows/import/preview` | Upload and preview CSV file with column auto-mapping and validation |
 | POST | `/api/tables/{id}/rows/import` | Batch insert records from CSV (`mode=valid` or `mode=all`) |
 | POST | `/api/tables/{id}/rows/bulk-delete` | Bulk delete rows by array of keys (up to 1,000 keys per request) |
+| POST | `/api/tables/{id}/rows/{rowKey}/action` | Run a custom row action (sync hook, returns `{"message"}`) |
 | GET | `/api/tables/{id}/rows/m2m-options` | Fetch target table options for Many-to-Many relation field picker |
 | GET | `/api/tables/{id}/rows/{rowKey}/m2m-links` | Get current linked keys for a row's Many-to-Many field |
 
@@ -221,7 +230,8 @@ start. v1.7 runs migration 10 (split `platform_manage` into `manage_datasources`
 first start. Roles that had platform management get **all four** grants —
 revisit the Roles editor after upgrading to remove what business users
 should not see. The migration is one-way: a v1.7 metadata file cannot be
-read by older binaries.
+read by older binaries. v1.9 runs migration 11 (`table_defs.actions`) on
+first start; the metadata file then requires v1.9+ to read.
 Metadata import files never contain datasource passwords — re-enter them in
 the import wizard.
 

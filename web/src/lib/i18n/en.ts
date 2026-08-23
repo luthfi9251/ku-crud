@@ -208,6 +208,10 @@ export default {
   "docs.hooks.devflow": "Dev flow: add a function in hooks/ → run make dev or make build (regenerates hooks/registry_gen.go) → the hook appears in the definition editor.",
   "docs.hooks.rename": "Renaming a function registers a new hook — assignments to the old name keep pointing at the old name.",
   "docs.hooks.missing": "A definition referencing a hook that is not in the binary rejects writes with HOOK_MISSING. Hooks fire from every write path: forms, CSV import, bulk delete, kanban drag, and m2m link changes.",
+  // actions section (Docs page, developer)
+  "docs.actions.title": "Customizing table actions",
+  "docs.actions.hide": "In the definition editor you can hide any built-in grid button — new row, edit, delete, copy, import, export, refresh — per table. Hiding is presentation only: user grants still decide what anyone is allowed to do.",
+  "docs.actions.custom": "Custom row actions add buttons that run a compiled Go hook when clicked (the onAction event; the hook sets a Message that is shown as a notice). The hook runs synchronously (15 s guard), the grid refreshes, and every run — success or failure — lands in the audit trail. Each action declares the grant a user needs before the button appears; query views cannot define custom actions.",
   // view settings card (TableForm)
   "view.title": "View Settings (Grid / Kanban / Calendar)",
   "view.desc": "Set the default view and how kanban & calendar use the data",
