@@ -17,6 +17,13 @@ redirects to the **first-run setup page** to create the admin user. After that,
 log in, add a datasource (Postgres host/port/db/user/password), pick tables,
 and CRUD away.
 
+## Live demo
+
+A hosted demo is running at **https://kucrud.luthfiirfan.my.id/** — log in with:
+
+- Username: `admin-demo`
+- Password: `kucruddemo`
+
 ## How it works
 
 1. **Datasources** — register Postgres or MySQL databases (driver + host/port/db/user/password/sslmode).
