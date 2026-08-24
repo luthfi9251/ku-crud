@@ -42,8 +42,8 @@ and CRUD away.
 6. **Audit trail** — every insert/update/delete writes best-effort audit rows
    (user, action, row key, old/new values) viewable at `/audit`.
 7. **Roles & users** — the first user becomes the builtin **Admin**. Admins define
-   custom roles: a *Platform Management* bundle (datasources, table definitions,
-   audit trail) plus independent read/create/update/delete grants per table.
+   custom roles: four independent platform grants (datasources, table definitions,
+   audit trail, hook outbox) plus independent read/create/update/delete grants per table.
    User & role management is admin-only; the first user is immutable.
 8. **CSV import/export (v1.3)** — export the grid as CSV (active search/sort
    applied, all pages, fk/m2m relations resolved to display values, BOM-prefixed
@@ -64,11 +64,65 @@ and CRUD away.
     forms and grids, validated before submit), datasource passwords encrypted
     at rest (AES-256-GCM using `dsn_crypt_key`), login/setup rate limiting (5 failures / 15 min per
     username+IP), and default sort configuration (`defaultSortColumn`, `defaultSortDir`) per table definition.
+12. **Exploration & portability (v1.4)** — advanced per-column filtering on the
+    grid and CSV export (per-type operators for text/number/datetime/uuid/
+    boolean/enum/fk, inclusive/exclusive ranges, `in` lists, filter chips);
+    metadata **definition export/import** (password-free natural-key JSON, with
+    a preview of new / duplicate / conflicting definitions before applying);
+    per-column **validation rules** (email, min/max length, number-only,
+    text-only) enforced on create/update and CSV import; sidebar table
+    **grouping** (drag-to-group, nested menus) and a data-page shortcut to the
+    definition editor.
+13. **Views, formatting & personalization (v1.5)** — **computed columns**:
+    definition-level virtual columns evaluated server-side from an allowlisted
+    formula (no live DDL, never persisted); **multiple views** per table
+    (grid / kanban / calendar, with the default view stored in the definition);
+    **column formatting** (enum colors, number thousands/decimals/prefix,
+    locale-aware datetime); **grid group-by**; **per-user saved filters**
+    (name + filter JSON, private to the owning user); and **ID/EN
+    localization** (user language preference, switchable in the UI).
+14. **Automation via Go hooks (v1.6)** — write plain Go functions in `hooks/`
+    with the `HookFunc` signature; `make dev` / `make build` regenerate the
+    registry (AST codegen) so the functions appear in the table-definition
+    editor. Assign hooks per event (before/after × create/update/delete)
+    with per-assignment JSON config and execution order. Before-hooks run
+    synchronously — they may modify values or reject the write (400
+    `HOOK_REJECTED`); after-hooks run on a background worker backed by a
+    durable SQLite outbox (5 retries: 30s/2m/10m/1h/4h, then dead — monitor
+    and retry at `/hooks-outbox`). Hooks fire from every write path (form,
+    CSV import preview/apply, bulk delete, kanban drag, m2m link sync) and
+    receive full platform access (datasource adapters, metadata store,
+    logger). A definition referencing a hook absent from the binary rejects
+    writes with `HOOK_MISSING` — drift is never silent.
+15. **Business UI polish (v1.7)** — the monolithic *Platform Management*
+    grant is split into four independent grants (datasources, table
+    definitions, audit trail, hook outbox), so a role can see exactly the
+    management menus it needs — the sidebar follows the grants. Table
+    definitions gain an optional **description** surfaced in the sidebar
+    tooltip and under the data-page title, and the definition wizard makes
+    the menu label prominent with a live preview. API errors render as
+    friendly sentences (ID/EN) with the technical detail collapsed.
+16. **Query views (v1.8)** — a table definition can be backed by a raw SQL
+    SELECT (`sourceType: "query"`) instead of a physical table. Results are
+    read-only grids with the full pipeline: search, sort, per-column filters,
+    pagination, saved filters and CSV export. Execution is guarded in depth:
+    EXPLAIN-validated single SELECT, read-only transaction, 15 s statement
+    timeout and row caps; all write endpoints answer 403 `QUERY_READONLY`.
+17. **Customizable table actions (v1.9)** — the definition editor controls
+    which built-in grid actions are visible per table (new row, edit,
+    delete/bulk, copy, import, export, refresh — presentation only, grants
+    unchanged) and adds **custom row actions**: buttons on each row that run
+    an assigned Go hook synchronously (`onAction` event, 15 s guard), show
+    the hook's message as a notice, and write an `ACTION` audit entry.
+    Each action declares the grant a user needs before the button appears;
+    query views stay action-free (`QUERY_READONLY`).
 
 Supported column types: `boolean`, `number` (int/float/numeric), `text`,
 `datetime` (date/time/timestamp), native Postgres `enum`, `uuid`, `json`
 (json/jsonb; MySQL `json`), and `fk`/`m2m` relations. Arrays and bytea
-columns are excluded.
+columns are excluded. Computed columns are definition-level virtual columns
+evaluated server-side — they are not live column types and never exist in
+the underlying database.
 
 ## Configuration
 
@@ -114,6 +168,7 @@ All API endpoints are under `/api` and return JSON. Authenticated endpoints requ
 | POST | `/api/tables/{id}/rows/import/preview` | Upload and preview CSV file with column auto-mapping and validation |
 | POST | `/api/tables/{id}/rows/import` | Batch insert records from CSV (`mode=valid` or `mode=all`) |
 | POST | `/api/tables/{id}/rows/bulk-delete` | Bulk delete rows by array of keys (up to 1,000 keys per request) |
+| POST | `/api/tables/{id}/rows/{rowKey}/action` | Run a custom row action (sync hook, returns `{"message"}`) |
 | GET | `/api/tables/{id}/rows/m2m-options` | Fetch target table options for Many-to-Many relation field picker |
 | GET | `/api/tables/{id}/rows/{rowKey}/m2m-links` | Get current linked keys for a row's Many-to-Many field |
 
@@ -125,6 +180,13 @@ All API endpoints are under `/api` and return JSON. Authenticated endpoints requ
 | GET / POST | `/api/roles` | List or create custom roles (Admin only) |
 | PUT / DELETE | `/api/roles/{id}` | Manage roles (Admin only) |
 | GET | `/api/audit` | View audit trail records (Platform management grant) |
+
+### Hooks (v1.6)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/hooks` | List hook functions compiled into the server |
+| GET | `/api/hooks/outbox` | Monitor the after-hook outbox (pending / retrying / dead entries with last error) |
+| POST | `/api/hooks/outbox/{id}/retry` | Requeue a dead outbox entry for immediate retry |
 
 
 ## First user
@@ -159,6 +221,19 @@ single-PK definitions are migrated to the new `keyColumns` form (no change
 in behavior). From v1.2 the datasource driver defaults to `postgres`.
 v1.3 adds default-sort + relation columns and encrypts stored datasource
 passwords in place (one-way: the metadata file then requires v1.3+).
+v1.4 runs migration 7 (table_groups, table_defs.group_id, columns.validations)
+on first start. v1.5 runs migration 8 (formatting/computed/default_view/
+view_config on definitions, users.language, saved_filters) on first start.
+v1.6 runs migration 9 (table_defs.hooks assignments, hook_outbox) on first
+start. v1.7 runs migration 10 (split `platform_manage` into `manage_datasources`,
+`manage_tables`, `view_audit`, `view_outbox`; `table_defs.description`) on
+first start. Roles that had platform management get **all four** grants —
+revisit the Roles editor after upgrading to remove what business users
+should not see. The migration is one-way: a v1.7 metadata file cannot be
+read by older binaries. v1.9 runs migration 11 (`table_defs.actions`) on
+first start; the metadata file then requires v1.9+ to read.
+Metadata import files never contain datasource passwords — re-enter them in
+the import wizard.
 
 ## Security notes
 
@@ -168,10 +243,13 @@ passwords in place (one-way: the metadata file then requires v1.3+).
   so this is hardening rather than a security boundary — still protect the file
   (file permissions). Upgrading from ≤ v1.2 encrypts existing passwords
   automatically on first start, and the DB then requires v1.3+ to read.
-- **RBAC**: users hold exactly one role. The builtin Admin role implicitly has
-  every permission (full platform access and full CRUD on all tables). Custom
-  roles combine the Platform Management bundle (datasources + table definitions
-  + audit trail) with independent read/create/update/delete grants per table.
+- **RBAC**: users hold exactly one role. The builtin Admin role implicitly
+  has every permission (full platform access and full CRUD on all tables).
+  Custom roles combine four independent platform grants — **manage
+  datasources**, **manage table definitions**, **view audit trail**,
+  **view hook outbox** (definition transfer needs datasource + definition;
+  users/roles stay Admin-only) — with independent read/create/update/delete
+  grants per table.
   User and role management is Admin-only. Disabled users are rejected at login
   and on every request. `fk` relations follow the same grants: related display
   values (and the fk record picker) resolve only for users with read access to
@@ -215,6 +293,12 @@ Under systemd, follow with `journalctl -u ku-crud -f`.
     cmd/main.go            server entry: flags, serves the API + embedded SPA
                            (go run ./cmd/main.go)
     cmd/seed-admin/        create an admin login user in the metadata store
+    cmd/hookgen/           go:generate AST scanner: regenerates
+                           hooks/registry_gen.go from the functions in hooks/
+    hooks/                 developer-written hook functions (HookFunc
+                           signature) + the generated registry_gen.go
+    internal/hooks/        hook contract, executor (before-hooks), outbox
+                           worker (after-hooks with retry/backoff)
     internal/meta/         SQLite metadata store: migrations, users, roles,
                            datasources, table defs, audit
     internal/ds/           Adapter layer: dialect-neutral `Adapter` interface +
@@ -270,6 +354,17 @@ Integration tests share one schema (`DROP SCHEMA public CASCADE`), so run
 packages serially under load: `go test -p 1 ./...`.
 
 Lint/format: `go vet ./...` and `gofmt -l .` must be clean.
+
+### Hooks development
+
+Add a plain Go function with the `HookFunc` signature in `hooks/`, then run
+`make dev` (or `make build`) — `go generate ./hooks` scans the package with
+cmd/hookgen and rewrites `hooks/registry_gen.go`, so the function appears in
+the table-definition editor's Hooks section on the next load. Renaming a
+function registers a **new** hook: assignments to the old name stay in the
+definition and reject writes with `HOOK_MISSING` until you re-assign them.
+Failed after-hooks land on the durable outbox and retry with backoff —
+monitor and manually retry dead entries at `/hooks-outbox`.
 
 ### Frontend
 

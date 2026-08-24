@@ -64,6 +64,9 @@ type metaFileColumn struct {
 	M2MSrcCol   string                `json:"m2mJunctionSrcCol,omitempty"`
 	M2MTgtCol   string                `json:"m2mJunctionTgtCol,omitempty"`
 	M2MDisplay  []string              `json:"m2mDisplayColumns"`
+	IsComputed  bool                  `json:"isComputed,omitempty"`
+	ComputedFml string                `json:"computedFormula,omitempty"`
+	Formatting  json.RawMessage       `json:"formatting,omitempty"`
 }
 
 type metaFileTable struct {
@@ -71,11 +74,18 @@ type metaFileTable struct {
 	Schema         string           `json:"schema"`
 	Table          string           `json:"table"`
 	Label          string           `json:"label"`
+	Description    string           `json:"description,omitempty"`
 	KeyColumns     []string         `json:"keyColumns"`
 	PageSize       int              `json:"pageSize"`
 	DefaultSortCol string           `json:"defaultSortCol"`
 	DefaultSortDir string           `json:"defaultSortDir"`
+	DefaultView    string           `json:"defaultView,omitempty"`
+	ViewConfig     json.RawMessage  `json:"viewConfig,omitempty"`
+	Hooks          json.RawMessage  `json:"hooks,omitempty"`
+	Actions        json.RawMessage  `json:"actions,omitempty"`
 	GroupRef       string           `json:"groupRef,omitempty"`
+	SourceType     string           `json:"sourceType,omitempty"`
+	QuerySQL       string           `json:"querySql,omitempty"`
 	Columns        []metaFileColumn `json:"columns"`
 }
 
@@ -150,7 +160,13 @@ func (s *Server) buildMetaFile() (*metaFile, error) {
 	type nk struct{ ds, schema, table string }
 	defKey := map[int64]nk{}
 	for _, d := range defs {
-		defKey[d.ID] = nk{dsName[d.DatasourceID], d.SchemaName, d.TableName}
+		k := nk{dsName[d.DatasourceID], d.SchemaName, d.TableName}
+		if d.SourceType == "query" {
+			// label-keyed so a dependency ref ("ds/query/<label>") can't
+			// collide between two query defs on one datasource
+			k.schema, k.table = "query", d.Label
+		}
+		defKey[d.ID] = k
 	}
 	refOf := func(id int64) *metaTableRef {
 		k, ok := defKey[id]
@@ -165,21 +181,37 @@ func (s *Server) buildMetaFile() (*metaFile, error) {
 			return nil, err
 		}
 		ft := metaFileTable{DatasourceRef: dsName[d.DatasourceID], Schema: d.SchemaName,
-			Table: d.TableName, Label: d.Label, KeyColumns: nonNil(d.KeyColumns), PageSize: d.PageSize,
+			Table: d.TableName, Label: d.Label, Description: d.Description,
+			KeyColumns: nonNil(d.KeyColumns), PageSize: d.PageSize,
 			DefaultSortCol: d.DefaultSortCol, DefaultSortDir: d.DefaultSortDir,
-			GroupRef: groupName[d.GroupID], Columns: []metaFileColumn{}}
+			DefaultView: d.DefaultView,
+			GroupRef:    groupName[d.GroupID], Columns: []metaFileColumn{},
+			SourceType: d.SourceType, QuerySQL: d.QuerySQL}
+		if d.ViewConfig != "" {
+			ft.ViewConfig = json.RawMessage(d.ViewConfig)
+		}
+		if d.Hooks != "" {
+			ft.Hooks = json.RawMessage(d.Hooks)
+		}
+		if d.Actions != "" {
+			ft.Actions = json.RawMessage(d.Actions)
+		}
 		for _, c := range cols {
 			fc := metaFileColumn{Name: c.Name, Label: c.Label, FieldType: c.FieldType,
 				EnumOptions: nonNil(c.EnumOptions), Editable: c.Editable, Required: c.Required,
 				Visible: c.Visible, Searchable: c.Searchable, Sortable: c.Sortable,
 				Position: c.Position, BaseType: c.BaseType, Validations: nonNilRules(c.Validations),
 				FKRefColumn: c.FKRefColumn, FKDisplay: nonNil(c.FKDisplayColumns),
-				M2MSrcCol: c.M2MJunctionSrcCol, M2MTgtCol: c.M2MJunctionTgtCol, M2MDisplay: nonNil(c.M2MDisplayColumns)}
+				M2MSrcCol: c.M2MJunctionSrcCol, M2MTgtCol: c.M2MJunctionTgtCol, M2MDisplay: nonNil(c.M2MDisplayColumns),
+				IsComputed: c.IsComputed, ComputedFml: c.ComputedFormula}
 			if c.FKTableDefID > 0 {
 				fc.FKTableRef = refOf(c.FKTableDefID)
 			}
 			if c.M2MJunctionDefID > 0 {
 				fc.M2MJunction = refOf(c.M2MJunctionDefID)
+			}
+			if c.Formatting != "" {
+				fc.Formatting = json.RawMessage(c.Formatting)
 			}
 			ft.Columns = append(ft.Columns, fc)
 		}
@@ -225,10 +257,32 @@ func dsEqual(a metaFileDatasource, d meta.Datasource) bool {
 // tableRef builds the "<ds>/<schema>/<table>" display ref.
 func tableRef(ds, schema, table string) string { return ds + "/" + schema + "/" + table }
 
+// defRef is the selection/ref key for a file table. Query defs have empty
+// schema/table ("ds//" would collide for two of them), so they are
+// label-keyed instead: "<ds>/query/<label>".
+func defRef(dsName string, ft metaFileTable) string {
+	if ft.SourceType == "query" {
+		return dsName + "/query/" + ft.Label
+	}
+	return tableRef(dsName, ft.Schema, ft.Table)
+}
+
+// localDefRef is defRef for a stored def — same branch, the def's own fields.
+func localDefRef(dsName string, d *meta.TableDef) string {
+	if d.SourceType == "query" {
+		return dsName + "/query/" + d.Label
+	}
+	return tableRef(dsName, d.SchemaName, d.TableName)
+}
+
 func tblEqual(ft metaFileTable, def *meta.TableDef, cols []meta.ColumnDef, dsName, groupName string) bool {
 	if ft.DatasourceRef != dsName || ft.Schema != def.SchemaName || ft.Table != def.TableName ||
-		ft.Label != def.Label || ft.PageSize != def.PageSize ||
+		ft.Label != def.Label || ft.Description != def.Description || ft.PageSize != def.PageSize ||
 		ft.DefaultSortCol != def.DefaultSortCol || ft.DefaultSortDir != def.DefaultSortDir ||
+		ft.DefaultView != def.DefaultView || string(ft.ViewConfig) != def.ViewConfig ||
+		string(ft.Hooks) != def.Hooks ||
+		string(ft.Actions) != def.Actions ||
+		ft.SourceType != def.SourceType || ft.QuerySQL != def.QuerySQL ||
 		ft.GroupRef != groupName || len(ft.KeyColumns) != len(def.KeyColumns) {
 		return false
 	}
@@ -245,6 +299,8 @@ func tblEqual(ft metaFileTable, def *meta.TableDef, cols []meta.ColumnDef, dsNam
 		if fc.Name != c.Name || fc.Label != c.Label || fc.FieldType != c.FieldType ||
 			fc.Editable != c.Editable || fc.Required != c.Required || fc.Visible != c.Visible ||
 			fc.Searchable != c.Searchable || fc.Sortable != c.Sortable || fc.Position != c.Position ||
+			fc.IsComputed != c.IsComputed || fc.ComputedFml != c.ComputedFormula ||
+			string(fc.Formatting) != c.Formatting ||
 			len(fc.Validations) != len(c.Validations) {
 			return false
 		}
@@ -299,9 +355,9 @@ func (s *Server) diffMeta(f *metaFile) (*importPreviewRes, string) {
 	for _, d := range dss {
 		localDS[d.Name] = d
 	}
-	fileTables := map[string]bool{} // "ds/schema/table" present in file
+	fileTables := map[string]bool{} // defRef keys present in file
 	for _, ft := range f.Tables {
-		fileTables[tableRef(ft.DatasourceRef, ft.Schema, ft.Table)] = true
+		fileTables[defRef(ft.DatasourceRef, ft)] = true
 	}
 	localTables := map[string]*meta.TableDef{}
 	defs, err := s.store.ListTableDefs()
@@ -315,7 +371,7 @@ func (s *Server) diffMeta(f *metaFile) (*importPreviewRes, string) {
 	}
 	for i := range defs {
 		d := &defs[i]
-		localTables[tableRef(dsName[d.DatasourceID], d.SchemaName, d.TableName)] = d
+		localTables[localDefRef(dsName[d.DatasourceID], d)] = d
 	}
 
 	for _, fds := range f.Datasources {
@@ -331,7 +387,7 @@ func (s *Server) diffMeta(f *metaFile) (*importPreviewRes, string) {
 	}
 
 	for _, ft := range f.Tables {
-		ref := tableRef(ft.DatasourceRef, ft.Schema, ft.Table)
+		ref := defRef(ft.DatasourceRef, ft)
 		item := tblPreviewItem{Ref: ref, Status: "new", Dependencies: []depItem{}}
 		if loc, ok := localTables[ref]; ok {
 			_, cols, err := s.store.GetTableDef(loc.ID)
@@ -409,6 +465,46 @@ func (s *Server) handleMetaImportApply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "META_IMPORT_INVALID", msg, nil)
 		return
 	}
+	// Spec §9: every selected query def must pass EXPLAIN against its local
+	// datasource before anything is applied — ApplyImport is all-or-nothing,
+	// so a rejected bundle leaves the store untouched. Adapters are deduped
+	// per datasource (one connection validates all of that ds's defs).
+	adapters := map[int64]ds.Adapter{}
+	defer func() {
+		for _, a := range adapters {
+			a.Close()
+		}
+	}()
+	for i := range plan.Defs {
+		pd := &plan.Defs[i]
+		if pd.Def.SourceType != "query" {
+			continue
+		}
+		ref := pd.DsName + "/query/" + pd.Def.Label
+		if pd.Def.DatasourceID == 0 {
+			// datasource exists only inside this bundle — nothing local to
+			// validate against yet
+			writeErr(w, 400, "META_IMPORT_INVALID",
+				"query view "+ref+" failed validation: datasource "+pd.DsName+
+					" is new in this import — import it first, then the query view", nil)
+			return
+		}
+		a, ok := adapters[pd.Def.DatasourceID]
+		if !ok {
+			a, err = s.liveAdapter(pd.Def.DatasourceID)
+			if err != nil {
+				writeErr(w, 400, "META_IMPORT_INVALID",
+					"query view "+ref+" failed validation: "+err.Error(), nil)
+				return
+			}
+			adapters[pd.Def.DatasourceID] = a
+		}
+		if err := a.ExplainQuery(pd.Def.QuerySQL); err != nil {
+			writeErr(w, 400, "META_IMPORT_INVALID",
+				"query view "+ref+" failed validation: "+err.Error(), nil)
+			return
+		}
+	}
 	created, updated, err := s.store.ApplyImport(*plan)
 	if err != nil {
 		writeErr(w, 400, "META_IMPORT_INVALID", "import failed: "+err.Error(), nil)
@@ -431,12 +527,14 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 	}
 
 	localDS := map[string]bool{}
+	dsID := map[string]int64{}
 	dss, err := s.store.ListDatasources()
 	if err != nil {
 		return nil, "", fmt.Errorf("list datasources failed: %w", err)
 	}
 	for _, d := range dss {
 		localDS[d.Name] = true
+		dsID[d.Name] = d.ID
 	}
 	selDS := map[string]applySelectionDS{}
 	for _, x := range sel.Datasources {
@@ -460,7 +558,7 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 	// index file tables + selected refs for dependency resolution
 	fileTables := map[string]metaFileTable{}
 	for _, ft := range f.Tables {
-		fileTables[tableRef(ft.DatasourceRef, ft.Schema, ft.Table)] = ft
+		fileTables[defRef(ft.DatasourceRef, ft)] = ft
 	}
 	localRefs := map[string]bool{}
 	defs, err := s.store.ListTableDefs()
@@ -471,8 +569,8 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 	for _, d := range dss {
 		dsName[d.ID] = d.Name
 	}
-	for _, d := range defs {
-		localRefs[tableRef(dsName[d.DatasourceID], d.SchemaName, d.TableName)] = true
+	for i := range defs {
+		localRefs[localDefRef(dsName[defs[i].DatasourceID], &defs[i])] = true
 	}
 	selTbl := map[string]string{}
 	for _, x := range sel.Tables {
@@ -480,7 +578,7 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 	}
 
 	for _, ft := range f.Tables {
-		ref := tableRef(ft.DatasourceRef, ft.Schema, ft.Table)
+		ref := defRef(ft.DatasourceRef, ft)
 		mode, ok := selTbl[ref]
 		if !ok || mode == "skip" {
 			continue
@@ -512,14 +610,33 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 		if msg := validateBundleTable(ft); msg != "" {
 			return nil, msg, nil
 		}
+		if ft.SourceType == "query" {
+			if msg := checkQuerySQL(ft.QuerySQL); msg != "" {
+				return nil, msg, nil
+			}
+			for _, fc := range ft.Columns {
+				if fc.FieldType == "fk" || fc.FieldType == "m2m" {
+					return nil, "query view " + ref + " cannot use fk or m2m columns", nil
+				}
+			}
+		}
 
+		srcType, querySQL := ft.SourceType, ft.QuerySQL
+		if srcType != "query" {
+			srcType, querySQL = "table", ""
+		}
 		pd := meta.PlannedDef{DsName: ft.DatasourceRef, GroupName: ft.GroupRef,
-			Def: meta.TableDef{SchemaName: ft.Schema, TableName: ft.Table, Label: ft.Label,
-				KeyColumns: ft.KeyColumns, PageSize: ft.PageSize,
-				DefaultSortCol: ft.DefaultSortCol, DefaultSortDir: ft.DefaultSortDir}}
+			Def: meta.TableDef{DatasourceID: dsID[ft.DatasourceRef],
+				SchemaName: ft.Schema, TableName: ft.Table, Label: ft.Label,
+				Description: ft.Description,
+				KeyColumns:  ft.KeyColumns, PageSize: ft.PageSize,
+				DefaultSortCol: ft.DefaultSortCol, DefaultSortDir: ft.DefaultSortDir,
+				DefaultView: ft.DefaultView, ViewConfig: string(ft.ViewConfig), Hooks: string(ft.Hooks),
+				Actions:    string(ft.Actions),
+				SourceType: srcType, QuerySQL: querySQL}}
 		if mode == "overwrite" {
 			for i := range defs {
-				if tableRef(dsName[defs[i].DatasourceID], defs[i].SchemaName, defs[i].TableName) == ref {
+				if localDefRef(dsName[defs[i].DatasourceID], &defs[i]) == ref {
 					pd.LocalID = defs[i].ID
 					break
 				}
@@ -532,7 +649,9 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 				Searchable: fc.Searchable, Sortable: fc.Sortable, Position: fc.Position,
 				BaseType: fc.BaseType, Validations: fc.Validations,
 				FKRefColumn: fc.FKRefColumn, FKDisplayColumns: fc.FKDisplay,
-				M2MJunctionSrcCol: fc.M2MSrcCol, M2MJunctionTgtCol: fc.M2MTgtCol, M2MDisplayColumns: fc.M2MDisplay}}
+				M2MJunctionSrcCol: fc.M2MSrcCol, M2MJunctionTgtCol: fc.M2MTgtCol, M2MDisplayColumns: fc.M2MDisplay,
+				IsComputed: fc.IsComputed, ComputedFormula: fc.ComputedFml,
+				Formatting: string(fc.Formatting)}}
 			if fc.FKTableRef != nil {
 				pc.FKRef = meta.DefRef{DsName: fc.FKTableRef.DatasourceRef, Schema: fc.FKTableRef.Schema, Table: fc.FKTableRef.Table}
 			}
@@ -547,38 +666,79 @@ func (s *Server) buildImportPlan(f *metaFile, sel applySelections) (*meta.Import
 }
 
 // validateBundleTable covers validateDef's structural core against a file
-// table (identifier safety, keys exist, enum options, pageSize).
+// table (identifier safety, keys exist, enum options, pageSize). Query defs
+// mirror validateDef: label-keyed, no schema/table/keyColumns requirement.
 func validateBundleTable(ft metaFileTable) string {
-	if ft.Schema == "" || ft.Table == "" || ft.Label == "" || len(ft.KeyColumns) == 0 {
-		return "table " + ft.Table + ": schema/table/label/keyColumns are required"
+	query := ft.SourceType == "query"
+	name := ft.Table
+	if query {
+		name = ft.Label
+	}
+	if query {
+		if ft.Label == "" {
+			return "query view: label is required"
+		}
+	} else if ft.Schema == "" || ft.Table == "" || ft.Label == "" || len(ft.KeyColumns) == 0 {
+		return "table " + name + ": schema/table/label/keyColumns are required"
 	}
 	if ft.PageSize < 1 || ft.PageSize > 200 {
-		return "table " + ft.Table + ": pageSize must be 1..200"
+		return "table " + name + ": pageSize must be 1..200"
 	}
-	for _, name := range append([]string{ft.Schema, ft.Table}, ft.KeyColumns...) {
-		if _, err := ds.QuoteIdent(name); err != nil {
-			return "table " + ft.Table + ": invalid identifier " + name
+	if !query {
+		for _, id := range append([]string{ft.Schema, ft.Table}, ft.KeyColumns...) {
+			if _, err := ds.QuoteIdent(id); err != nil {
+				return "table " + name + ": invalid identifier " + id
+			}
 		}
+	}
+	// full column list (once) so computed formulas resolve their identifiers
+	colDefs := make([]meta.ColumnDef, len(ft.Columns))
+	for i, fc := range ft.Columns {
+		colDefs[i] = meta.ColumnDef{Name: fc.Name, FieldType: fc.FieldType,
+			IsComputed: fc.IsComputed, ComputedFormula: fc.ComputedFml}
 	}
 	names := map[string]bool{}
-	for _, c := range ft.Columns {
+	for i, c := range ft.Columns {
 		if c.Name == "" || c.Label == "" {
-			return "table " + ft.Table + ": column name and label are required"
+			return "table " + name + ": column name and label are required"
 		}
 		if _, err := ds.QuoteIdent(c.Name); err != nil {
-			return "table " + ft.Table + ": invalid identifier " + c.Name
+			return "table " + name + ": invalid identifier " + c.Name
 		}
 		if !validFieldTypes[c.FieldType] {
-			return "table " + ft.Table + ": column " + c.Name + " has invalid fieldType"
+			return "table " + name + ": column " + c.Name + " has invalid fieldType"
 		}
 		if c.FieldType == "enum" && len(c.EnumOptions) == 0 {
-			return "table " + ft.Table + ": column " + c.Name + " enum needs options"
+			return "table " + name + ": column " + c.Name + " enum needs options"
+		}
+		if c.IsComputed {
+			if c.FieldType != "number" && c.FieldType != "text" {
+				return "table " + name + ": column " + c.Name + ": computed columns must be number or text"
+			}
+			if c.Editable || c.Searchable || c.Sortable {
+				return "table " + name + ": column " + c.Name + ": computed columns cannot be editable/searchable/sortable"
+			}
+			for _, key := range ft.KeyColumns {
+				if c.Name == key {
+					return "table " + name + ": column " + c.Name + ": computed columns cannot be key columns"
+				}
+			}
+			if c.ComputedFml == "" {
+				return "table " + name + ": column " + c.Name + ": computed columns need computedFormula"
+			}
+			ft2, _, err := compileComputed(colDefs[i], colDefs)
+			if err != nil {
+				return "table " + name + ": column " + c.Name + ": " + err.Error()
+			}
+			if ft2 != c.FieldType {
+				return "table " + name + ": column " + c.Name + ": formula produces " + ft2 + " but the column type is " + c.FieldType
+			}
 		}
 		names[c.Name] = true
 	}
 	for _, k := range ft.KeyColumns {
 		if !names[k] {
-			return "table " + ft.Table + ": key column " + k + " must be one of the columns"
+			return "table " + name + ": key column " + k + " must be one of the columns"
 		}
 	}
 	return ""

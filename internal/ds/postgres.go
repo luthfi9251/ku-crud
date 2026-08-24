@@ -1,9 +1,11 @@
 package ds
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -106,7 +108,7 @@ func (a *pgAdapter) ListTables() ([]TableInfo, error) {
 }
 
 func (a *pgAdapter) InspectTable(schema, table string) ([]LiveColumn, error) {
-	enums, err := a.loadEnums()
+	enums, _, err := a.loadEnums()
 	if err != nil {
 		return nil, err
 	}
@@ -149,24 +151,29 @@ func (a *pgAdapter) InspectTable(schema, table string) ([]LiveColumn, error) {
 	return out, rows.Err()
 }
 
-func (a *pgAdapter) loadEnums() (map[string][]string, error) {
+// loadEnums returns the database's enum types keyed by type name and by OID
+// string — information_schema exposes the name, while the pgx driver reports
+// user-defined query-result columns by OID.
+func (a *pgAdapter) loadEnums() (map[string][]string, map[string][]string, error) {
 	rows, err := a.db.Query(`
-		SELECT t.typname, array_agg(e.enumlabel ORDER BY e.enumsortorder)
+		SELECT t.oid, t.typname, array_agg(e.enumlabel ORDER BY e.enumsortorder)
 		FROM pg_type t
 		JOIN pg_enum e ON e.enumtypid = t.oid
 		JOIN pg_namespace n ON n.oid = t.typnamespace
 		WHERE n.nspname NOT IN ('pg_catalog','information_schema')
-		GROUP BY t.typname`)
+		GROUP BY t.oid, t.typname`)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
-	enums := map[string][]string{}
+	byName := map[string][]string{}
+	byOID := map[string][]string{}
 	for rows.Next() {
+		var oid int64
 		var name string
 		var opts any
-		if err := rows.Scan(&name, &opts); err != nil {
-			return nil, err
+		if err := rows.Scan(&oid, &name, &opts); err != nil {
+			return nil, nil, err
 		}
 		var s string
 		switch v := opts.(type) {
@@ -175,9 +182,11 @@ func (a *pgAdapter) loadEnums() (map[string][]string, error) {
 		case string:
 			s = v
 		}
-		enums[name] = parsePGArray(s)
+		labels := parsePGArray(s)
+		byName[name] = labels
+		byOID[strconv.FormatInt(oid, 10)] = labels
 	}
-	return enums, rows.Err()
+	return byName, byOID, rows.Err()
 }
 
 // ---- data access via sqlkit ----
@@ -329,4 +338,140 @@ func (a *pgAdapter) queryMaps(sqlText string, args ...any) ([]map[string]any, er
 		out = append(out, rowToMap(cols, deref(scan)))
 	}
 	return out, rows.Err()
+}
+
+// ---- query views (v1.8) ----
+
+// pgTypeName maps driver-level type names (pgx DatabaseTypeName) to field
+// types; "" = excluded (arrays, bytea, unknown).
+func pgTypeName(n string) string {
+	switch n {
+	case "BOOL":
+		return "boolean"
+	case "INT2", "INT4", "INT8", "NUMERIC", "FLOAT4", "FLOAT8":
+		return "number"
+	case "DATE", "TIMESTAMP", "TIMESTAMPTZ", "TIME", "TIMETZ":
+		return "datetime"
+	case "TEXT", "VARCHAR", "BPCHAR":
+		return "text"
+	case "UUID":
+		return "uuid"
+	case "JSON", "JSONB":
+		return "json"
+	}
+	return ""
+}
+
+// queryExec runs fn inside a read-only tx with the statement timeout set
+// (layers 2-3). SET LOCAL auto-resets at tx end.
+func (a *pgAdapter) queryExec(fn func(tx *sql.Tx) error) error {
+	ctx := context.Background()
+	tx, err := a.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
+		fmt.Sprintf("SET LOCAL statement_timeout = '%dms'", QueryTimeout.Milliseconds())); err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func queryMapsTx(tx *sql.Tx, sqlText string, args ...any) ([]map[string]any, error) {
+	rows, err := tx.Query(sqlText, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	var out []map[string]any
+	for rows.Next() {
+		scan := scanTargets(len(cols))
+		if err := rows.Scan(scan...); err != nil {
+			return nil, err
+		}
+		out = append(out, rowToMap(cols, deref(scan)))
+	}
+	return out, rows.Err()
+}
+
+func (a *pgAdapter) ExplainQuery(query string) error {
+	rows, err := a.db.Query("EXPLAIN " + query)
+	if err != nil {
+		return err
+	}
+	rows.Close()
+	return rows.Err()
+}
+
+func (a *pgAdapter) IntrospectQuery(query string) ([]LiveColumn, []string, error) {
+	var cols []LiveColumn
+	var dropped []string
+	_, enumOIDs, err := a.loadEnums()
+	if err != nil {
+		return nil, nil, err
+	}
+	err = a.queryExec(func(tx *sql.Tx) error {
+		rows, err := tx.Query(fmt.Sprintf("SELECT * FROM (%s) AS %s LIMIT 0", query, queryAlias))
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		ct, err := rows.ColumnTypes()
+		if err != nil {
+			return err
+		}
+		for _, c := range ct {
+			ft := pgTypeName(c.DatabaseTypeName())
+			var opts []string
+			if ft == "" {
+				// user-defined result types surface as OIDs; ones backed by
+				// pg_enum are enum columns, everything else stays excluded
+				opts = enumOIDs[c.DatabaseTypeName()]
+				if opts != nil {
+					ft = "enum"
+				}
+			}
+			if _, qerr := QuoteIdent(c.Name()); qerr != nil || ft == "" {
+				dropped = append(dropped, c.Name())
+				continue
+			}
+			nullable, _ := c.Nullable()
+			cols = append(cols, LiveColumn{Name: c.Name(), FieldType: ft, Nullable: nullable, EnumOptions: opts})
+		}
+		return nil
+	})
+	return cols, dropped, err
+}
+
+func (a *pgAdapter) ListQueryRows(p QueryParams) ([]map[string]any, error) {
+	sqlText, args, err := pgDialect.buildQueryList(p)
+	if err != nil {
+		return nil, err
+	}
+	var out []map[string]any
+	err = a.queryExec(func(tx *sql.Tx) error {
+		out, err = queryMapsTx(tx, sqlText, args...)
+		return err
+	})
+	return out, err
+}
+
+func (a *pgAdapter) CountQueryRows(p QueryParams) (int, error) {
+	sqlText, args, err := pgDialect.buildQueryCount(p)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	err = a.queryExec(func(tx *sql.Tx) error {
+		return tx.QueryRow(sqlText, args...).Scan(&n)
+	})
+	return n, err
 }

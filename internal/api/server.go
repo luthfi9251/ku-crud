@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"ku-crud/internal/hooks"
 	"ku-crud/internal/meta"
 	"ku-crud/internal/tokenid"
 )
@@ -16,15 +17,22 @@ type Server struct {
 	// loginLimit throttles credential endpoints (brute-force protection);
 	// in-memory, per instance.
 	loginLimit *loginLimiter
+	// hooks is the compiled-in hook registry; nil = no hooks. All
+	// Registry methods are nil-safe.
+	hooks *hooks.Registry
 }
 
-func New(store *meta.Store) (*Server, error) {
+func New(store *meta.Store, reg ...*hooks.Registry) (*Server, error) {
 	secret, err := store.IDSecret()
 	if err != nil {
 		return nil, err
 	}
+	var hr *hooks.Registry
+	if len(reg) > 0 {
+		hr = reg[0]
+	}
 	return &Server{store: store, ids: tokenid.New(secret),
-		loginLimit: newLoginLimiter(5, 15*time.Minute)}, nil
+		loginLimit: newLoginLimiter(5, 15*time.Minute), hooks: hr}, nil
 }
 
 // CtxUser is the per-request auth context (role included).
@@ -69,35 +77,37 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/auth/me", s.RequireAuth(s.handleMe))
+	mux.HandleFunc("PATCH /api/auth/me", s.RequireAuth(s.handleMeUpdate))
 
 	mux.HandleFunc("GET /api/setup/status", s.handleSetupStatus)
 	mux.HandleFunc("POST /api/setup", s.handleSetup)
 
-	mux.HandleFunc("GET /api/datasources", s.RequirePlatform(s.handleDSList))
-	mux.HandleFunc("POST /api/datasources", s.RequirePlatform(s.handleDSCreate))
-	mux.HandleFunc("PUT /api/datasources/{id}", s.RequirePlatform(s.handleDSUpdate))
-	mux.HandleFunc("DELETE /api/datasources/{id}", s.RequirePlatform(s.handleDSDelete))
-	mux.HandleFunc("POST /api/datasources/{id}/test", s.RequirePlatform(s.handleDSTest))
-	mux.HandleFunc("GET /api/datasources/{id}/tables", s.RequirePlatform(s.handleDSTables))
-	mux.HandleFunc("GET /api/datasources/{id}/tables/{schema}/{table}/columns", s.RequirePlatform(s.handleDSColumns))
+	mux.HandleFunc("GET /api/datasources", s.RequireDSManage(s.handleDSList))
+	mux.HandleFunc("POST /api/datasources", s.RequireDSManage(s.handleDSCreate))
+	mux.HandleFunc("PUT /api/datasources/{id}", s.RequireDSManage(s.handleDSUpdate))
+	mux.HandleFunc("DELETE /api/datasources/{id}", s.RequireDSManage(s.handleDSDelete))
+	mux.HandleFunc("POST /api/datasources/{id}/test", s.RequireDSManage(s.handleDSTest))
+	mux.HandleFunc("GET /api/datasources/{id}/tables", s.RequireDSManage(s.handleDSTables))
+	mux.HandleFunc("GET /api/datasources/{id}/tables/{schema}/{table}/columns", s.RequireDSManage(s.handleDSColumns))
+	mux.HandleFunc("POST /api/datasources/{id}/query-introspect", s.RequireDSManage(s.handleDSQueryIntrospect))
 
 	mux.HandleFunc("GET /api/tables", s.RequireAuth(s.handleTableList))
-	mux.HandleFunc("POST /api/tables", s.RequirePlatform(s.handleTableCreate))
+	mux.HandleFunc("POST /api/tables", s.RequireTablesManage(s.handleTableCreate))
 	mux.HandleFunc("GET /api/tables/{id}", s.RequireAuth(s.handleTableGet))
-	mux.HandleFunc("PUT /api/tables/{id}", s.RequirePlatform(s.handleTableUpdate))
-	mux.HandleFunc("DELETE /api/tables/{id}", s.RequirePlatform(s.handleTableDelete))
-	mux.HandleFunc("GET /api/tables/{id}/verify", s.RequirePlatform(s.handleVerify))
-	mux.HandleFunc("POST /api/tables/{id}/resync", s.RequirePlatform(s.handleResync))
+	mux.HandleFunc("PUT /api/tables/{id}", s.RequireTablesManage(s.handleTableUpdate))
+	mux.HandleFunc("DELETE /api/tables/{id}", s.RequireTablesManage(s.handleTableDelete))
+	mux.HandleFunc("GET /api/tables/{id}/verify", s.RequireTablesManage(s.handleVerify))
+	mux.HandleFunc("POST /api/tables/{id}/resync", s.RequireTablesManage(s.handleResync))
 
-	mux.HandleFunc("GET /api/meta/export", s.RequirePlatform(s.handleMetaExport))
-	mux.HandleFunc("POST /api/meta/import/preview", s.RequirePlatform(s.handleMetaImportPreview))
-	mux.HandleFunc("POST /api/meta/import/apply", s.RequirePlatform(s.handleMetaImportApply))
+	mux.HandleFunc("GET /api/meta/export", s.RequirePlatformAll(s.handleMetaExport))
+	mux.HandleFunc("POST /api/meta/import/preview", s.RequirePlatformAll(s.handleMetaImportPreview))
+	mux.HandleFunc("POST /api/meta/import/apply", s.RequirePlatformAll(s.handleMetaImportApply))
 
 	mux.HandleFunc("GET /api/groups", s.RequireAuth(s.handleGroupList))
-	mux.HandleFunc("POST /api/groups", s.RequirePlatform(s.handleGroupCreate))
-	mux.HandleFunc("PATCH /api/groups/{id}", s.RequirePlatform(s.handleGroupUpdate))
-	mux.HandleFunc("DELETE /api/groups/{id}", s.RequirePlatform(s.handleGroupDelete))
-	mux.HandleFunc("PATCH /api/tables/{id}", s.RequirePlatform(s.handleTableSetGroup))
+	mux.HandleFunc("POST /api/groups", s.RequireTablesManage(s.handleGroupCreate))
+	mux.HandleFunc("PATCH /api/groups/{id}", s.RequireTablesManage(s.handleGroupUpdate))
+	mux.HandleFunc("DELETE /api/groups/{id}", s.RequireTablesManage(s.handleGroupDelete))
+	mux.HandleFunc("PATCH /api/tables/{id}", s.RequireTablesManage(s.handleTableSetGroup))
 
 	mux.HandleFunc("GET /api/tables/{id}/rows", s.RequireAuth(s.handleRowList))
 	mux.HandleFunc("POST /api/tables/{id}/rows", s.RequireAuth(s.handleRowCreate))
@@ -105,13 +115,22 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("PUT /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowUpdate))
 	mux.HandleFunc("DELETE /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowDelete))
 	mux.HandleFunc("POST /api/tables/{id}/rows/bulk-delete", s.RequireAuth(s.handleRowBulkDelete))
+	mux.HandleFunc("POST /api/tables/{id}/rows/{pk}/action", s.RequireAuth(s.handleRowAction))
 	mux.HandleFunc("GET /api/tables/{id}/fkoptions/{column}", s.RequireAuth(s.handleFKOptions))
 	mux.HandleFunc("GET /api/tables/{id}/m2moptions/{column}", s.RequireAuth(s.handleM2MOptions))
 	mux.HandleFunc("GET /api/tables/{id}/rows/{pk}/m2m/{column}", s.RequireAuth(s.handleM2MLinks))
 	mux.HandleFunc("GET /api/tables/{id}/rows/export", s.RequireAuth(s.handleRowExport))
 	mux.HandleFunc("POST /api/tables/{id}/import/preview", s.RequireAuth(s.handleImportPreview))
 	mux.HandleFunc("POST /api/tables/{id}/import/apply", s.RequireAuth(s.handleImportApply))
-	mux.HandleFunc("GET /api/audit", s.RequirePlatform(s.handleAuditList))
+	mux.HandleFunc("GET /api/tables/{id}/saved-filters", s.RequireAuth(s.handleSavedFilterList))
+	mux.HandleFunc("POST /api/tables/{id}/saved-filters", s.RequireAuth(s.handleSavedFilterCreate))
+	mux.HandleFunc("PUT /api/tables/{id}/saved-filters/{fid}", s.RequireAuth(s.handleSavedFilterUpdate))
+	mux.HandleFunc("DELETE /api/tables/{id}/saved-filters/{fid}", s.RequireAuth(s.handleSavedFilterDelete))
+	mux.HandleFunc("GET /api/audit", s.RequireAuditView(s.handleAuditList))
+
+	mux.HandleFunc("GET /api/hooks", s.RequireTablesManage(s.handleHooksList))
+	mux.HandleFunc("GET /api/hooks/outbox", s.RequireOutboxView(s.handleOutboxList))
+	mux.HandleFunc("POST /api/hooks/outbox/{id}/retry", s.RequireOutboxView(s.handleOutboxRetry))
 
 	mux.HandleFunc("GET /api/users", s.RequireAdmin(s.handleUserList))
 	mux.HandleFunc("POST /api/users", s.RequireAdmin(s.handleUserCreate))

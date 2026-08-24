@@ -255,6 +255,9 @@ func (s *Server) handleM2MLinks(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
+	if writeQueryReadOnly(w, def) {
+		return
+	}
 	if !s.hasTablePerm(u, def.ID, "read") {
 		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
 		return
@@ -328,6 +331,9 @@ func (s *Server) handleM2MOptions(w http.ResponseWriter, r *http.Request) {
 	def, cols, err := s.tableCtx(r)
 	if err != nil {
 		s.writeDefErr(w, err)
+		return
+	}
+	if writeQueryReadOnly(w, def) {
 		return
 	}
 	if !s.hasTablePerm(u, def.ID, "read") {
@@ -424,6 +430,9 @@ func (s *Server) handleFKOptions(w http.ResponseWriter, r *http.Request) {
 	def, cols, err := s.tableCtx(r)
 	if err != nil {
 		s.writeDefErr(w, err)
+		return
+	}
+	if writeQueryReadOnly(w, def) {
 		return
 	}
 	if !s.hasTablePerm(u, def.ID, "read") {

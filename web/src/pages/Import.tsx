@@ -2,8 +2,10 @@ import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Upload, ArrowLeft, CheckCircle2, XCircle, FileSpreadsheet } from "lucide-react";
-import { api, ApiError } from "../lib/api";
+import { api } from "../lib/api";
+import { humanError } from "../lib/errors";
 import type { TableDefPayload } from "../lib/types";
+import { useT } from "../lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -39,6 +41,7 @@ interface ApplyRes {
 export default function Import() {
   const { id } = useParams();
   const qc = useQueryClient();
+  const t = useT();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const def = useQuery({
@@ -64,7 +67,7 @@ export default function Import() {
       setResult(null);
       setErr("");
     },
-    onError: (e) => setErr(e instanceof ApiError ? e.message : String(e)),
+    onError: (e) => setErr(humanError(e, t).title),
   });
 
   const repreview = useMutation({
@@ -79,7 +82,7 @@ export default function Import() {
       setPreview(res);
       setErr("");
     },
-    onError: (e) => setErr(e instanceof ApiError ? e.message : String(e)),
+    onError: (e) => setErr(humanError(e, t).title),
   });
 
   const apply = useMutation({
@@ -95,7 +98,7 @@ export default function Import() {
       setResult(res);
       qc.invalidateQueries({ queryKey: ["rows", id] });
     },
-    onError: (e) => setErr(e instanceof ApiError ? e.message : String(e)),
+    onError: (e) => setErr(humanError(e, t).title),
   });
 
   const mappableCols = (def.data?.columns ?? []).filter((c) => c.editable || (def.data?.keyColumns ?? []).includes(c.name));
@@ -106,15 +109,14 @@ export default function Import() {
     <div className="space-y-6 pb-12">
       <div className="flex items-center justify-between border-b pb-4">
         <div>
-          <h2 className="text-lg font-semibold">Import CSV — {def.data?.label ?? "..."}</h2>
+          <h2 className="text-lg font-semibold">{t("imp.title", { label: def.data?.label ?? "..." })}</h2>
           <p className="text-xs text-muted-foreground">
-            Upload a CSV, map columns to table fields, review validation, then insert.
-            Delimiter (comma / semicolon / tab) is detected automatically. Max 5 MB / 10,000 rows.
+            {t("imp.subtitle")}
           </p>
         </div>
         <Link to={`/data/${id}`}>
           <Button variant="outline" size="sm" className="gap-1 text-xs">
-            <ArrowLeft className="h-3.5 w-3.5" /> Back to Data
+            <ArrowLeft className="h-3.5 w-3.5" /> {t("imp.back")}
           </Button>
         </Link>
       </div>
@@ -126,8 +128,8 @@ export default function Import() {
       {/* Step 1: upload */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">1. Upload File</CardTitle>
-          <CardDescription className="text-xs">Choose the CSV file to import</CardDescription>
+           <CardTitle className="text-sm font-semibold">{t("imp.step1")}</CardTitle>
+           <CardDescription className="text-xs">{t("imp.step1Desc")}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-3">
           <input
@@ -144,12 +146,12 @@ export default function Import() {
             }}
           />
           <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => fileRef.current?.click()} disabled={upload.isPending}>
-            <Upload className="h-3.5 w-3.5" /> {upload.isPending ? "Parsing..." : "Choose CSV file"}
+            <Upload className="h-3.5 w-3.5" /> {upload.isPending ? t("imp.parsing") : t("imp.chooseCsv")}
           </Button>
           {file && (
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <FileSpreadsheet className="h-3.5 w-3.5" /> {file.name} ({(file.size / 1024).toFixed(1)} KB)
-              {preview && <Badge variant="secondary" className="ml-2">delimiter: "{preview.delimiter}"</Badge>}
+              {preview && <Badge variant="secondary" className="ml-2">{t("imp.delimiter", { value: preview.delimiter })}</Badge>}
             </span>
           )}
         </CardContent>
@@ -159,9 +161,9 @@ export default function Import() {
       {preview && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-semibold">2. Column Mapping & Preview</CardTitle>
+            <CardTitle className="text-sm font-semibold">{t("imp.step2")}</CardTitle>
             <CardDescription className="text-xs">
-              Auto-mapped by name (editable). Unmapped or ignored columns are skipped.
+              {t("imp.step2Desc")}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -179,10 +181,10 @@ export default function Import() {
                       }}
                     >
                       <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="— ignore —" />
+                        <SelectValue placeholder={t("imp.ignore")} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="ignore" className="text-xs">— ignore —</SelectItem>
+                        <SelectItem value="ignore" className="text-xs">{t("imp.ignore")}</SelectItem>
                         {mappableCols.map((c) => (
                           <SelectItem key={c.name} value={c.name} className="text-xs">
                             {c.label} ({c.name})
@@ -198,17 +200,17 @@ export default function Import() {
 
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <Button variant="outline" size="sm" className="text-xs" onClick={() => repreview.mutate()} disabled={repreview.isPending}>
-                {repreview.isPending ? "Re-validating..." : "Re-validate with mapping"}
+                {repreview.isPending ? t("imp.revalidating") : t("imp.revalidate")}
               </Button>
               <Badge variant="secondary" className="gap-1 bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
-                <CheckCircle2 className="h-3 w-3" /> {validCount} valid
+                <CheckCircle2 className="h-3 w-3" /> {t("imp.validCount", { count: String(validCount) })}
               </Badge>
               {preview.counts.invalid > 0 && (
                 <Badge variant="outline" className="gap-1 bg-red-500/10 text-red-600 border-red-500/20">
-                  <XCircle className="h-3 w-3" /> {preview.counts.invalid} invalid
+                  <XCircle className="h-3 w-3" /> {t("imp.invalidCount", { count: String(preview.counts.invalid) })}
                 </Badge>
               )}
-              <Badge variant="outline">{totalCount} rows</Badge>
+              <Badge variant="outline">{t("imp.rowsCount", { count: String(totalCount) })}</Badge>
             </div>
 
             <div className="max-h-[420px] overflow-auto rounded-md border">
@@ -216,7 +218,7 @@ export default function Import() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-10 text-[11px]">#</TableHead>
-                    <TableHead className="w-16 text-[11px]">Status</TableHead>
+                     <TableHead className="w-16 text-[11px]">{t("imp.status")}</TableHead>
                     {preview.headers.map((h) => (
                       <TableHead key={h} className="text-[11px] font-mono">{h}</TableHead>
                     ))}
@@ -245,16 +247,16 @@ export default function Import() {
                 </TableBody>
               </Table>
             </div>
-            {totalCount > 100 && (
-              <p className="text-[11px] text-muted-foreground">Showing first 100 rows of {totalCount}. Validation ran on all rows.</p>
+             {totalCount > 100 && (
+              <p className="text-[11px] text-muted-foreground">{t("imp.previewNote", { count: String(totalCount) })}</p>
             )}
             {preview.rows.some((r) => !r.valid) && (
               <div className="max-h-40 overflow-auto rounded-md border border-red-500/20 bg-red-500/5 p-3">
                 <ul className="space-y-1 text-[11px] text-red-600 dark:text-red-400">
                   {preview.rows.map((r, i) =>
                     r.valid ? null : (
-                      <li key={i}>
-                        <span className="font-mono font-semibold">Row {i + 1}:</span>{" "}
+                       <li key={i}>
+                         <span className="font-mono font-semibold">{t("imp.row", { number: String(i + 1) })}</span>{" "}
                         {(r.errors ?? []).map((e) => `${e.column || "?"} — ${e.message}`).join("; ")}
                       </li>
                     )
@@ -270,9 +272,9 @@ export default function Import() {
       {preview && !result && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-semibold">3. Insert</CardTitle>
+            <CardTitle className="text-sm font-semibold">{t("imp.step3")}</CardTitle>
             <CardDescription className="text-xs">
-              Inserts are batched server-side; every inserted row is audited and requires your create grant.
+              {t("imp.step3Desc")}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
@@ -282,7 +284,7 @@ export default function Import() {
               disabled={validCount === 0 || apply.isPending}
               onClick={() => apply.mutate("valid")}
             >
-              <CheckCircle2 className="h-3.5 w-3.5" /> Insert {validCount} valid {validCount === 1 ? "row" : "rows"}
+              <CheckCircle2 className="h-3.5 w-3.5" /> {t("imp.insertValid", { count: String(validCount) })}
             </Button>
             <Button
               size="sm"
@@ -291,7 +293,7 @@ export default function Import() {
               disabled={totalCount === 0 || apply.isPending}
               onClick={() => apply.mutate("all")}
             >
-              Insert all {totalCount} rows (best effort)
+              {t("imp.insertAll", { count: String(totalCount) })}
             </Button>
           </CardContent>
         </Card>
@@ -301,34 +303,34 @@ export default function Import() {
       {result && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-semibold">Result</CardTitle>
+            <CardTitle className="text-sm font-semibold">{t("imp.result")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex gap-2">
               <Badge variant="secondary" className="gap-1 bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
-                <CheckCircle2 className="h-3 w-3" /> {result.inserted} inserted
+                <CheckCircle2 className="h-3 w-3" /> {t("imp.inserted", { count: String(result.inserted) })}
               </Badge>
               {result.failed > 0 && (
                 <Badge variant="outline" className="gap-1 bg-red-500/10 text-red-600 border-red-500/20">
-                  <XCircle className="h-3 w-3" /> {result.failed} failed
+                  <XCircle className="h-3 w-3" /> {t("imp.failed", { count: String(result.failed) })}
                 </Badge>
               )}
             </div>
             {result.failures.length > 0 && (
               <ul className="space-y-1 rounded-md border border-red-500/20 bg-red-500/5 p-3 text-[11px] text-red-600 dark:text-red-400">
                 {result.failures.slice(0, 200).map((f, i) => (
-                  <li key={i}>
-                    <span className="font-mono font-semibold">Row {f.row + 1}:</span>{" "}
+                 <li key={i}>
+                   <span className="font-mono font-semibold">{t("imp.row", { number: String(f.row + 1) })}</span>{" "}
                     {f.errors.map((e) => `${e.column ? e.column + " — " : ""}${e.message}`).join("; ")}
                   </li>
                 ))}
               </ul>
             )}
-            <Link to={`/data/${id}`}>
-              <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-700 text-xs">
-                Back to Data Grid
-              </Button>
-            </Link>
+             <Link to={`/data/${id}`}>
+               <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-700 text-xs">
+                 {t("imp.backGrid")}
+               </Button>
+             </Link>
           </CardContent>
         </Card>
       )}

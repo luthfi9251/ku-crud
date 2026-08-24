@@ -172,6 +172,52 @@ func (s *Server) writeDSErr(w http.ResponseWriter, err error) {
 	writeErr(w, 500, "INTERNAL", "server error", nil)
 }
 
+func (s *Server) handleDSQueryIntrospect(w http.ResponseWriter, r *http.Request) {
+	id, err := s.dsCtx(r)
+	if err != nil {
+		s.writeDSErr(w, err)
+		return
+	}
+	var in struct {
+		Query string `json:"query"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+	if msg := checkQuerySQL(in.Query); msg != "" {
+		writeErr(w, 400, "QUERY_INVALID", msg, nil)
+		return
+	}
+	d, err := s.store.GetDatasource(id)
+	if err != nil {
+		s.writeDSErr(w, err)
+		return
+	}
+	a, err := ds.Open(*d)
+	if err != nil {
+		writeErr(w, 502, "CONN", "connection failed", err.Error())
+		return
+	}
+	defer a.Close()
+	if err := a.ExplainQuery(in.Query); err != nil {
+		writeErr(w, 400, "QUERY_INVALID", "query failed validation", err.Error())
+		return
+	}
+	cols, dropped, err := a.IntrospectQuery(in.Query)
+	if err != nil {
+		writeErr(w, 502, "CONN", "introspection failed", err.Error())
+		return
+	}
+	if cols == nil {
+		cols = []ds.LiveColumn{}
+	}
+	if dropped == nil {
+		dropped = []string{}
+	}
+	writeJSON(w, 200, map[string]any{"columns": cols, "dropped": dropped})
+}
+
 func (s *Server) handleDSTest(w http.ResponseWriter, r *http.Request) {
 	id, err := s.dsCtx(r)
 	if err != nil {

@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ShieldCheck, Filter, ChevronLeft, ChevronRight, Eye, PlusCircle, Edit3, Trash2, Calendar, Database } from "lucide-react";
+import { ShieldCheck, Filter, ChevronLeft, ChevronRight, Eye, PlusCircle, Edit3, Trash2, Calendar, Database, Zap } from "lucide-react";
 import { api } from "../lib/api";
 import { displayRowPk } from "../lib/rowkey";
 import type { AuditEntry, TableDef } from "../lib/types";
+import { useT } from "../lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -13,6 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 export default function Audit() {
+  const t = useT();
   const [tableDefId, setTableDefId] = useState("");
   const [action, setAction] = useState("");
   const [page, setPage] = useState(1);
@@ -31,16 +33,16 @@ export default function Audit() {
   });
 
   const pages = audit.data ? Math.max(1, Math.ceil(audit.data.total / audit.data.pageSize)) : 1;
-  const defName = (id: string) => defs.data?.find((d) => d.id === id)?.label ?? "unknown table";
+  const defName = (id: string) => defs.data?.find((d) => d.id === id)?.label ?? t("audit.unknownTable");
 
   return (
     <div className="space-y-6">
       {/* Top Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b pb-4">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Audit Trail Logs</h2>
+          <h2 className="text-xl font-bold tracking-tight">{t("audit.title")}</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Real-time track of all database mutations, row inserts, updates, and deletions
+            {t("audit.subtitle")}
           </p>
         </div>
 
@@ -56,10 +58,10 @@ export default function Audit() {
               }}
             >
               <SelectTrigger className="h-9 w-44 text-xs">
-                <SelectValue placeholder="All tables" />
+                <SelectValue placeholder={t("audit.allTables")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">All Tables</SelectItem>
+                <SelectItem value="all" className="text-xs">{t("audit.allTables")}</SelectItem>
                 {(defs.data ?? []).map((d) => (
                   <SelectItem key={d.id} value={String(d.id)} className="text-xs">
                     {d.label}
@@ -79,11 +81,11 @@ export default function Audit() {
               }}
             >
               <SelectTrigger className="h-9 w-32 text-xs">
-                <SelectValue placeholder="All actions" />
+                <SelectValue placeholder={t("audit.allActions")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">All Actions</SelectItem>
-                {["INSERT", "UPDATE", "DELETE"].map((a) => (
+                <SelectItem value="all" className="text-xs">{t("audit.allActions")}</SelectItem>
+                {["INSERT", "UPDATE", "DELETE", "ACTION"].map((a) => (
                   <SelectItem key={a} value={a} className="text-xs">
                     {a}
                   </SelectItem>
@@ -100,19 +102,19 @@ export default function Audit() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50 hover:bg-muted/50">
-                <TableHead className="w-48">Timestamp</TableHead>
-                <TableHead>Target Table</TableHead>
-                <TableHead className="w-32">User</TableHead>
-                <TableHead className="w-28">Action</TableHead>
-                <TableHead className="w-36">Row Key</TableHead>
-                <TableHead className="text-right">Diff Inspector</TableHead>
+                <TableHead className="w-48">{t("audit.timestamp")}</TableHead>
+                <TableHead>{t("audit.table")}</TableHead>
+                <TableHead className="w-32">{t("audit.user")}</TableHead>
+                <TableHead className="w-28">{t("audit.action")}</TableHead>
+                <TableHead className="w-36">{t("audit.rowKey")}</TableHead>
+                <TableHead className="text-right">{t("audit.diff")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {audit.isLoading ? (
                 <TableRow>
                   <TableCell colSpan={6} className="h-24 text-center text-xs text-muted-foreground">
-                    Loading audit trail logs...
+                    {t("audit.loading")}
                   </TableCell>
                 </TableRow>
               ) : (audit.data?.entries ?? []).length === 0 ? (
@@ -120,7 +122,7 @@ export default function Audit() {
                   <TableCell colSpan={6} className="h-32 text-center">
                     <div className="flex flex-col items-center justify-center space-y-1">
                       <ShieldCheck className="h-7 w-7 text-muted-foreground/30" />
-                      <p className="text-xs font-medium text-muted-foreground">No audit entries found</p>
+                      <p className="text-xs font-medium text-muted-foreground">{t("audit.empty")}</p>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -152,7 +154,7 @@ export default function Audit() {
                         className="h-7 text-xs gap-1"
                         onClick={() => setSelectedEntry(e)}
                       >
-                        <Eye className="h-3.5 w-3.5 text-blue-500" /> View Diff
+                        <Eye className="h-3.5 w-3.5 text-blue-500" /> {t("audit.viewDiff")}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -165,7 +167,7 @@ export default function Audit() {
         {/* Footer Pagination */}
         <div className="flex items-center justify-between border-t bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
           <span>
-            Page <strong className="text-foreground">{page}</strong> of <strong className="text-foreground">{pages}</strong> &bull; Total {audit.data?.total ?? 0} log entries
+            {t("data.pageOf", { page: String(page), pages: String(pages) })} &bull; {t("audit.totalEntries", { count: String(audit.data?.total ?? 0) })}
           </span>
           <div className="flex items-center gap-1">
             <Button
@@ -175,7 +177,7 @@ export default function Audit() {
               disabled={page <= 1}
               onClick={() => setPage(page - 1)}
             >
-              <ChevronLeft className="h-3.5 w-3.5" /> Prev
+              <ChevronLeft className="h-3.5 w-3.5" /> {t("data.prev")}
             </Button>
             <Button
               variant="outline"
@@ -184,7 +186,7 @@ export default function Audit() {
               disabled={page >= pages}
               onClick={() => setPage(page + 1)}
             >
-              Next <ChevronRight className="h-3.5 w-3.5" />
+              {t("data.next")} <ChevronRight className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>
@@ -198,18 +200,18 @@ export default function Audit() {
               <div className="flex items-center justify-between">
                 <DialogTitle className="text-base font-bold flex items-center gap-2">
                   <ShieldCheck className="h-5 w-5 text-blue-500" />
-                  Audit Entry Log #{selectedEntry.id}
+                  {t("audit.entryLog", { id: String(selectedEntry.id) })}
                 </DialogTitle>
                 <ActionBadge action={selectedEntry.action} />
               </div>
               <DialogDescription className="text-xs font-mono mt-1">
-                Table: {defName(selectedEntry.tableDefId)} &bull; User: {selectedEntry.username} &bull; Row Key: {displayRowPk(selectedEntry.rowPk)} &bull; {selectedEntry.createdAt}
+                {t("audit.table")}: {defName(selectedEntry.tableDefId)} &bull; {t("audit.user")}: {selectedEntry.username} &bull; {t("audit.rowKey")}: {displayRowPk(selectedEntry.rowPk)} &bull; {selectedEntry.createdAt}
               </DialogDescription>
             </DialogHeader>
 
             <div className="grid grid-cols-2 gap-4 py-3">
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-rose-600 dark:text-rose-400">Previous State (Old Values)</Label>
+                <Label className="text-xs font-semibold text-rose-600 dark:text-rose-400">{t("audit.oldState")}</Label>
                 <div className="rounded-lg border bg-muted/40 p-3 font-mono text-[11px] max-h-60 overflow-y-auto">
                   <pre className="whitespace-pre-wrap">
                     {selectedEntry.oldValues ? JSON.stringify(selectedEntry.oldValues, null, 2) : "null"}
@@ -218,7 +220,7 @@ export default function Audit() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">New State (New Values)</Label>
+                <Label className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">{t("audit.newState")}</Label>
                 <div className="rounded-lg border bg-muted/40 p-3 font-mono text-[11px] max-h-60 overflow-y-auto">
                   <pre className="whitespace-pre-wrap">
                     {selectedEntry.newValues ? JSON.stringify(selectedEntry.newValues, null, 2) : "null"}
@@ -252,6 +254,13 @@ function ActionBadge({ action }: { action: string }) {
     return (
       <Badge variant="secondary" className="gap-1 text-[10px] bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 font-semibold">
         <Trash2 className="h-3 w-3" /> DELETE
+      </Badge>
+    );
+  }
+  if (action === "ACTION") {
+    return (
+      <Badge variant="secondary" className="gap-1 text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-semibold">
+        <Zap className="h-3 w-3" /> ACTION
       </Badge>
     );
   }

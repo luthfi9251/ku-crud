@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 
+	"ku-crud/internal/hooks"
 	"ku-crud/internal/meta"
 )
 
@@ -59,6 +61,9 @@ func (s *Server) importCtx(w http.ResponseWriter, r *http.Request) (*meta.TableD
 		s.writeDefErr(w, err)
 		return nil, nil, false
 	}
+	if writeQueryReadOnly(w, def) {
+		return nil, nil, false
+	}
 	if !s.hasTablePerm(u, def.ID, "create") {
 		writeErr(w, 403, "FORBIDDEN", "no create access to this table", nil)
 		return nil, nil, false
@@ -68,8 +73,11 @@ func (s *Server) importCtx(w http.ResponseWriter, r *http.Request) (*meta.TableD
 
 // validateImportRows maps each CSV row onto column values, validates them,
 // and returns per-row results plus the typed payloads for valid rows.
-func (s *Server) validateImportRows(def *meta.TableDef, cols []meta.ColumnDef,
-	headers []string, mapping map[string]string, records [][]string,
+// runHooks controls before-create hook execution: preview runs hooks to
+// surface rejections; apply skips them here (hooks run exactly once at
+// insert time) so mutating hooks cannot compound.
+func (s *Server) validateImportRows(ctx context.Context, u CtxUser, def *meta.TableDef, cols []meta.ColumnDef,
+	headers []string, mapping map[string]string, records [][]string, runHooks bool,
 ) ([]importRow, []map[string]any) {
 	byName := map[string]meta.ColumnDef{}
 	for _, c := range cols {
@@ -144,6 +152,17 @@ func (s *Server) validateImportRows(def *meta.TableDef, cols []meta.ColumnDef,
 		payloads[i] = payload
 	}
 	s.checkImportFKs(cols, sanitized, rows, payloads)
+	if runHooks {
+		for i := range payloads {
+			if !rows[i].Valid {
+				continue
+			}
+			if _, err := s.runBefore(ctx, u, def, cols, hooks.BeforeCreate, payloads[i], nil); err != nil {
+				rows[i].Valid = false
+				rows[i].Errors = append(rows[i].Errors, importRowError{Message: "hook: " + err.Error()})
+			}
+		}
+	}
 	return rows, payloads
 }
 
@@ -195,8 +214,13 @@ func (s *Server) checkImportFKs(cols []meta.ColumnDef, mapping map[string]string
 }
 
 func (s *Server) handleImportPreview(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
 	def, cols, ok := s.importCtx(w, r)
 	if !ok {
+		return
+	}
+	if err := s.hookGuard(def); err != nil {
+		writeHookErr(w, err)
 		return
 	}
 	data, mapping, _, err := s.readImportFile(w, r)
@@ -212,7 +236,7 @@ func (s *Server) handleImportPreview(w http.ResponseWriter, r *http.Request) {
 	if mapping == nil {
 		mapping = autoMap(headers, cols)
 	}
-	rows, _ := s.validateImportRows(def, cols, headers, mapping, records)
+	rows, _ := s.validateImportRows(r.Context(), u, def, cols, headers, mapping, records, true)
 	total, valid := len(rows), 0
 	for _, row := range rows {
 		if row.Valid {
@@ -234,6 +258,10 @@ func (s *Server) handleImportApply(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if err := s.hookGuard(def); err != nil {
+		writeHookErr(w, err)
+		return
+	}
 	data, mapping, mode, err := s.readImportFile(w, r)
 	if err != nil {
 		writeErr(w, 400, "IMPORT_BAD_CSV", err.Error(), nil)
@@ -252,7 +280,7 @@ func (s *Server) handleImportApply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "IMPORT_BAD_CSV", err.Error(), nil)
 		return
 	}
-	rows, payloads := s.validateImportRows(def, cols, headers, mapping, records)
+	rows, payloads := s.validateImportRows(r.Context(), u, def, cols, headers, mapping, records, false)
 
 	a, err := s.liveAdapter(def.DatasourceID)
 	if err != nil {
@@ -267,15 +295,29 @@ func (s *Server) handleImportApply(w http.ResponseWriter, r *http.Request) {
 	}
 	inserted, failed := 0, 0
 	var failures []failure
+	var insertedPayloads []map[string]any
 	for i := range records {
 		if !rows[i].Valid && mode == "valid" {
 			continue
 		}
+		// hooks run exactly once per row, here — before editablePayload so
+		// mutations are part of the inserted values
+		hooked, err := s.runBefore(r.Context(), u, def, cols, hooks.BeforeCreate, payloads[i], nil)
+		if err != nil {
+			failed++
+			failures = append(failures, failure{Row: i, Errors: []importRowError{{Column: "", Message: err.Error()}}})
+			continue
+		}
+		payloads[i] = hooked
 		names, vals, err := editablePayload(payloads[i], cols, def.KeyColumns, true)
 		if err != nil {
 			failed++
 			failures = append(failures, failure{Row: i, Errors: []importRowError{{Column: "", Message: err.Error()}}})
 			continue
+		}
+		p := map[string]any{}
+		for j := range names {
+			p[names[j]] = vals[j]
 		}
 		if err := a.Insert(def.SchemaName, def.TableName, names, vals); err != nil {
 			failed++
@@ -287,7 +329,11 @@ func (s *Server) handleImportApply(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		inserted++
+		insertedPayloads = append(insertedPayloads, p)
 		s.auditBestEffort(u, def.ID, "INSERT", "", nil, payloads[i])
+	}
+	for _, p := range insertedPayloads {
+		s.enqueueAfter(u, def, hooks.AfterCreate, nil, p)
 	}
 	if failures == nil {
 		failures = []failure{}

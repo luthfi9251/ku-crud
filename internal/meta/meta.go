@@ -7,10 +7,23 @@ import (
 	"errors"
 	"fmt"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 var ErrNotFound = errors.New("not found")
+
+// isUniqueConstraint reports whether err is the SQLite UNIQUE constraint
+// violation that modernc.org/sqlite surfaces for duplicate key writes.
+// The driver enables extended result codes, so the code is the full
+// SQLITE_CONSTRAINT_UNIQUE (2067) rather than the primary 19.
+func isUniqueConstraint(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	return se.Code() == int(sqlite3.SQLITE_CONSTRAINT_UNIQUE)
+}
 
 type Store struct {
 	db   *sql.DB
@@ -104,6 +117,57 @@ ALTER TABLE columns ADD COLUMN m2m_display_cols TEXT NOT NULL DEFAULT '';`,
 );
 ALTER TABLE table_defs ADD COLUMN group_id INTEGER REFERENCES table_groups(id) ON DELETE SET NULL;
 ALTER TABLE columns ADD COLUMN validations TEXT NOT NULL DEFAULT '';`,
+	// v1.5: computed columns, per-column formatting, default views,
+	// user language and saved filters.
+	`ALTER TABLE columns ADD COLUMN formatting TEXT NOT NULL DEFAULT '';
+ALTER TABLE columns ADD COLUMN is_computed INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE columns ADD COLUMN computed_formula TEXT NOT NULL DEFAULT '';
+ALTER TABLE table_defs ADD COLUMN default_view TEXT NOT NULL DEFAULT 'grid';
+ALTER TABLE table_defs ADD COLUMN view_config TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'en';
+CREATE TABLE saved_filters (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  table_def_id  INTEGER NOT NULL REFERENCES table_defs(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,
+  filters       TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX idx_saved_filters ON saved_filters(user_id, table_def_id, name);`,
+	// v1.6: hook assignments on table defs + durable after-hook outbox.
+	`ALTER TABLE table_defs ADD COLUMN hooks TEXT NOT NULL DEFAULT '';
+CREATE TABLE hook_outbox(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_def_id INTEGER NOT NULL REFERENCES table_defs(id) ON DELETE CASCADE,
+  event TEXT NOT NULL,
+  hook_name TEXT NOT NULL,
+  config TEXT NOT NULL DEFAULT '',
+  old_values TEXT,
+  new_values TEXT,
+  user_id INTEGER NOT NULL DEFAULT 0,
+  username TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_retry_at TEXT,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_hook_outbox_due ON hook_outbox(status, next_retry_at);`,
+	// v1.7: split platform_manage into four grants; table descriptions.
+	`ALTER TABLE roles ADD COLUMN manage_datasources INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE roles ADD COLUMN manage_tables INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE roles ADD COLUMN view_audit INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE roles ADD COLUMN view_outbox INTEGER NOT NULL DEFAULT 0;
+UPDATE roles SET manage_datasources=platform_manage, manage_tables=platform_manage,
+	view_audit=platform_manage, view_outbox=platform_manage;
+ALTER TABLE roles DROP COLUMN platform_manage;
+ALTER TABLE table_defs ADD COLUMN description TEXT NOT NULL DEFAULT '';`,
+	// v1.8: query-backed table definitions (custom views).
+	`ALTER TABLE table_defs ADD COLUMN source_type TEXT NOT NULL DEFAULT 'table';
+ALTER TABLE table_defs ADD COLUMN query_sql TEXT NOT NULL DEFAULT '';`,
+	// v1.9: customizable table actions (hide built-ins + custom hook actions).
+	`ALTER TABLE table_defs ADD COLUMN actions TEXT NOT NULL DEFAULT '';`,
 }
 
 func Open(path string) (*Store, error) {

@@ -9,13 +9,17 @@ import (
 
 // UserCtx is the per-request user snapshot (auth context), joined with role.
 type UserCtx struct {
-	ID             int64
-	Username       string
-	RoleID         int64
-	RoleName       string
-	IsAdmin        bool
-	PlatformManage bool
-	IsFirst        bool
+	ID                int64
+	Username          string
+	RoleID            int64
+	RoleName          string
+	IsAdmin           bool
+	ManageDatasources bool
+	ManageTables      bool
+	ViewAudit         bool
+	ViewOutbox        bool
+	IsFirst           bool
+	Language          string
 }
 
 // UserWithRole is a users-listing row.
@@ -117,9 +121,12 @@ func (s *Store) UserID(username string) (int64, bool, error) {
 func (s *Store) GetUserContext(username string) (UserCtx, bool, error) {
 	var u UserCtx
 	var disabled bool
-	err := s.db.QueryRow(`SELECT u.id,u.username,u.role_id,r.name,r.is_admin,r.platform_manage,u.disabled,u.is_first
+	err := s.db.QueryRow(`SELECT u.id,u.username,u.role_id,r.name,r.is_admin,
+		r.manage_datasources,r.manage_tables,r.view_audit,r.view_outbox,u.disabled,u.is_first,u.language
 		FROM users u JOIN roles r ON r.id=u.role_id WHERE u.username=?`, username).
-		Scan(&u.ID, &u.Username, &u.RoleID, &u.RoleName, &u.IsAdmin, &u.PlatformManage, &disabled, &u.IsFirst)
+		Scan(&u.ID, &u.Username, &u.RoleID, &u.RoleName, &u.IsAdmin,
+			&u.ManageDatasources, &u.ManageTables, &u.ViewAudit, &u.ViewOutbox,
+			&disabled, &u.IsFirst, &u.Language)
 	if errors.Is(err, sql.ErrNoRows) {
 		return u, false, nil
 	}
@@ -130,6 +137,15 @@ func (s *Store) GetUserContext(username string) (UserCtx, bool, error) {
 		return u, false, nil
 	}
 	return u, true, nil
+}
+
+// UpdateUserLanguage sets a user's UI language preference.
+func (s *Store) UpdateUserLanguage(id int64, lang string) error {
+	if lang != "en" && lang != "id" {
+		return errors.New("language must be en or id")
+	}
+	_, err := s.db.Exec(`UPDATE users SET language=? WHERE id=?`, lang, id)
+	return err
 }
 
 func (s *Store) ListUsers() ([]UserWithRole, error) {

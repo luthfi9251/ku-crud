@@ -1,7 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { HashRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { LangProvider } from "./lib/i18n";
 import App from "./App";
 import Login from "./pages/Login";
 import Setup from "./pages/Setup";
@@ -11,9 +12,11 @@ import Data from "./pages/Data";
 import Import from "./pages/Import";
 import Datasources from "./pages/Datasources";
 import Audit from "./pages/Audit";
+import HooksOutbox from "./pages/HooksOutbox";
 import MetaTransfer from "./pages/MetaTransfer";
 import Users from "./pages/Users";
 import Roles from "./pages/Roles";
+import Docs from "./pages/Docs";
 import "./index.css";
 
 const qc = new QueryClient({
@@ -23,7 +26,8 @@ const qc = new QueryClient({
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={qc}>
-      <HashRouter>
+      <LangProvider>
+        <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/setup" element={<Setup />} />
@@ -35,12 +39,15 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="data/:id/import" element={<Import />} />
             <Route path="datasources" element={<Datasources />} />
             <Route path="audit" element={<Audit />} />
+            <Route path="hooks-outbox" element={<HooksOutbox />} />
             <Route path="meta" element={<MetaTransfer />} />
             <Route path="users" element={<Users />} />
             <Route path="roles" element={<Roles />} />
+            <Route path="docs" element={<Docs />} />
           </Route>
         </Routes>
-      </HashRouter>
+        </BrowserRouter>
+      </LangProvider>
     </QueryClientProvider>
   </React.StrictMode>
 );

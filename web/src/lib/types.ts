@@ -12,12 +12,21 @@ export interface Datasource {
 export type ValidationRuleType = "email" | "min_len" | "max_len" | "number" | "text";
 export interface ValidationRule { type: ValidationRuleType; param?: number }
 
+// ColumnFormatting is display-only config (never written to DB or CSV export).
+export interface ColumnFormatting {
+  enumColors?: Record<string, string> | null;
+  number?: { thousands?: boolean; decimals?: number; prefix?: string } | null;
+}
+
 export interface ColumnDef {
   name: string; label: string; fieldType: FieldType;
   enumOptions: string[] | null;
   editable: boolean; required: boolean; visible: boolean;
   searchable: boolean; sortable: boolean; position: number;
   validations?: ValidationRule[] | null;
+  isComputed?: boolean;
+  computedFormula?: string;
+  formatting?: ColumnFormatting | null;
   baseType?: BaseFieldType;
   fkTableDefId?: string; // masked token or "self"
   fkRefColumn?: string;
@@ -35,10 +44,25 @@ export interface Permissions {
   read: boolean; create: boolean; update: boolean; delete: boolean;
 }
 
+export type ViewMode = "grid" | "kanban" | "calendar";
+export interface ViewConfig {
+  kanbanBoardColumn?: string;
+  kanbanDisplayColumn?: string;
+  calendarStartColumn?: string;
+  calendarEndColumn?: string | null;
+}
+
 export interface TableDef {
   id: Id; datasourceId: Id; schemaName: string; tableName: string;
-  label: string; keyColumns: string[]; pageSize: number;
+  label: string; description?: string;
+  sourceType?: "table" | "query";
+  querySql?: string;
+  keyColumns: string[]; pageSize: number;
   defaultSortCol: string; defaultSortDir: "ASC" | "DESC";
+  defaultView?: ViewMode;
+  viewConfig?: ViewConfig | null;
+  hooks?: HooksConfig | null;
+  actions?: ActionsConfig | null;
   groupId?: string; groupName?: string;
   permissions: Permissions;
 }
@@ -47,9 +71,21 @@ export interface TableDefPayload extends TableDef { columns: ColumnDef[] }
 
 export interface TableGroup { id: Id; name: string; position: number }
 
+// SavedFilter is a per-user named filter set for one table (filters is the
+// serialized ActiveFilter[] JSON produced by serializeFilters).
+export interface SavedFilter { id: Id; name: string; filters: string; createdAt: string }
+
 export interface LiveColumn {
   name: string; fieldType: FieldType; nullable: boolean;
   isPk: boolean; enumOptions: string[] | null;
+}
+
+// QueryIntrospectResult is the query-view wizard's validation response:
+// resolved output columns plus expression columns that were dropped for
+// lacking a stable alias.
+export interface QueryIntrospectResult {
+  columns: { name: string; fieldType: FieldType; nullable: boolean; isPk?: boolean; enumOptions?: string[] | null }[];
+  dropped: string[];
 }
 
 export type Row = Record<string, unknown>;
@@ -70,7 +106,10 @@ export interface AuditEntry {
 }
 
 export interface Me {
-  username: string; isAdmin: boolean; platformManage: boolean;
+  username: string; isAdmin: boolean;
+  manageDatasources: boolean; manageTables: boolean;
+  viewAudit: boolean; viewOutbox: boolean;
+  language?: string;
 }
 
 export interface User {
@@ -84,6 +123,52 @@ export interface TableGrant {
 }
 
 export interface Role {
-  id: Id; name: string; isAdmin: boolean; platformManage: boolean;
+  id: Id; name: string; isAdmin: boolean;
+  manageDatasources: boolean; manageTables: boolean;
+  viewAudit: boolean; viewOutbox: boolean;
   tables: TableGrant[]; userCount: number;
 }
+
+export type HookEvent =
+  | "beforeCreate" | "afterCreate"
+  | "beforeUpdate" | "afterUpdate"
+  | "beforeDelete" | "afterDelete";
+
+export interface HookAssignment {
+  hook: string;
+  config?: Record<string, unknown> | null;
+  order: number;
+}
+
+export type HooksConfig = Partial<Record<HookEvent, HookAssignment[]>>;
+
+export interface HooksListRes { hooks: string[] }
+
+export type HiddenActionKey = "newRow" | "edit" | "delete" | "copy" | "import" | "export" | "refresh";
+export type ActionGrant = "read" | "create" | "update" | "delete";
+export type ActionStyle = "neutral" | "primary" | "danger";
+
+export interface CustomAction {
+  id: string;
+  label: string;
+  confirm?: string;
+  grant: ActionGrant;
+  hook: string;
+  config?: Record<string, unknown> | null;
+  order: number;
+  style: ActionStyle;
+}
+
+export interface ActionsConfig {
+  hidden?: HiddenActionKey[];
+  custom?: CustomAction[];
+}
+
+export interface OutboxEntry {
+  id: Id; tableDefId: Id; event: string; hookName: string;
+  status: "pending" | "done" | "dead"; attempts: number;
+  nextRetryAt?: string; lastError?: string;
+  createdAt: string; updatedAt: string;
+}
+
+export interface OutboxListRes { entries: OutboxEntry[]; total: number; page: number }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 
 	"ku-crud/internal/ds"
+	"ku-crud/internal/hooks"
 	"ku-crud/internal/meta"
 )
 
@@ -20,12 +22,12 @@ func colNames(cols []meta.ColumnDef) []string {
 	return names
 }
 
-// realCols drops virtual m2m columns — they have no live counterpart and
-// must never reach SQL SELECT lists.
+// realCols drops virtual columns (m2m relations and computed) — they have no
+// live counterpart and must never reach SQL SELECT lists.
 func realCols(cols []meta.ColumnDef) []meta.ColumnDef {
 	out := make([]meta.ColumnDef, 0, len(cols))
 	for _, c := range cols {
-		if c.FieldType != "m2m" {
+		if c.FieldType != "m2m" && !c.IsComputed {
 			out = append(out, c)
 		}
 	}
@@ -55,7 +57,15 @@ func resolveSort(def *meta.TableDef, cols []meta.ColumnDef, sortCol, sortDir str
 		}
 		return def.DefaultSortCol, d
 	}
-	return def.KeyColumns[0], "ASC"
+	if len(def.KeyColumns) > 0 {
+		return def.KeyColumns[0], "ASC"
+	}
+	for _, c := range cols {
+		if c.Sortable && c.FieldType != "m2m" && !c.IsComputed {
+			return c.Name, "ASC"
+		}
+	}
+	return "", ""
 }
 
 func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
@@ -96,22 +106,45 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	names := realColNames(cols)
-	lp := ds.ListParams{Schema: def.SchemaName, Table: def.TableName, Columns: names,
-		Searchable: searchable, Search: q.Get("search"),
-		SortCol: sortCol, SortDir: sortDir,
-		Filters: filters,
-		Limit:   def.PageSize, Offset: (page - 1) * def.PageSize}
-
-	rows, err := a.ListRows(lp)
-	if err != nil {
-		writeErr(w, 502, "CONN", "query failed", err.Error())
-		return
+	var rows []map[string]any
+	var total int
+	if isQueryDef(def) {
+		if sortCol == "" {
+			writeErr(w, 400, "VALIDATION", "query view has no sortable column", nil)
+			return
+		}
+		qp := ds.QueryParams{Query: def.QuerySQL, Columns: names,
+			Searchable: searchable, Search: q.Get("search"),
+			SortCol: sortCol, SortDir: sortDir, Filters: filters,
+			Limit: def.PageSize, Offset: (page - 1) * def.PageSize}
+		rows, err = a.ListQueryRows(qp)
+		if err != nil {
+			writeQueryErr(w, err)
+			return
+		}
+		total, err = a.CountQueryRows(qp)
+		if err != nil {
+			writeQueryErr(w, err)
+			return
+		}
+	} else {
+		lp := ds.ListParams{Schema: def.SchemaName, Table: def.TableName, Columns: names,
+			Searchable: searchable, Search: q.Get("search"),
+			SortCol: sortCol, SortDir: sortDir,
+			Filters: filters,
+			Limit:   def.PageSize, Offset: (page - 1) * def.PageSize}
+		rows, err = a.ListRows(lp)
+		if err != nil {
+			writeErr(w, 502, "CONN", "query failed", err.Error())
+			return
+		}
+		total, err = a.CountRows(lp)
+		if err != nil {
+			writeErr(w, 502, "CONN", "count failed", err.Error())
+			return
+		}
 	}
-	total, err := a.CountRows(lp)
-	if err != nil {
-		writeErr(w, 502, "CONN", "count failed", err.Error())
-		return
-	}
+	applyComputed(cols, rows)
 	rels := s.buildRels(u, cols, rows)
 	m2mRels := s.buildM2MRels(u, def, cols, rows)
 	if rows == nil {
@@ -127,8 +160,14 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
+	// perm check before QUERY_NO_KEY so no-grant users can't probe whether
+	// a query view has key columns
 	if !s.hasTablePerm(userFrom(r), def.ID, "read") {
 		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
+		return
+	}
+	if isQueryDef(def) && len(def.KeyColumns) == 0 {
+		writeErr(w, 400, "QUERY_NO_KEY", "this query view has no key columns", nil)
 		return
 	}
 	a, err := s.liveAdapter(def.DatasourceID)
@@ -144,16 +183,37 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return
 	}
-	rowsOut, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, keyVals, names)
-	if err != nil {
-		writeErr(w, 502, "CONN", "query failed", err.Error())
-		return
+	var row map[string]any
+	if isQueryDef(def) {
+		kf := make([]ds.ColumnFilter, len(keyVals))
+		for i, k := range def.KeyColumns {
+			kf[i] = ds.ColumnFilter{Column: k, Op: "eq", Values: []any{keyVals[i]}}
+		}
+		qp := ds.QueryParams{Query: def.QuerySQL, Columns: names,
+			SortCol: def.KeyColumns[0], SortDir: "ASC", Filters: kf, Limit: 1}
+		rowsOut, err := a.ListQueryRows(qp)
+		if err != nil {
+			writeQueryErr(w, err)
+			return
+		}
+		if len(rowsOut) == 0 {
+			writeErr(w, 404, "NOT_FOUND", "row not found", nil)
+			return
+		}
+		row = rowsOut[0]
+	} else {
+		rowsOut, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, keyVals, names)
+		if err != nil {
+			writeErr(w, 502, "CONN", "query failed", err.Error())
+			return
+		}
+		if len(rowsOut) == 0 {
+			writeErr(w, 404, "NOT_FOUND", "row not found", nil)
+			return
+		}
+		row = rowsOut[0]
 	}
-	if len(rowsOut) == 0 {
-		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
-		return
-	}
-	row := rowsOut[0]
+	applyComputed(cols, []map[string]any{row})
 	rels := s.buildRels(userFrom(r), cols, []map[string]any{row})
 	writeJSON(w, 200, map[string]any{"row": row, "rels": rels})
 }
@@ -250,6 +310,9 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
+	if writeQueryReadOnly(w, def) {
+		return
+	}
 	if !s.hasTablePerm(u, def.ID, "create") {
 		writeErr(w, 403, "FORBIDDEN", "no create access to this table", nil)
 		return
@@ -279,6 +342,20 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	names, vals, err := editablePayload(body, cols, def.KeyColumns, true)
+	if err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
+		return
+	}
+	if err := s.hookGuard(def); err != nil {
+		writeHookErr(w, err)
+		return
+	}
+	body, err = s.runBefore(r.Context(), u, def, cols, hooks.BeforeCreate, body, nil)
+	if err != nil {
+		writeHookErr(w, err)
+		return
+	}
+	names, vals, err = editablePayload(body, cols, def.KeyColumns, true)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
@@ -315,6 +392,7 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditBestEffort(u, def.ID, "INSERT", "", nil, body)
+	s.enqueueAfter(u, def, hooks.AfterCreate, nil, body)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -323,6 +401,9 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 	def, cols, err := s.tableCtx(r)
 	if err != nil {
 		s.writeDefErr(w, err)
+		return
+	}
+	if writeQueryReadOnly(w, def) {
 		return
 	}
 	if !s.hasTablePerm(u, def.ID, "update") {
@@ -370,6 +451,16 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer a.Close()
 
+	oldRows, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals, realColNames(cols))
+	if err != nil {
+		writeErr(w, 502, "CONN", "fetch old failed", err.Error())
+		return
+	}
+	if len(oldRows) == 0 {
+		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
+		return
+	}
+
 	if err := s.checkFKValues(cols, names, vals); err != nil {
 		if errors.Is(err, errFKRefNotFound) {
 			writeErr(w, 400, "VALIDATION", err.Error(), nil)
@@ -379,13 +470,18 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	oldRows, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals, realColNames(cols))
-	if err != nil {
-		writeErr(w, 502, "CONN", "fetch old failed", err.Error())
+	if err := s.hookGuard(def); err != nil {
+		writeHookErr(w, err)
 		return
 	}
-	if len(oldRows) == 0 {
-		writeErr(w, 404, "NOT_FOUND", "row not found", nil)
+	body, err = s.runBefore(r.Context(), u, def, cols, hooks.BeforeUpdate, body, oldRows[0])
+	if err != nil {
+		writeHookErr(w, err)
+		return
+	}
+	names, vals, err = editablePayload(body, cols, def.KeyColumns, false)
+	if err != nil {
+		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
 
@@ -398,6 +494,7 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// ponytail: per-row new = old merged with payload (computed cols not re-read)
+	var mergedLast map[string]any
 	for _, old := range oldRows {
 		merged := map[string]any{}
 		for k, v := range old {
@@ -406,8 +503,10 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		for k, v := range body {
 			merged[k] = v
 		}
+		mergedLast = merged
 		s.auditBestEffort(u, def.ID, "UPDATE", rowKeyString(def, old), old, merged)
 	}
+	s.enqueueAfter(u, def, hooks.AfterUpdate, oldRows[0], mergedLast)
 	if err := s.applyM2MPayload(u, def, cols, body, oldRows[0], selections); err != nil {
 		var ae *apiError
 		if errors.As(err, &ae) {
@@ -425,6 +524,9 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 	def, cols, err := s.tableCtx(r)
 	if err != nil {
 		s.writeDefErr(w, err)
+		return
+	}
+	if writeQueryReadOnly(w, def) {
 		return
 	}
 	if !s.hasTablePerm(u, def.ID, "delete") {
@@ -465,6 +567,16 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, "CONFLICT", "row is referenced by other rows", conflicts)
 		return
 	}
+	if err := s.hookGuard(def); err != nil {
+		writeHookErr(w, err)
+		return
+	}
+	for _, old := range oldRows {
+		if _, err := s.runBefore(r.Context(), u, def, cols, hooks.BeforeDelete, nil, old); err != nil {
+			writeHookErr(w, err)
+			return
+		}
+	}
 	if _, err := a.DeleteByKey(def.SchemaName, def.TableName, def.KeyColumns, pkVals); err != nil {
 		if a.IsFKViolation(err) {
 			writeErr(w, 409, "CONFLICT", "row is referenced by other rows (database constraint)", nil)
@@ -475,6 +587,9 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, old := range oldRows {
 		s.auditBestEffort(u, def.ID, "DELETE", rowKeyString(def, old), old, nil)
+	}
+	for _, old := range oldRows {
+		s.enqueueAfter(u, def, hooks.AfterDelete, old, nil)
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "affected": len(oldRows)})
 }
@@ -510,6 +625,13 @@ func (s *Server) syncM2MLinks(u CtxUser, def *meta.TableDef, c meta.ColumnDef, s
 		return newAPIErr(403, "FORBIDDEN", "managing "+cfg.Junction.Label+
 			" relations requires create and delete grants on that table")
 	}
+	jdef, jcols, err := s.store.GetTableDef(cfg.Junction.ID)
+	if err != nil {
+		return err
+	}
+	if err := s.hookGuard(jdef); err != nil {
+		return wrapHookErr(err)
+	}
 	ja, err := s.liveAdapter(cfg.Junction.DatasourceID)
 	if err != nil {
 		return err
@@ -534,23 +656,31 @@ func (s *Server) syncM2MLinks(u CtxUser, def *meta.TableDef, c meta.ColumnDef, s
 		if _, exists := current[rowValKey(w)]; exists {
 			continue
 		}
+		linkVals := map[string]any{c.M2MJunctionSrcCol: srcVal, c.M2MJunctionTgtCol: w}
+		if _, err := s.runBefore(context.Background(), u, jdef, jcols, hooks.BeforeCreate, linkVals, nil); err != nil {
+			return wrapHookErr(err)
+		}
 		if err := ja.Insert(cfg.Junction.SchemaName, cfg.Junction.TableName,
 			[]string{c.M2MJunctionSrcCol, c.M2MJunctionTgtCol}, []any{srcVal, w}); err != nil {
 			return err
 		}
-		s.auditBestEffort(u, cfg.Junction.ID, "INSERT", "", nil,
-			map[string]any{c.M2MJunctionSrcCol: srcVal, c.M2MJunctionTgtCol: w})
+		s.auditBestEffort(u, cfg.Junction.ID, "INSERT", "", nil, linkVals)
+		s.enqueueAfter(u, jdef, hooks.AfterCreate, nil, linkVals)
 	}
 	for k, v := range current { // removed links
 		if wantSet[k] {
 			continue
 		}
+		linkVals := map[string]any{c.M2MJunctionSrcCol: srcVal, c.M2MJunctionTgtCol: v}
+		if _, err := s.runBefore(context.Background(), u, jdef, jcols, hooks.BeforeDelete, nil, linkVals); err != nil {
+			return wrapHookErr(err)
+		}
 		if _, err := ja.DeletePairs(cfg.Junction.SchemaName, cfg.Junction.TableName,
 			c.M2MJunctionSrcCol, srcVal, c.M2MJunctionTgtCol, v); err != nil {
 			return err
 		}
-		s.auditBestEffort(u, cfg.Junction.ID, "DELETE", "",
-			map[string]any{c.M2MJunctionSrcCol: srcVal, c.M2MJunctionTgtCol: v}, nil)
+		s.auditBestEffort(u, cfg.Junction.ID, "DELETE", "", linkVals, nil)
+		s.enqueueAfter(u, jdef, hooks.AfterDelete, linkVals, nil)
 	}
 	return nil
 }

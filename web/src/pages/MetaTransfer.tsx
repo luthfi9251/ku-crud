@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Upload, CheckCircle2, XCircle, Download, FileJson } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import type { Me } from "../lib/types";
+import { useT } from "../lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +50,7 @@ const statusLabel = (s: string) => s.replace(/-/g, " ");
 
 export default function MetaTransfer() {
   const qc = useQueryClient();
+  const t = useT();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const me = useQuery({
@@ -125,7 +127,7 @@ export default function MetaTransfer() {
         } catch {
           /* not json */
         }
-        alert(`Export failed: ${msg}`);
+        alert(t("data.exportFailed", { msg }));
         return;
       }
       const cd = res.headers.get("Content-Disposition") || "";
@@ -144,8 +146,8 @@ export default function MetaTransfer() {
     }
   };
 
-  if (me.data && !me.data.platformManage) {
-    return <div className="p-8 text-sm text-muted-foreground">Platform Management access required.</div>;
+  if (me.data && !(me.data.manageDatasources && me.data.manageTables)) {
+    return <div className="p-8 text-sm text-muted-foreground">{t("meta.accessRequired")}</div>;
   }
 
   const anySelected =
@@ -155,10 +157,9 @@ export default function MetaTransfer() {
   return (
     <div className="space-y-6 pb-12">
       <div className="border-b pb-4">
-        <h2 className="text-lg font-semibold">Definitions Transfer</h2>
+        <h2 className="text-lg font-semibold">{t("meta.title")}</h2>
         <p className="text-xs text-muted-foreground">
-          Export every table definition, datasource (connection settings only — passwords are never
-          exported) and sidebar group as JSON, or import such a file from another instance.
+          {t("meta.subtitle")}
         </p>
       </div>
 
@@ -169,14 +170,14 @@ export default function MetaTransfer() {
       {/* Export */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Export</CardTitle>
+          <CardTitle className="text-sm font-semibold">{t("meta.export")}</CardTitle>
           <CardDescription className="text-xs">
-            Downloads a ku-crud-meta JSON snapshot of this instance's metadata. No passwords are included.
+            {t("meta.exportDesc")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={exportMeta} disabled={exporting}>
-            <Download className="h-3.5 w-3.5" /> {exporting ? "Exporting..." : "Download definitions JSON"}
+            <Download className="h-3.5 w-3.5" /> {exporting ? t("meta.exporting") : t("meta.download")}
           </Button>
         </CardContent>
       </Card>
@@ -184,8 +185,8 @@ export default function MetaTransfer() {
       {/* Step 1: upload */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">1. Upload File</CardTitle>
-          <CardDescription className="text-xs">Choose a ku-crud-meta JSON file to import (max 2 MB)</CardDescription>
+            <CardTitle className="text-sm font-semibold">{t("meta.step1")}</CardTitle>
+            <CardDescription className="text-xs">{t("meta.step1Desc")}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-3">
           <input
@@ -202,7 +203,7 @@ export default function MetaTransfer() {
             }}
           />
           <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => fileRef.current?.click()} disabled={upload.isPending}>
-            <Upload className="h-3.5 w-3.5" /> {upload.isPending ? "Analyzing..." : "Choose JSON file"}
+            <Upload className="h-3.5 w-3.5" /> {upload.isPending ? t("meta.analyzing") : t("meta.chooseJson")}
           </Button>
           {file && (
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -216,25 +217,24 @@ export default function MetaTransfer() {
       {preview && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-semibold">2. Review &amp; Select</CardTitle>
+            <CardTitle className="text-sm font-semibold">{t("meta.step2")}</CardTitle>
             <CardDescription className="text-xs">
-              New and conflicting items default to overwrite; identical duplicates default to skip.
-              New datasources need a password before they can be created.
+              {t("meta.step2Desc")}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Datasources ({preview.datasources.length})
+                {t("meta.datasources", { count: String(preview.datasources.length) })}
               </h3>
               <div className="overflow-auto rounded-md border">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="text-[11px]">Ref</TableHead>
-                      <TableHead className="text-[11px]">Status</TableHead>
-                      <TableHead className="text-[11px]">Mode</TableHead>
-                      <TableHead className="text-[11px]">Password</TableHead>
+                      <TableHead className="text-[11px]">{t("meta.ref")}</TableHead>
+                      <TableHead className="text-[11px]">{t("meta.status")}</TableHead>
+                      <TableHead className="text-[11px]">{t("meta.mode")}</TableHead>
+                      <TableHead className="text-[11px]">{t("meta.password")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -244,7 +244,7 @@ export default function MetaTransfer() {
                           {d.ref}
                           {(d.conflicts ?? []).length > 0 && (
                             <p className="whitespace-normal text-[10px] text-amber-600 dark:text-amber-400">
-                              conflicts: {(d.conflicts ?? []).join(", ")}
+                              {t("meta.conflicts", { list: (d.conflicts ?? []).join(", ") })}
                             </p>
                           )}
                         </TableCell>
@@ -262,8 +262,8 @@ export default function MetaTransfer() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="skip" className="text-xs">skip</SelectItem>
-                              <SelectItem value="overwrite" className="text-xs">overwrite</SelectItem>
+                              <SelectItem value="skip" className="text-xs">{t("meta.skip")}</SelectItem>
+                              <SelectItem value="overwrite" className="text-xs">{t("meta.overwrite")}</SelectItem>
                             </SelectContent>
                           </Select>
                         </TableCell>
@@ -271,7 +271,7 @@ export default function MetaTransfer() {
                           <Input
                             type="password"
                             className="h-8 w-44 text-xs"
-                            placeholder={d.status === "new" ? "password" : "— existing datasource —"}
+                            placeholder={d.status === "new" ? t("meta.passwordPh") : t("meta.existingDs")}
                             disabled={d.status !== "new"}
                             value={dsPassword[d.ref] ?? ""}
                             onChange={(e) => setDsPassword((p) => ({ ...p, [d.ref]: e.target.value }))}
@@ -282,7 +282,7 @@ export default function MetaTransfer() {
                     {preview.datasources.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={4} className="py-3 text-center text-[11px] text-muted-foreground">
-                          No datasources in file
+                          {t("meta.noDs")}
                         </TableCell>
                       </TableRow>
                     )}
@@ -293,64 +293,64 @@ export default function MetaTransfer() {
 
             <div className="space-y-2">
               <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Tables ({preview.tables.length})
+                {t("meta.tables", { count: String(preview.tables.length) })}
               </h3>
               <div className="overflow-auto rounded-md border">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="text-[11px]">Ref</TableHead>
-                      <TableHead className="text-[11px]">Status</TableHead>
-                      <TableHead className="text-[11px]">Mode</TableHead>
-                      <TableHead className="text-[11px]">Dependencies</TableHead>
+                      <TableHead className="text-[11px]">{t("meta.ref")}</TableHead>
+                      <TableHead className="text-[11px]">{t("meta.status")}</TableHead>
+                      <TableHead className="text-[11px]">{t("meta.mode")}</TableHead>
+                      <TableHead className="text-[11px]">{t("meta.dependencies")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {preview.tables.map((t) => (
-                      <TableRow key={t.ref} className={t.invalid ? "bg-red-500/5" : ""}>
+                    {preview.tables.map((tbl) => (
+                      <TableRow key={tbl.ref} className={tbl.invalid ? "bg-red-500/5" : ""}>
                         <TableCell className="max-w-[280px] text-[11px] font-mono">
-                          {t.ref}
-                          {t.invalid && t.reason && (
+                          {tbl.ref}
+                          {tbl.invalid && tbl.reason && (
                             <p className="whitespace-normal text-[10px] text-red-600 dark:text-red-400">
                               <XCircle className="mr-0.5 inline h-3 w-3" />
-                              {t.reason}
+                              {tbl.reason}
                             </p>
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline" className={cn("text-[10px]", statusVariant(t.status))}>
-                            {statusLabel(t.status)}
+                          <Badge variant="outline" className={cn("text-[10px]", statusVariant(tbl.status))}>
+                            {statusLabel(tbl.status)}
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          {t.invalid ? (
-                            <span className="text-[11px] text-muted-foreground" title="Invalid tables cannot be imported">
-                              skip (forced)
+                          {tbl.invalid ? (
+                            <span className="text-[11px] text-muted-foreground" title={t("meta.invalidTitle")}>
+                              {t("meta.skipForced")}
                             </span>
                           ) : (
                             <Select
-                              value={tblMode[t.ref] ?? "overwrite"}
-                              onValueChange={(v) => setTblMode((m) => ({ ...m, [t.ref]: v }))}
+                              value={tblMode[tbl.ref] ?? "overwrite"}
+                              onValueChange={(v) => setTblMode((m) => ({ ...m, [tbl.ref]: v }))}
                             >
                               <SelectTrigger className="h-8 w-28 text-xs">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="skip" className="text-xs">skip</SelectItem>
-                                <SelectItem value="overwrite" className="text-xs">overwrite</SelectItem>
+                                <SelectItem value="skip" className="text-xs">{t("meta.skip")}</SelectItem>
+                                <SelectItem value="overwrite" className="text-xs">{t("meta.overwrite")}</SelectItem>
                               </SelectContent>
                             </Select>
                           )}
                         </TableCell>
                         <TableCell>
                           <div className="flex max-w-[320px] flex-wrap gap-1">
-                            {t.dependencies.length === 0 && (
+                            {tbl.dependencies.length === 0 && (
                               <span className="text-[10px] text-muted-foreground">—</span>
                             )}
-                            {t.dependencies.map((dep) => (
+                            {tbl.dependencies.map((dep) => (
                               <span
                                 key={dep.ref}
-                                title={dep.resolved ? "resolved (local or in file)" : "unresolved"}
+                                title={dep.resolved ? t("meta.resolved") : t("meta.unresolved")}
                                 className={cn(
                                   "rounded border px-1.5 py-0.5 font-mono text-[10px]",
                                   dep.resolved
@@ -368,7 +368,7 @@ export default function MetaTransfer() {
                     {preview.tables.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={4} className="py-3 text-center text-[11px] text-muted-foreground">
-                          No tables in file
+                          {t("meta.noTables")}
                         </TableCell>
                       </TableRow>
                     )}
@@ -384,16 +384,16 @@ export default function MetaTransfer() {
       {preview && !result && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-semibold">3. Apply</CardTitle>
+            <CardTitle className="text-sm font-semibold">{t("meta.step3")}</CardTitle>
             <CardDescription className="text-xs">
-              Runs in a single transaction — either everything applies or nothing changes. Every write is audited.
+              {t("meta.step3Desc")}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
               <Checkbox id="import-groups" checked={groupsSel} onChange={(e) => setGroupsSel(e.target.checked)} />
               <Label htmlFor="import-groups" className="text-xs text-muted-foreground">
-                Import table groups
+                {t("meta.importGroups")}
               </Label>
             </div>
             <Button
@@ -402,10 +402,10 @@ export default function MetaTransfer() {
               disabled={!anySelected || apply.isPending}
               onClick={() => apply.mutate()}
             >
-              <CheckCircle2 className="h-3.5 w-3.5" /> {apply.isPending ? "Importing..." : "Import selected definitions"}
+              <CheckCircle2 className="h-3.5 w-3.5" /> {apply.isPending ? t("meta.importing") : t("meta.importSel")}
             </Button>
             {!anySelected && (
-              <span className="text-[11px] text-muted-foreground">Everything is skipped — nothing to import.</span>
+              <span className="text-[11px] text-muted-foreground">{t("meta.nothingToImport")}</span>
             )}
           </CardContent>
         </Card>
@@ -415,27 +415,26 @@ export default function MetaTransfer() {
       {result && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-semibold">Result</CardTitle>
+            <CardTitle className="text-sm font-semibold">{t("imp.result")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex flex-wrap gap-2">
               <Badge variant="secondary" className="gap-1 bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
-                <CheckCircle2 className="h-3 w-3" /> {result.createdDefs} definitions created
+                <CheckCircle2 className="h-3 w-3" /> {t("meta.defsCreated", { count: String(result.createdDefs) })}
               </Badge>
               <Badge variant="secondary" className="gap-1 bg-blue-500/10 text-blue-600 border-blue-500/20">
-                {result.updatedDefs} definitions updated
+                {t("meta.defsUpdated", { count: String(result.updatedDefs) })}
               </Badge>
               <Badge variant="secondary" className="gap-1 bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
-                <CheckCircle2 className="h-3 w-3" /> {result.groupsCreated} groups created
+                <CheckCircle2 className="h-3 w-3" /> {t("meta.groupsCreated", { count: String(result.groupsCreated) })}
               </Badge>
             </div>
             <p className="text-xs text-muted-foreground">
-              Datasource passwords are not imported — verify connections before use (drift check on
-              each table is available from Tables &amp; Schema).
+              {t("meta.passwordsNote")}
             </p>
             <Link to="/">
               <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-700 text-xs">
-                Back to Tables
+                {t("data.backToTables")}
               </Button>
             </Link>
           </CardContent>

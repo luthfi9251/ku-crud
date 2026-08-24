@@ -11,10 +11,13 @@ var (
 )
 
 type Role struct {
-	ID             int64  `json:"id"`
-	Name           string `json:"name"`
-	IsAdmin        bool   `json:"isAdmin"`
-	PlatformManage bool   `json:"platformManage"`
+	ID                int64  `json:"id"`
+	Name              string `json:"name"`
+	IsAdmin           bool   `json:"isAdmin"`
+	ManageDatasources bool   `json:"manageDatasources"`
+	ManageTables      bool   `json:"manageTables"`
+	ViewAudit         bool   `json:"viewAudit"`
+	ViewOutbox        bool   `json:"viewOutbox"`
 }
 
 type TableGrant struct {
@@ -46,7 +49,8 @@ func (s *Store) CreateRole(r *Role, grants []TableGrant) error {
 	if err != nil {
 		return err
 	}
-	res, err := tx.Exec(`INSERT INTO roles(name,is_admin,platform_manage) VALUES(?,0,?)`, r.Name, r.PlatformManage)
+	res, err := tx.Exec(`INSERT INTO roles(name,is_admin,manage_datasources,manage_tables,view_audit,view_outbox) VALUES(?,0,?,?,?,?)`,
+		r.Name, r.ManageDatasources, r.ManageTables, r.ViewAudit, r.ViewOutbox)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -59,7 +63,7 @@ func (s *Store) CreateRole(r *Role, grants []TableGrant) error {
 	return tx.Commit()
 }
 
-// UpdateRole replaces name, platform_manage and the full grant set.
+// UpdateRole replaces name, the grant flags and the full grant set.
 // The builtin admin role cannot be modified.
 func (s *Store) UpdateRole(r *Role, grants []TableGrant) error {
 	tx, err := s.db.Begin()
@@ -78,7 +82,8 @@ func (s *Store) UpdateRole(r *Role, grants []TableGrant) error {
 		tx.Rollback()
 		return ErrImmutable
 	}
-	if _, err := tx.Exec(`UPDATE roles SET name=?,platform_manage=? WHERE id=?`, r.Name, r.PlatformManage, r.ID); err != nil {
+	if _, err := tx.Exec(`UPDATE roles SET name=?,manage_datasources=?,manage_tables=?,view_audit=?,view_outbox=? WHERE id=?`,
+		r.Name, r.ManageDatasources, r.ManageTables, r.ViewAudit, r.ViewOutbox, r.ID); err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -128,8 +133,8 @@ func (s *Store) DeleteRole(id int64) error {
 
 func (s *Store) GetRole(id int64) (*Role, []TableGrant, error) {
 	r := &Role{}
-	err := s.db.QueryRow(`SELECT id,name,is_admin,platform_manage FROM roles WHERE id=?`, id).
-		Scan(&r.ID, &r.Name, &r.IsAdmin, &r.PlatformManage)
+	err := s.db.QueryRow(`SELECT id,name,is_admin,manage_datasources,manage_tables,view_audit,view_outbox FROM roles WHERE id=?`, id).
+		Scan(&r.ID, &r.Name, &r.IsAdmin, &r.ManageDatasources, &r.ManageTables, &r.ViewAudit, &r.ViewOutbox)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNotFound
 	}
@@ -159,7 +164,7 @@ func (s *Store) roleGrants(roleID int64) ([]TableGrant, error) {
 }
 
 func (s *Store) ListRoles() ([]RoleWithGrants, error) {
-	rows, err := s.db.Query(`SELECT r.id,r.name,r.is_admin,r.platform_manage,
+	rows, err := s.db.Query(`SELECT r.id,r.name,r.is_admin,r.manage_datasources,r.manage_tables,r.view_audit,r.view_outbox,
 		(SELECT COUNT(*) FROM users u WHERE u.role_id=r.id)
 		FROM roles r ORDER BY r.id`)
 	if err != nil {
@@ -169,7 +174,7 @@ func (s *Store) ListRoles() ([]RoleWithGrants, error) {
 	out := []RoleWithGrants{}
 	for rows.Next() {
 		var r RoleWithGrants
-		if err := rows.Scan(&r.ID, &r.Name, &r.IsAdmin, &r.PlatformManage, &r.UserCount); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.IsAdmin, &r.ManageDatasources, &r.ManageTables, &r.ViewAudit, &r.ViewOutbox, &r.UserCount); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
