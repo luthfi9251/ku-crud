@@ -80,6 +80,7 @@ function BusinessDocs() {
       <Section title="Adding and editing rows">
         <ul className="space-y-2">
           <Li>Use the <K>New row</K> button to create a record and the row menu to view, edit, or delete one. Buttons for actions you don't have permission for are hidden.</Li>
+          <Li>Your administrator can add extra buttons next to the row actions (for example <K>Send invoice</K>). Clicking one asks for confirmation when needed, then shows a short message with the result — every run is recorded in the audit trail.</Li>
           <Li>Fields that link to another table open a searchable picker — search for the record you want and select it. If it doesn't exist yet, create it first on that table's own page.</Li>
           <Li>Fields that connect to many records (many-to-many) are multi-select pickers: check all the records you want to link.</Li>
           <Li>JSON fields are displayed nicely formatted, and the content is checked to be valid JSON before saving.</Li>
@@ -193,6 +194,13 @@ function DeveloperDocs() {
           <Li>{t("docs.hooks.devflow")}</Li>
           <Li>{t("docs.hooks.rename")}</Li>
           <Li>{t("docs.hooks.missing")}</Li>
+        </ul>
+      </Section>
+
+      <Section title={t("docs.actions.title")}>
+        <ul className="space-y-2">
+          <Li>{t("docs.actions.hide")}</Li>
+          <Li>{t("docs.actions.custom")}</Li>
         </ul>
       </Section>
 

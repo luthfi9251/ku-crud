@@ -166,6 +166,8 @@ ALTER TABLE table_defs ADD COLUMN description TEXT NOT NULL DEFAULT '';`,
 	// v1.8: query-backed table definitions (custom views).
 	`ALTER TABLE table_defs ADD COLUMN source_type TEXT NOT NULL DEFAULT 'table';
 ALTER TABLE table_defs ADD COLUMN query_sql TEXT NOT NULL DEFAULT '';`,
+	// v1.9: customizable table actions (hide built-ins + custom hook actions).
+	`ALTER TABLE table_defs ADD COLUMN actions TEXT NOT NULL DEFAULT '';`,
 }
 
 func Open(path string) (*Store, error) {

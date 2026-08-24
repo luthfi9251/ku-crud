@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"sort"
+	"strings"
 	"sync"
 
 	"ku-crud/internal/ds"
@@ -25,6 +27,10 @@ const (
 	AfterUpdate  Event = "afterUpdate"
 	BeforeDelete Event = "beforeDelete"
 	AfterDelete  Event = "afterDelete"
+	// OnAction is the custom row-action event (v1.9). It is deliberately
+	// NOT part of allEvents: ParseAssignments rejects it — onAction hooks
+	// are assigned via table_defs.actions, not the CRUD hooks map.
+	OnAction Event = "onAction"
 )
 
 var allEvents = map[Event]bool{BeforeCreate: true, AfterCreate: true,
@@ -37,9 +43,12 @@ type ActingUser struct {
 
 // RowPayload carries the write through hooks. Values is the new payload
 // (empty map for delete); Old is the pre-write row (nil on create).
+// Message is set by onAction hooks (custom row actions) and ignored by
+// before/after hooks.
 type RowPayload struct {
-	Values map[string]any
-	Old    map[string]any
+	Values  map[string]any
+	Old     map[string]any
+	Message string
 }
 
 // HookContext gives a hook full platform access: every registered
@@ -157,4 +166,88 @@ func (a Assignments) Names() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// hideKeys are the built-in grid actions that can be hidden per table.
+var hideKeys = map[string]bool{
+	"newRow": true, "edit": true, "delete": true, "copy": true,
+	"import": true, "export": true, "refresh": true,
+}
+
+var actionGrants = map[string]bool{"read": true, "create": true, "update": true, "delete": true}
+var actionStyles = map[string]bool{"neutral": true, "primary": true, "danger": true}
+
+var actionIDRe = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
+
+// CustomAction is one programmer-defined row action button (v1.9).
+type CustomAction struct {
+	ID      string          `json:"id"`
+	Label   string          `json:"label"`
+	Confirm string          `json:"confirm,omitempty"`
+	Grant   string          `json:"grant"` // read|create|update|delete
+	Hook    string          `json:"hook"`
+	Config  json.RawMessage `json:"config,omitempty"`
+	Order   int             `json:"order"`
+	Style   string          `json:"style"` // neutral|primary|danger
+}
+
+// ActionsConfig is the parsed table_defs.actions JSON.
+type ActionsConfig struct {
+	Hidden []string       `json:"hidden,omitempty"`
+	Custom []CustomAction `json:"custom,omitempty"`
+}
+
+// Find returns the custom action with the given id, or nil.
+func (c ActionsConfig) Find(id string) *CustomAction {
+	for i := range c.Custom {
+		if c.Custom[i].ID == id {
+			return &c.Custom[i]
+		}
+	}
+	return nil
+}
+
+// ParseActions validates the table_defs.actions JSON: hidden keys from the
+// fixed set, custom entries with unique slug ids, non-empty label/hook,
+// valid grant/style. Custom is returned sorted by Order.
+func ParseActions(s string) (ActionsConfig, error) {
+	out := ActionsConfig{}
+	if len(s) == 0 {
+		return out, nil
+	}
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return out, errors.New("actions is not valid JSON")
+	}
+	seen := map[string]bool{}
+	for _, h := range out.Hidden {
+		if !hideKeys[h] {
+			return out, fmt.Errorf("unknown hidden action %q", h)
+		}
+	}
+	for i := range out.Custom {
+		a := &out.Custom[i]
+		if !actionIDRe.MatchString(a.ID) {
+			return out, fmt.Errorf("action %d: id must be 1-64 chars of [a-zA-Z0-9_-]", i+1)
+		}
+		if seen[a.ID] {
+			return out, fmt.Errorf("duplicate action id %q", a.ID)
+		}
+		seen[a.ID] = true
+		if strings.TrimSpace(a.Label) == "" {
+			return out, fmt.Errorf("action %q: label is required", a.ID)
+		}
+		if a.Hook == "" {
+			return out, fmt.Errorf("action %q: hook is required", a.ID)
+		}
+		if !actionGrants[a.Grant] {
+			return out, fmt.Errorf("action %q: grant must be read, create, update or delete", a.ID)
+		}
+		if a.Style == "" {
+			a.Style = "neutral"
+		} else if !actionStyles[a.Style] {
+			return out, fmt.Errorf("action %q: style must be neutral, primary or danger", a.ID)
+		}
+	}
+	sort.SliceStable(out.Custom, func(i, j int) bool { return out.Custom[i].Order < out.Custom[j].Order })
+	return out, nil
 }

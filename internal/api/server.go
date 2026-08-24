@@ -115,6 +115,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("PUT /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowUpdate))
 	mux.HandleFunc("DELETE /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowDelete))
 	mux.HandleFunc("POST /api/tables/{id}/rows/bulk-delete", s.RequireAuth(s.handleRowBulkDelete))
+	mux.HandleFunc("POST /api/tables/{id}/rows/{pk}/action", s.RequireAuth(s.handleRowAction))
 	mux.HandleFunc("GET /api/tables/{id}/fkoptions/{column}", s.RequireAuth(s.handleFKOptions))
 	mux.HandleFunc("GET /api/tables/{id}/m2moptions/{column}", s.RequireAuth(s.handleM2MOptions))
 	mux.HandleFunc("GET /api/tables/{id}/rows/{pk}/m2m/{column}", s.RequireAuth(s.handleM2MLinks))

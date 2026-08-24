@@ -26,6 +26,7 @@ type tableDefInput struct {
 	DefaultView    string          `json:"defaultView"`
 	ViewConfig     json.RawMessage `json:"viewConfig"`
 	Hooks          json.RawMessage `json:"hooks"`
+	Actions        json.RawMessage `json:"actions"`
 	SourceType     string          `json:"sourceType"`
 	QuerySQL       string          `json:"querySql"`
 	Columns        []columnInput   `json:"columns"`
@@ -117,6 +118,7 @@ func (s *Server) toDef(in tableDefInput) (*meta.TableDef, error) {
 		PageSize:       in.PageSize,
 		DefaultSortCol: in.DefaultSortCol, DefaultSortDir: in.DefaultSortDir,
 		DefaultView: in.DefaultView, ViewConfig: string(in.ViewConfig), Hooks: string(in.Hooks),
+		Actions:    string(in.Actions),
 		SourceType: in.SourceType, QuerySQL: in.QuerySQL}, nil
 }
 
@@ -207,6 +209,7 @@ type tableDefDTO struct {
 	DefaultView    string          `json:"defaultView,omitempty"`
 	ViewConfig     json.RawMessage `json:"viewConfig,omitempty"`
 	Hooks          json.RawMessage `json:"hooks,omitempty"`
+	Actions        json.RawMessage `json:"actions,omitempty"`
 	SourceType     string          `json:"sourceType,omitempty"`
 	QuerySQL       string          `json:"querySql,omitempty"`
 	GroupID        string          `json:"groupId,omitempty"`
@@ -241,6 +244,9 @@ func (s *Server) toTableDTO(def *meta.TableDef, cols []meta.ColumnDef, p permsDT
 	}
 	if def.Hooks != "" {
 		dto.Hooks = json.RawMessage(def.Hooks)
+	}
+	if def.Actions != "" {
+		dto.Actions = json.RawMessage(def.Actions)
 	}
 	if dto.KeyColumns == nil {
 		dto.KeyColumns = []string{}
@@ -587,6 +593,9 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 			return msg
 		}
 	}
+	if msg := s.checkActions(def); msg != "" {
+		return msg
+	}
 	return ""
 }
 
@@ -602,6 +611,25 @@ func (s *Server) checkHooks(def *meta.TableDef) string {
 	}
 	if err := s.hooks.CheckMissing(asgs); err != nil {
 		return err.Error()
+	}
+	return ""
+}
+
+// checkActions rejects action configs that don't parse, name hooks absent
+// from this binary, or attach custom actions to query views (hidden keys
+// alone are fine — query grids still honor export/refresh visibility).
+func (s *Server) checkActions(def *meta.TableDef) string {
+	cfg, err := hooks.ParseActions(def.Actions)
+	if err != nil {
+		return err.Error()
+	}
+	if isQueryDef(def) && len(cfg.Custom) > 0 {
+		return "query views cannot define custom actions"
+	}
+	for _, a := range cfg.Custom {
+		if _, ok := s.hooks.Get(a.Hook); !ok {
+			return "action " + a.ID + ": hook " + a.Hook + " is not registered in this binary"
+		}
 	}
 	return ""
 }

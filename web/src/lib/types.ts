@@ -62,6 +62,7 @@ export interface TableDef {
   defaultView?: ViewMode;
   viewConfig?: ViewConfig | null;
   hooks?: HooksConfig | null;
+  actions?: ActionsConfig | null;
   groupId?: string; groupName?: string;
   permissions: Permissions;
 }
@@ -142,6 +143,26 @@ export interface HookAssignment {
 export type HooksConfig = Partial<Record<HookEvent, HookAssignment[]>>;
 
 export interface HooksListRes { hooks: string[] }
+
+export type HiddenActionKey = "newRow" | "edit" | "delete" | "copy" | "import" | "export" | "refresh";
+export type ActionGrant = "read" | "create" | "update" | "delete";
+export type ActionStyle = "neutral" | "primary" | "danger";
+
+export interface CustomAction {
+  id: string;
+  label: string;
+  confirm?: string;
+  grant: ActionGrant;
+  hook: string;
+  config?: Record<string, unknown> | null;
+  order: number;
+  style: ActionStyle;
+}
+
+export interface ActionsConfig {
+  hidden?: HiddenActionKey[];
+  custom?: CustomAction[];
+}
 
 export interface OutboxEntry {
   id: Id; tableDefId: Id; event: string; hookName: string;

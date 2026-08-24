@@ -48,8 +48,13 @@ func TestMigration6Upgrade(t *testing.T) {
 	defer s.Close()
 
 	var v string
-	if err := s.db.QueryRow(`SELECT value FROM settings WHERE key='schema_version'`).Scan(&v); err != nil || v != "11" {
+	if err := s.db.QueryRow(`SELECT value FROM settings WHERE key='schema_version'`).Scan(&v); err != nil || v != "12" {
 		t.Fatalf("schema_version=%q err=%v", v, err)
+	}
+	// v1.9 actions column exists with its default
+	var acts string
+	if err := s.db.QueryRow(`SELECT actions FROM table_defs WHERE id=1`).Scan(&acts); err != nil || acts != "" {
+		t.Fatalf("actions col: %q err=%v", acts, err)
 	}
 	// new table_defs columns exist with defaults
 	var col, dir string
