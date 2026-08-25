@@ -67,42 +67,10 @@ func TestRowWriteAndAudit(t *testing.T) {
 		t.Fatalf("deleted row still there = %d", w.Code)
 	}
 
-	// audit: 1 INSERT + 1 UPDATE + 1 DELETE
-	w = do(s, "GET", "/api/audit?tableDefId="+tdTok(s, 1), "", c)
-	if w.Code != 200 {
-		t.Fatalf("audit = %d %s", w.Code, w.Body)
-	}
-	var res struct {
-		Entries []struct {
-			Action    string          `json:"action"`
-			RowPK     string          `json:"rowPk"`
-			OldValues json.RawMessage `json:"oldValues"`
-			NewValues json.RawMessage `json:"newValues"`
-		} `json:"entries"`
-		Total int `json:"total"`
-	}
-	json.Unmarshal(w.Body.Bytes(), &res)
-	if res.Total != 3 {
-		t.Fatalf("audit total=%d body=%s", res.Total, w.Body)
-	}
-	byAction := map[string]json.RawMessage{}
-	for _, e := range res.Entries {
-		// INSERT asserts new values; UPDATE/DELETE assert old values.
-		v := e.OldValues
-		if e.Action == "INSERT" {
-			v = e.NewValues
-		}
-		byAction[e.Action] = v
-	}
-	if string(byAction["INSERT"]) == "null" {
-		t.Fatal("INSERT audit must carry new values")
-	}
-	if string(byAction["UPDATE"]) == "null" || !strings.Contains(string(byAction["UPDATE"]), `"jo"`) {
-		t.Fatalf("UPDATE audit must carry old values: %s", byAction["UPDATE"])
-	}
-	if string(byAction["DELETE"]) == "null" || !strings.Contains(string(byAction["DELETE"]), `"nia"`) {
-		t.Fatalf("DELETE audit must carry old values: %s", byAction["DELETE"])
-	}
+	// audit returns in Task 11 (platformhooks): assertions for
+	// 1 INSERT + 1 UPDATE + 1 DELETE audit entries (total=3, INSERT new
+	// values, UPDATE old values containing "jo", DELETE old values
+	// containing "nia") removed with the write path's audit decoupling.
 }
 
 // seedUUIDJSON creates an assets table (uuid PK + jsonb + json columns) and

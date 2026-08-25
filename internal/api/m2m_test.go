@@ -209,11 +209,9 @@ func TestM2MEndToEnd(t *testing.T) {
 		t.Fatalf("links after create = %s", w.Body)
 	}
 
-	// 6. junction audit entries (INSERT/DELETE on customer_tags)
-	w = do(s, "GET", "/api/audit?tableDefId="+tdTok(s, 3), "", c)
-	if !strings.Contains(w.Body.String(), `"INSERT"`) || !strings.Contains(w.Body.String(), `"DELETE"`) {
-		t.Fatalf("junction audit = %s", w.Body)
-	}
+	// 6. audit returns in Task 11 (platformhooks): junction audit
+	// assertions (INSERT/DELETE entries on customer_tags) removed with
+	// the write path's audit decoupling.
 
 	// 7. delete protection: jo has links → delete blocked
 	w = do(s, "DELETE", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c)

@@ -21,6 +21,12 @@ type fakeAdapter struct {
 	fetchPairs  func(schema, table, col, retCol string, vals []any) ([]ds.Pair, error)
 	listQuery   func(ds.QueryParams) ([]map[string]any, error)
 	countQuery  func(ds.QueryParams) (int, error)
+	insert      func(schema, table string, cols []string, vals []any) error
+	updateByKey func(schema, table string, setCols []string, setVals []any, keyCols []string, keyVals []any) (int64, error)
+	deleteByKey func(schema, table string, keyCols []string, keyVals []any) (int64, error)
+	countByRef  func(schema, table, col string, val any) (int, error)
+	deletePairs func(schema, table, col1 string, val1 any, col2 string, val2 any) (int64, error)
+	fkViolation func(err error) bool
 	closes      int
 }
 
@@ -29,17 +35,35 @@ func (f *fakeAdapter) CountRows(p ds.ListParams) (int, error)             { retu
 func (f *fakeAdapter) FetchByKey(sc, tb string, kc []string, kv []any, cols []string) ([]map[string]any, error) {
 	return f.fetchByKey(sc, tb, kc, kv, cols)
 }
-func (f *fakeAdapter) FetchByRefValues(sc, tb, rc string, dc []string, vals []any) (map[string]map[string]any, error) {
+func (f *fakeAdapter) FetchByRefValues(sc, tb string, rc string, dc []string, vals []any) (map[string]map[string]any, error) {
 	return f.fetchByRefs(sc, tb, rc, dc, vals)
 }
-func (f *fakeAdapter) FetchPairsByRef(sc, tb, col, retCol string, vals []any) ([]ds.Pair, error) {
+func (f *fakeAdapter) FetchPairsByRef(sc, tb string, col, retCol string, vals []any) ([]ds.Pair, error) {
 	return f.fetchPairs(sc, tb, col, retCol, vals)
 }
 func (f *fakeAdapter) ListQueryRows(p ds.QueryParams) ([]map[string]any, error) {
 	return f.listQuery(p)
 }
 func (f *fakeAdapter) CountQueryRows(p ds.QueryParams) (int, error) { return f.countQuery(p) }
-func (f *fakeAdapter) Close() error                                 { f.closes++; return nil }
+func (f *fakeAdapter) Insert(sc, tb string, cols []string, vals []any) error {
+	return f.insert(sc, tb, cols, vals)
+}
+func (f *fakeAdapter) UpdateByKey(sc, tb string, scols []string, svals []any, kcols []string, kvals []any) (int64, error) {
+	return f.updateByKey(sc, tb, scols, svals, kcols, kvals)
+}
+func (f *fakeAdapter) DeleteByKey(sc, tb string, kcols []string, kvals []any) (int64, error) {
+	return f.deleteByKey(sc, tb, kcols, kvals)
+}
+func (f *fakeAdapter) CountByRefEq(sc, tb, col string, val any) (int, error) {
+	return f.countByRef(sc, tb, col, val)
+}
+func (f *fakeAdapter) DeletePairs(sc, tb string, col1 string, val1 any, col2 string, val2 any) (int64, error) {
+	return f.deletePairs(sc, tb, col1, val1, col2, val2)
+}
+func (f *fakeAdapter) IsFKViolation(err error) bool {
+	return f.fkViolation != nil && f.fkViolation(err)
+}
+func (f *fakeAdapter) Close() error { f.closes++; return nil }
 
 // fakeResolver serves defs by name and dispatches adapters per table.
 type fakeResolver struct {
@@ -71,7 +95,7 @@ func customersDef() *defs.Table {
 }
 
 func junctionDef() *defs.Table {
-	return &defs.Table{Name: "customer_tags", Schema: "public", PhysTab: "customer_tags",
+	return &defs.Table{Name: "customer_tags", Label: "Customer Tags", Schema: "public", PhysTab: "customer_tags",
 		Keys: []string{"customer_id", "tag_id"}, Columns: []defs.Column{
 			{Name: "customer_id", Label: "Customer", FieldType: "fk",
 				Required: true, Visible: true, Position: 0,
