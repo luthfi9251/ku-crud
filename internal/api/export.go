@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"ku-crud/internal/ds"
+	"ku-crud/internal/engine"
 	"ku-crud/internal/meta"
 )
 
@@ -64,7 +65,8 @@ func (s *Server) handleRowExport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	q := r.URL.Query()
-	sortCol, sortDir := resolveSort(def, cols, q.Get("sort"), q.Get("dir"))
+	ct := toCore(def, cols)
+	sortCol, sortDir := engine.ResolveSort(ct, q.Get("sort"), q.Get("dir"))
 	filters, fmsg := s.parseFilters(def, cols, u, q.Get("filters"))
 	if fmsg != "" {
 		writeErr(w, 400, "FILTER_INVALID", fmsg, nil)
@@ -117,7 +119,7 @@ func (s *Server) handleRowExport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	applyComputed(cols, rows)
+	engine.ApplyComputed(ct.Columns, rows)
 
 	// resolve fk display values in bounded chunks (IN-lists stay small)
 	var visible []meta.ColumnDef

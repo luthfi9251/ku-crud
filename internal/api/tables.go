@@ -9,6 +9,7 @@ import (
 
 	"ku-crud/internal/defs"
 	"ku-crud/internal/ds"
+	"ku-crud/internal/engine"
 	"ku-crud/internal/hooks"
 	"ku-crud/internal/meta"
 )
@@ -495,6 +496,7 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 	}
 	keySeen := make([]bool, len(def.KeyColumns))
 	sortable := map[string]bool{}
+	ccols := toCore(def, cols).Columns
 	for i, c := range cols {
 		sortable[c.Name] = c.Sortable
 		if !validFieldTypes[c.FieldType] {
@@ -546,7 +548,7 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 			if c.ComputedFormula == "" {
 				return "column " + c.Name + ": computed columns need computedFormula"
 			}
-			ft, _, err := compileComputed(c, cols)
+			ft, _, err := engine.CompileComputed(ccols[i], ccols)
 			if err != nil {
 				return "column " + c.Name + ": " + err.Error()
 			}

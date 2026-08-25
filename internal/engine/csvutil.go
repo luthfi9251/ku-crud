@@ -1,4 +1,4 @@
-package api
+package engine
 
 import (
 	"bytes"
@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"ku-crud/internal/meta"
+	"ku-crud/internal/defs"
 )
 
-// importMaxRows / importMaxFile bound CSV imports.
+// ImportMaxRows / ImportMaxFile bound CSV imports.
 const importMaxRows = 10000
-const importMaxFile = 5 << 20 // 5 MB
+const ImportMaxFile = 5 << 20 // 5 MB
 
 // sniffDelimiter picks the CSV delimiter for the first line: the candidate
 // (comma, semicolon, tab) occurring most often outside quoted sections wins;
@@ -39,9 +39,9 @@ func sniffDelimiter(firstLine string) rune {
 	return best
 }
 
-// parseCSV sniffs the delimiter from the first line and parses the whole
+// ParseCSV sniffs the delimiter from the first line and parses the whole
 // file. Returns headers and data rows (all values as strings).
-func parseCSV(data []byte) (rune, []string, [][]string, error) {
+func ParseCSV(data []byte) (rune, []string, [][]string, error) {
 	firstLine := data
 	if i := bytes.IndexByte(data, '\n'); i >= 0 {
 		firstLine = data[:i]
@@ -63,10 +63,10 @@ func parseCSV(data []byte) (rune, []string, [][]string, error) {
 	return comma, records[0], records[1:], nil
 }
 
-// autoMap proposes header→columnName mappings: exact name, then trimmed
+// AutoMap proposes header→columnName mappings: exact name, then trimmed
 // case-insensitive name, then column label (case-insensitive). Unmapped
 // headers map to "". Virtual m2m columns are not importable.
-func autoMap(headers []string, cols []meta.ColumnDef) map[string]string {
+func AutoMap(headers []string, cols []defs.Column) map[string]string {
 	byLowerName := map[string]string{}
 	byLowerLabel := map[string]string{}
 	for _, c := range cols {
@@ -90,10 +90,10 @@ func autoMap(headers []string, cols []meta.ColumnDef) map[string]string {
 	return out
 }
 
-// coerceValidate converts one CSV cell into the typed value for the column,
+// CoerceValidate converts one CSV cell into the typed value for the column,
 // then applies the column's optional validation rules (same rules as the row
 // write path).
-func coerceValidate(c meta.ColumnDef, raw string) (any, error) {
+func CoerceValidate(c defs.Column, raw string) (any, error) {
 	v, err := coerceValidateTyped(c, raw)
 	if err != nil {
 		return nil, err
@@ -107,7 +107,7 @@ func coerceValidate(c meta.ColumnDef, raw string) (any, error) {
 // coerceValidateTyped converts one CSV cell (string) into the typed value for
 // the column, applying the same per-type validation as the row write path.
 // Empty strings become nil (NULL); required-ness is checked separately.
-func coerceValidateTyped(c meta.ColumnDef, raw string) (any, error) {
+func coerceValidateTyped(c defs.Column, raw string) (any, error) {
 	if raw == "" {
 		return nil, nil
 	}

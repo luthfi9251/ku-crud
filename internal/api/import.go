@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 
+	"ku-crud/internal/defs"
+	"ku-crud/internal/engine"
 	"ku-crud/internal/hooks"
 	"ku-crud/internal/meta"
 )
@@ -27,8 +29,8 @@ type importRow struct {
 // readImportFile parses the multipart request and returns the mapped
 // validation context. mapping may be nil for preview (auto-mapping is used).
 func (s *Server) readImportFile(w http.ResponseWriter, r *http.Request) (data []byte, mapping map[string]string, mode string, err error) {
-	r.Body = http.MaxBytesReader(w, r.Body, importMaxFile+(1<<20))
-	if err := r.ParseMultipartForm(importMaxFile); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, engine.ImportMaxFile+(1<<20))
+	if err := r.ParseMultipartForm(engine.ImportMaxFile); err != nil {
 		return nil, nil, "", errors.New("file too large or malformed multipart body")
 	}
 	f, _, err := r.FormFile("file")
@@ -36,11 +38,11 @@ func (s *Server) readImportFile(w http.ResponseWriter, r *http.Request) (data []
 		return nil, nil, "", errors.New("missing file field")
 	}
 	defer f.Close()
-	data, err = io.ReadAll(io.LimitReader(f, importMaxFile+(1<<20)))
+	data, err = io.ReadAll(io.LimitReader(f, engine.ImportMaxFile+(1<<20)))
 	if err != nil {
 		return nil, nil, "", err
 	}
-	if len(data) > importMaxFile {
+	if len(data) > engine.ImportMaxFile {
 		return nil, nil, "", errors.New("file exceeds 5 MB limit")
 	}
 	if m := r.FormValue("mapping"); m != "" {
@@ -83,6 +85,10 @@ func (s *Server) validateImportRows(ctx context.Context, u CtxUser, def *meta.Ta
 	for _, c := range cols {
 		byName[c.Name] = c
 	}
+	coreByName := map[string]defs.Column{}
+	for _, c := range toCore(def, cols).Columns {
+		coreByName[c.Name] = c
+	}
 	isKey := map[string]bool{}
 	for _, k := range def.KeyColumns {
 		isKey[k] = true
@@ -124,7 +130,7 @@ func (s *Server) validateImportRows(ctx context.Context, u CtxUser, def *meta.Ta
 				continue
 			}
 			c := byName[colName]
-			v, err := coerceValidate(c, raw)
+			v, err := engine.CoerceValidate(coreByName[colName], raw)
 			if err != nil {
 				row.Valid = false
 				row.Errors = append(row.Errors, importRowError{Column: colName, Message: err.Error()})
@@ -228,13 +234,13 @@ func (s *Server) handleImportPreview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "IMPORT_BAD_CSV", err.Error(), nil)
 		return
 	}
-	comma, headers, records, err := parseCSV(data)
+	comma, headers, records, err := engine.ParseCSV(data)
 	if err != nil {
 		writeErr(w, 400, "IMPORT_BAD_CSV", err.Error(), nil)
 		return
 	}
 	if mapping == nil {
-		mapping = autoMap(headers, cols)
+		mapping = engine.AutoMap(headers, toCore(def, cols).Columns)
 	}
 	rows, _ := s.validateImportRows(r.Context(), u, def, cols, headers, mapping, records, true)
 	total, valid := len(rows), 0
@@ -275,7 +281,7 @@ func (s *Server) handleImportApply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", `mode must be "valid" or "all"`, nil)
 		return
 	}
-	_, headers, records, err := parseCSV(data)
+	_, headers, records, err := engine.ParseCSV(data)
 	if err != nil {
 		writeErr(w, 400, "IMPORT_BAD_CSV", err.Error(), nil)
 		return
@@ -296,6 +302,7 @@ func (s *Server) handleImportApply(w http.ResponseWriter, r *http.Request) {
 	inserted, failed := 0, 0
 	var failures []failure
 	var insertedPayloads []map[string]any
+	ct := toCore(def, cols)
 	for i := range records {
 		if !rows[i].Valid && mode == "valid" {
 			continue
@@ -309,7 +316,7 @@ func (s *Server) handleImportApply(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		payloads[i] = hooked
-		names, vals, err := editablePayload(payloads[i], cols, def.KeyColumns, true)
+		names, vals, err := engine.EditablePayload(ct, payloads[i], true)
 		if err != nil {
 			failed++
 			failures = append(failures, failure{Row: i, Errors: []importRowError{{Column: "", Message: err.Error()}}})

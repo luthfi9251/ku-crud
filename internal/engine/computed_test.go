@@ -1,13 +1,13 @@
-package api
+package engine
 
 import (
 	"testing"
 
-	"ku-crud/internal/meta"
+	"ku-crud/internal/defs"
 )
 
 func TestCompileComputed(t *testing.T) {
-	cols := []meta.ColumnDef{
+	cols := []defs.Column{
 		{Name: "price", FieldType: "number"},
 		{Name: "qty", FieldType: "number"},
 		{Name: "first", FieldType: "text"},
@@ -29,7 +29,7 @@ func TestCompileComputed(t *testing.T) {
 		{`CONCAT("a", first)`, "aJane"},
 	}
 	for _, tc := range cases {
-		ft, fn, err := compileComputed(meta.ColumnDef{Name: "c", ComputedFormula: tc.formula}, cols)
+		ft, fn, err := CompileComputed(defs.Column{Name: "c", ComputedFormula: tc.formula}, cols)
 		if err != nil {
 			t.Fatalf("%q: compile err %v", tc.formula, err)
 		}
@@ -41,43 +41,43 @@ func TestCompileComputed(t *testing.T) {
 }
 
 func TestComputedErrorsAndNulls(t *testing.T) {
-	cols := []meta.ColumnDef{
+	cols := []defs.Column{
 		{Name: "price", FieldType: "number"},
 		{Name: "name", FieldType: "text"},
 	}
 	row := map[string]any{"price": nil, "name": "x"}
 
-	if _, _, err := compileComputed(meta.ColumnDef{Name: "c", ComputedFormula: "bogus("}, cols); err == nil {
+	if _, _, err := CompileComputed(defs.Column{Name: "c", ComputedFormula: "bogus("}, cols); err == nil {
 		t.Fatal("unbalanced paren must fail compile")
 	}
-	if _, _, err := compileComputed(meta.ColumnDef{Name: "c", ComputedFormula: "missing * 2"}, cols); err == nil {
+	if _, _, err := CompileComputed(defs.Column{Name: "c", ComputedFormula: "missing * 2"}, cols); err == nil {
 		t.Fatal("unknown ident must fail compile")
 	}
-	if _, _, err := compileComputed(meta.ColumnDef{Name: "c", ComputedFormula: "name * 2"}, cols); err == nil {
+	if _, _, err := CompileComputed(defs.Column{Name: "c", ComputedFormula: "name * 2"}, cols); err == nil {
 		t.Fatal("arithmetic over a text column must fail type-check")
 	}
-	if _, _, err := compileComputed(meta.ColumnDef{Name: "c", ComputedFormula: `CONCAT(name, 5)`}, cols); err == nil {
+	if _, _, err := CompileComputed(defs.Column{Name: "c", ComputedFormula: `CONCAT(name, 5)`}, cols); err == nil {
 		t.Fatal("concat with a number literal must fail type-check")
 	}
-	if _, _, err := compileComputed(meta.ColumnDef{Name: "c", ComputedFormula: "DROP TABLE users"}, cols); err == nil {
+	if _, _, err := CompileComputed(defs.Column{Name: "c", ComputedFormula: "DROP TABLE users"}, cols); err == nil {
 		t.Fatal("non-formula token must be rejected")
 	}
 
-	_, fn, err := compileComputed(meta.ColumnDef{Name: "c", ComputedFormula: "price * 2"}, cols)
+	_, fn, err := CompileComputed(defs.Column{Name: "c", ComputedFormula: "price * 2"}, cols)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if v := fn(row); v != nil {
 		t.Fatalf("NULL operand must yield nil result, got %v", v)
 	}
-	_, fn, _ = compileComputed(meta.ColumnDef{Name: "c", ComputedFormula: "1 / 0"}, cols)
+	_, fn, _ = CompileComputed(defs.Column{Name: "c", ComputedFormula: "1 / 0"}, cols)
 	if v := fn(map[string]any{}); v != nil {
 		t.Fatalf("division by zero must yield nil, got %v", v)
 	}
 }
 
 func TestApplyComputed(t *testing.T) {
-	cols := []meta.ColumnDef{
+	cols := []defs.Column{
 		{Name: "price", FieldType: "number"},
 		{Name: "total", FieldType: "number", IsComputed: true, ComputedFormula: "price * 2"},
 	}
@@ -85,7 +85,7 @@ func TestApplyComputed(t *testing.T) {
 		{"price": float64(5)},
 		{"price": nil},
 	}
-	applyComputed(cols, rows)
+	ApplyComputed(cols, rows)
 	if rows[0]["total"] != float64(10) {
 		t.Fatalf("row0 total = %v", rows[0]["total"])
 	}
@@ -95,11 +95,11 @@ func TestApplyComputed(t *testing.T) {
 }
 
 func TestComputedRejectsInjectionName(t *testing.T) {
-	cols := []meta.ColumnDef{{Name: "a", FieldType: "number"}}
-	if _, _, err := compileComputed(meta.ColumnDef{Name: "c", ComputedFormula: "a + 1; -- x"}, cols); err == nil {
+	cols := []defs.Column{{Name: "a", FieldType: "number"}}
+	if _, _, err := CompileComputed(defs.Column{Name: "c", ComputedFormula: "a + 1; -- x"}, cols); err == nil {
 		t.Fatal("semicolon comment must be rejected")
 	}
-	if _, _, err := compileComputed(meta.ColumnDef{Name: "c", ComputedFormula: `CONCAT("x")`}, cols); err == nil {
+	if _, _, err := CompileComputed(defs.Column{Name: "c", ComputedFormula: `CONCAT("x")`}, cols); err == nil {
 		t.Fatal("concat needs at least 2 args")
 	}
 }
@@ -128,11 +128,11 @@ func TestRowNumStringAndBytes(t *testing.T) {
 }
 
 func TestComputedArithmeticFromDecimalStrings(t *testing.T) {
-	cols := []meta.ColumnDef{
+	cols := []defs.Column{
 		{Name: "price", FieldType: "number"},
 		{Name: "qty", FieldType: "number"},
 	}
-	_, fn, err := compileComputed(meta.ColumnDef{Name: "total", ComputedFormula: "price * qty"}, cols)
+	_, fn, err := CompileComputed(defs.Column{Name: "total", ComputedFormula: "price * qty"}, cols)
 	if err != nil {
 		t.Fatal(err)
 	}

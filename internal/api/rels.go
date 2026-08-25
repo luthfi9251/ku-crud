@@ -392,7 +392,7 @@ func (s *Server) handleM2MOptions(w http.ResponseWriter, r *http.Request) {
 			names = append(names, d)
 		}
 	}
-	sortCol, sortDir := resolveSort(target, tcols, "", "")
+	sortCol, sortDir := engine.ResolveSort(toCore(target, tcols), "", "")
 	if !containsStr(names, sortCol) {
 		names = append(names, sortCol)
 	}
@@ -486,7 +486,7 @@ func (s *Server) handleFKOptions(w http.ResponseWriter, r *http.Request) {
 			names = append(names, d)
 		}
 	}
-	sortCol, sortDir := resolveSort(target, tcols, "", "")
+	sortCol, sortDir := engine.ResolveSort(toCore(target, tcols), "", "")
 	if !containsStr(names, sortCol) {
 		names = append(names, sortCol)
 	}

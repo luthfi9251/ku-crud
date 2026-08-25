@@ -1,4 +1,4 @@
-package api
+package engine
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"ku-crud/internal/meta"
+	"ku-crud/internal/defs"
 )
 
 // cnode is one AST node of a compiled computed formula.
@@ -23,8 +23,8 @@ type cnode struct {
 }
 
 // computedCols returns the definition's computed (virtual) columns.
-func computedCols(cols []meta.ColumnDef) []meta.ColumnDef {
-	var out []meta.ColumnDef
+func computedCols(cols []defs.Column) []defs.Column {
+	var out []defs.Column
 	for _, c := range cols {
 		if c.IsComputed {
 			out = append(out, c)
@@ -33,16 +33,16 @@ func computedCols(cols []meta.ColumnDef) []meta.ColumnDef {
 	return out
 }
 
-// applyComputed appends each computed column's value to every row (nil when
+// ApplyComputed appends each computed column's value to every row (nil when
 // the formula yields NULL or fails). Never touches the database.
-func applyComputed(cols []meta.ColumnDef, rows []map[string]any) {
+func ApplyComputed(cols []defs.Column, rows []map[string]any) {
 	comps := computedCols(cols)
 	if len(comps) == 0 || len(rows) == 0 {
 		return
 	}
 	evals := make([]func(map[string]any) any, len(comps))
 	for i, c := range comps {
-		_, fn, err := compileComputed(c, cols)
+		_, fn, err := CompileComputed(c, cols)
 		if err != nil {
 			evals[i] = func(map[string]any) any { return nil } // invalid def → nil, never a request failure
 			continue
@@ -56,11 +56,11 @@ func applyComputed(cols []meta.ColumnDef, rows []map[string]any) {
 	}
 }
 
-// compileComputed parses and type-checks one computed formula against the
+// CompileComputed parses and type-checks one computed formula against the
 // definition's real (non-computed) columns. Returns the result field type
 // ("number" or "text") and an evaluator.
-func compileComputed(c meta.ColumnDef, cols []meta.ColumnDef) (string, func(map[string]any) any, error) {
-	p := &cparser{s: c.ComputedFormula, byName: map[string]meta.ColumnDef{}}
+func CompileComputed(c defs.Column, cols []defs.Column) (string, func(map[string]any) any, error) {
+	p := &cparser{s: c.ComputedFormula, byName: map[string]defs.Column{}}
 	for _, col := range cols {
 		if !col.IsComputed {
 			p.byName[col.Name] = col
@@ -81,7 +81,7 @@ func compileComputed(c meta.ColumnDef, cols []meta.ColumnDef) (string, func(map[
 type cparser struct {
 	s      string
 	pos    int
-	byName map[string]meta.ColumnDef
+	byName map[string]defs.Column
 }
 
 func (p *cparser) skipWs() {

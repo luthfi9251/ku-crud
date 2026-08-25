@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"time"
 
+	"ku-crud/internal/defs"
 	"ku-crud/internal/ds"
+	"ku-crud/internal/engine"
 	"ku-crud/internal/meta"
 )
 
@@ -692,9 +694,9 @@ func validateBundleTable(ft metaFileTable) string {
 		}
 	}
 	// full column list (once) so computed formulas resolve their identifiers
-	colDefs := make([]meta.ColumnDef, len(ft.Columns))
+	colDefs := make([]defs.Column, len(ft.Columns))
 	for i, fc := range ft.Columns {
-		colDefs[i] = meta.ColumnDef{Name: fc.Name, FieldType: fc.FieldType,
+		colDefs[i] = defs.Column{Name: fc.Name, FieldType: fc.FieldType,
 			IsComputed: fc.IsComputed, ComputedFormula: fc.ComputedFml}
 	}
 	names := map[string]bool{}
@@ -726,7 +728,7 @@ func validateBundleTable(ft metaFileTable) string {
 			if c.ComputedFml == "" {
 				return "table " + name + ": column " + c.Name + ": computed columns need computedFormula"
 			}
-			ft2, _, err := compileComputed(colDefs[i], colDefs)
+			ft2, _, err := engine.CompileComputed(colDefs[i], colDefs)
 			if err != nil {
 				return "table " + name + ": column " + c.Name + ": " + err.Error()
 			}

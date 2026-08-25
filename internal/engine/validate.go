@@ -1,4 +1,4 @@
-package api
+package engine
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"ku-crud/internal/meta"
+	"ku-crud/internal/defs"
 )
 
 var datetimeLayouts = []string{time.RFC3339, "2006-01-02T15:04", "2006-01-02"}
@@ -80,16 +80,6 @@ func validateValue(ft string, v any, enum []string) error {
 	return nil
 }
 
-func coercePK(ft, raw string) (any, error) {
-	if ft == "number" {
-		if i, err := strconv.ParseInt(raw, 10, 64); err == nil {
-			return i, nil
-		}
-		return strconv.ParseFloat(raw, 64)
-	}
-	return raw, nil
-}
-
 // normalizeJSONValue converts a decoded JSON object/array into its compact
 // text form so adapters always receive a string for json columns. Strings
 // pass through untouched.
@@ -138,9 +128,9 @@ func stringForm(v any) string {
 
 // applyColumnValidations enforces the def's optional per-column rules on the
 // string form of a value. Empty/nil values are skipped (required-ness is a
-// separate flag). Called from editablePayload (row writes) and coerceValidate
+// separate flag). Called from EditablePayload (row writes) and CoerceValidate
 // (CSV import) — the two validation funnels.
-func applyColumnValidations(c meta.ColumnDef, v any) error {
+func applyColumnValidations(c defs.Column, v any) error {
 	if v == nil || len(c.Validations) == 0 {
 		return nil
 	}
@@ -169,4 +159,71 @@ func applyColumnValidations(c meta.ColumnDef, v any) error {
 		}
 	}
 	return nil
+}
+
+// ValidateColumn type-checks v against c's field type (fk columns validate
+// as their base type) and applies c's optional validation rules. It is the
+// row-write validation funnel; errors carry the column name.
+func ValidateColumn(c defs.Column, v any) error {
+	ft := c.FieldType
+	if ft == "fk" {
+		ft = c.BaseType
+	}
+	if err := validateValue(ft, v, c.EnumOptions); err != nil {
+		return fmt.Errorf("%s: %w", c.Name, err)
+	}
+	return applyColumnValidations(c, v)
+}
+
+// EditablePayload validates body against editable columns and returns
+// (cols, vals) in column-definition order. requireAll=true enforces required
+// columns for INSERT / UPDATE. Any non-editable/unknown key is rejected unless it is a primary key during insert.
+func EditablePayload(t *defs.Table, body map[string]any, isInsert bool) ([]string, []any, error) {
+	editable := map[string]defs.Column{}
+	isKey := map[string]bool{}
+	for _, k := range t.Keys {
+		isKey[k] = true
+	}
+
+	for _, c := range t.Columns {
+		if c.FieldType == "m2m" {
+			continue // virtual relation column — handled by syncM2MLinks
+		}
+		if c.Editable || (isInsert && isKey[c.Name]) {
+			editable[c.Name] = c
+		}
+	}
+	for k := range body {
+		if _, ok := editable[k]; !ok {
+			return nil, nil, fmt.Errorf("column %q is not editable/known", k)
+		}
+	}
+	var names []string
+	var vals []any
+	for _, c := range t.Columns {
+		if c.FieldType == "m2m" {
+			continue // virtual relation column — handled by syncM2MLinks
+		}
+		if !c.Editable && !(isInsert && isKey[c.Name]) {
+			continue
+		}
+		v, present := body[c.Name]
+		if present {
+			if err := ValidateColumn(c, v); err != nil {
+				return nil, nil, err
+			}
+			if c.FieldType == "json" {
+				s, err := normalizeJSONValue(v)
+				if err != nil {
+					return nil, nil, fmt.Errorf("%s: %w", c.Name, err)
+				}
+				v = s
+			}
+			names = append(names, c.Name)
+			vals = append(vals, v)
+		} else if isInsert && c.Required && !isKey[c.Name] {
+			return nil, nil, fmt.Errorf("%s is required", c.Name)
+		}
+	}
+	return names, vals, nil
 }

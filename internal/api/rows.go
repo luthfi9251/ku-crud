@@ -46,38 +46,6 @@ func toCore(def *meta.TableDef, cols []meta.ColumnDef) *defs.Table {
 	return &t
 }
 
-// resolveSort picks the effective sort for a list query: an explicit sortable
-// column from the request wins; otherwise the definition's default sort when
-// it is still a defined, sortable column; otherwise the first key column ASC.
-func resolveSort(def *meta.TableDef, cols []meta.ColumnDef, sortCol, sortDir string) (string, string) {
-	byName := map[string]meta.ColumnDef{}
-	for _, c := range cols {
-		byName[c.Name] = c
-	}
-	if byName[sortCol].Sortable {
-		if sortDir != "ASC" && sortDir != "DESC" {
-			sortDir = "ASC"
-		}
-		return sortCol, sortDir
-	}
-	if c, ok := byName[def.DefaultSortCol]; ok && c.Sortable {
-		d := def.DefaultSortDir
-		if d != "ASC" && d != "DESC" {
-			d = "ASC"
-		}
-		return def.DefaultSortCol, d
-	}
-	if len(def.KeyColumns) > 0 {
-		return def.KeyColumns[0], "ASC"
-	}
-	for _, c := range cols {
-		if c.Sortable && c.FieldType != "m2m" && !c.IsComputed {
-			return c.Name, "ASC"
-		}
-	}
-	return "", ""
-}
-
 func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 	def, cols, err := s.tableCtx(r)
 	if err != nil {
@@ -104,7 +72,8 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	sortCol, sortDir := resolveSort(def, cols, q.Get("sort"), q.Get("dir"))
+	ct := toCore(def, cols)
+	sortCol, sortDir := engine.ResolveSort(ct, q.Get("sort"), q.Get("dir"))
 	filters, fmsg := s.parseFilters(def, cols, u, q.Get("filters"))
 	if fmsg != "" {
 		writeErr(w, 400, "FILTER_INVALID", fmsg, nil)
@@ -154,7 +123,7 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	applyComputed(cols, rows)
+	engine.ApplyComputed(ct.Columns, rows)
 	rels := s.buildRels(u, cols, rows)
 	m2mRels := s.buildM2MRels(u, def, cols, rows)
 	if rows == nil {
@@ -188,7 +157,8 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 	defer a.Close()
 
 	names := realColNames(cols)
-	keyVals, err := engine.DecodeKey(toCore(def, cols), r.PathValue("pk"))
+	ct := toCore(def, cols)
+	keyVals, err := engine.DecodeKey(ct, r.PathValue("pk"))
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return
@@ -223,69 +193,9 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 		}
 		row = rowsOut[0]
 	}
-	applyComputed(cols, []map[string]any{row})
+	engine.ApplyComputed(ct.Columns, []map[string]any{row})
 	rels := s.buildRels(userFrom(r), cols, []map[string]any{row})
 	writeJSON(w, 200, map[string]any{"row": row, "rels": rels})
-}
-
-// editablePayload validates body against editable columns and returns
-// (cols, vals) in column-definition order. requireAll=true enforces required
-// columns for INSERT / UPDATE. Any non-editable/unknown key is rejected unless it is a primary key during insert.
-func editablePayload(body map[string]any, cols []meta.ColumnDef, keyCols []string, isInsert bool) ([]string, []any, error) {
-	editable := map[string]meta.ColumnDef{}
-	isKey := map[string]bool{}
-	for _, k := range keyCols {
-		isKey[k] = true
-	}
-
-	for _, c := range cols {
-		if c.FieldType == "m2m" {
-			continue // virtual relation column — handled by syncM2MLinks
-		}
-		if c.Editable || (isInsert && isKey[c.Name]) {
-			editable[c.Name] = c
-		}
-	}
-	for k := range body {
-		if _, ok := editable[k]; !ok {
-			return nil, nil, fmt.Errorf("column %q is not editable/known", k)
-		}
-	}
-	var names []string
-	var vals []any
-	for _, c := range cols {
-		if c.FieldType == "m2m" {
-			continue // virtual relation column — handled by syncM2MLinks
-		}
-		if !c.Editable && !(isInsert && isKey[c.Name]) {
-			continue
-		}
-		v, present := body[c.Name]
-		if present {
-			ft := c.FieldType
-			if ft == "fk" {
-				ft = c.BaseType
-			}
-			if err := validateValue(ft, v, c.EnumOptions); err != nil {
-				return nil, nil, fmt.Errorf("%s: %w", c.Name, err)
-			}
-			if err := applyColumnValidations(c, v); err != nil {
-				return nil, nil, err
-			}
-			if c.FieldType == "json" {
-				s, err := normalizeJSONValue(v)
-				if err != nil {
-					return nil, nil, fmt.Errorf("%s: %w", c.Name, err)
-				}
-				v = s
-			}
-			names = append(names, c.Name)
-			vals = append(vals, v)
-		} else if isInsert && c.Required && !isKey[c.Name] {
-			return nil, nil, fmt.Errorf("%s is required", c.Name)
-		}
-	}
-	return names, vals, nil
 }
 
 func mustJSON(v any) []byte {
@@ -351,7 +261,8 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "INTERNAL", "relation check failed", nil)
 		return
 	}
-	names, vals, err := editablePayload(body, cols, def.KeyColumns, true)
+	ct := toCore(def, cols)
+	names, vals, err := engine.EditablePayload(ct, body, true)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
@@ -365,7 +276,7 @@ func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
 		writeHookErr(w, err)
 		return
 	}
-	names, vals, err = editablePayload(body, cols, def.KeyColumns, true)
+	names, vals, err = engine.EditablePayload(ct, body, true)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
@@ -445,7 +356,7 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ct := toCore(def, cols)
-	names, vals, err := editablePayload(body, cols, def.KeyColumns, false)
+	names, vals, err := engine.EditablePayload(ct, body, false)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
@@ -490,7 +401,7 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		writeHookErr(w, err)
 		return
 	}
-	names, vals, err = editablePayload(body, cols, def.KeyColumns, false)
+	names, vals, err = engine.EditablePayload(ct, body, false)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
