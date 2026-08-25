@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"ku-crud/internal/meta"
 )
 
 func openPG(t *testing.T) Adapter {
@@ -15,7 +13,7 @@ func openPG(t *testing.T) Adapter {
 	if cs == "" {
 		t.Skip("KUCRUD_TEST_PG not set")
 	}
-	a, err := openPostgres(meta.Datasource{Raw: cs})
+	a, err := openPostgres(Conn{Raw: cs})
 	if err != nil {
 		t.Skipf("no PG: %v", err)
 	}
@@ -29,7 +27,7 @@ func openMy(t *testing.T) Adapter {
 	if dsn == "" {
 		t.Skip("KUCRUD_TEST_MYSQL not set")
 	}
-	a, err := openMySQL(meta.Datasource{Raw: dsn})
+	a, err := openMySQL(Conn{Raw: dsn})
 	if err != nil {
 		t.Skipf("no MySQL: %v", err)
 	}

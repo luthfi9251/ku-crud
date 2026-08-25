@@ -11,8 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
-
-	"ku-crud/internal/meta"
 )
 
 // MapFieldType maps a PG data_type to a Ku-CRUD field type ("" = excluded).
@@ -53,15 +51,15 @@ func pq(s string) string {
 	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s) + "'"
 }
 
-func openPostgres(d meta.Datasource) (*pgAdapter, error) {
-	conn := d.Raw
+func openPostgres(c Conn) (*pgAdapter, error) {
+	conn := c.Raw
 	if conn == "" {
-		ssl := d.SSLMode
+		ssl := c.SSLMode
 		if ssl == "" {
 			ssl = "disable"
 		}
 		conn = fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
-			pq(d.Host), d.Port, pq(d.DBName), pq(d.Username), pq(d.Password), pq(ssl))
+			pq(c.Host), c.Port, pq(c.DB), pq(c.User), pq(c.Password), pq(ssl))
 	}
 	db, err := sql.Open("pgx", conn)
 	if err != nil {

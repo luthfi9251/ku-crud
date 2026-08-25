@@ -8,28 +8,26 @@ import (
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
-
-	"ku-crud/internal/meta"
 )
 
 type mysqlAdapter struct {
 	db *sql.DB
 }
 
-func openMySQL(d meta.Datasource) (*mysqlAdapter, error) {
+func openMySQL(c Conn) (*mysqlAdapter, error) {
 	var dsn string
-	if d.Raw != "" {
-		dsn = d.Raw
+	if c.Raw != "" {
+		dsn = c.Raw
 	} else {
 		cfg := mysql.NewConfig()
-		cfg.User = d.Username
-		cfg.Passwd = d.Password
+		cfg.User = c.User
+		cfg.Passwd = c.Password
 		cfg.Net = "tcp"
-		cfg.Addr = fmt.Sprintf("%s:%d", d.Host, d.Port)
-		cfg.DBName = d.DBName
+		cfg.Addr = fmt.Sprintf("%s:%d", c.Host, c.Port)
+		cfg.DBName = c.DB
 		cfg.ParseTime = true
 		cfg.Params = map[string]string{"charset": "utf8mb4"}
-		if d.SSLMode != "" && d.SSLMode != "disable" {
+		if c.SSLMode != "" && c.SSLMode != "disable" {
 			cfg.TLSConfig = "true"
 		}
 		dsn = cfg.FormatDSN()

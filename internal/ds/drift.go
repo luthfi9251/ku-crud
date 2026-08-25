@@ -1,6 +1,6 @@
 package ds
 
-import "ku-crud/internal/meta"
+import "ku-crud/internal/defs"
 
 type DriftReport struct {
 	Missing     []string `json:"missing"`     // defined but dropped from the live table
@@ -14,14 +14,14 @@ func (r DriftReport) Empty() bool {
 
 // EffectiveType is what drift comparison uses: an fk column tracks its
 // underlying introspected type in BaseType.
-func EffectiveType(c meta.ColumnDef) string {
+func EffectiveType(c defs.Column) string {
 	if c.FieldType == "fk" && c.BaseType != "" {
 		return c.BaseType
 	}
 	return c.FieldType
 }
 
-func CompareDrift(defined []meta.ColumnDef, live []LiveColumn) DriftReport {
+func CompareDrift(defined []defs.Column, live []LiveColumn) DriftReport {
 	var rep DriftReport
 	liveByName := map[string]LiveColumn{}
 	for _, c := range live {

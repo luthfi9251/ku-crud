@@ -97,7 +97,8 @@ func OpenDatasource(store *meta.Store, dsID int64) (ds.Adapter, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ds.Open(*d)
+	return ds.Open(ds.Conn{Driver: d.Driver, Host: d.Host, Port: d.Port,
+		DB: d.DBName, User: d.Username, Password: d.Password, SSLMode: d.SSLMode, Raw: d.Raw})
 }
 
 // RunAction executes one custom action's hook synchronously and returns

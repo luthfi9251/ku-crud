@@ -3,8 +3,6 @@ package ds
 import (
 	"fmt"
 	"strconv"
-
-	"ku-crud/internal/meta"
 )
 
 // ListParams carries one page-list request through the Adapter contract.
@@ -90,16 +88,25 @@ type Pair struct {
 	Ret any `json:"ret"`
 }
 
-// Open creates the adapter for a stored datasource. Connections are lazy:
+// Conn is the dialect-neutral connection description. Raw, when set,
+// overrides every other field as a verbatim connection string.
+type Conn struct {
+	Driver, Host                string
+	Port                        int
+	DB, User, Password, SSLMode string
+	Raw                         string
+}
+
+// Open creates the adapter for a connection. Connections are lazy:
 // callers open per use and Close when done (brief requirement).
-func Open(d meta.Datasource) (Adapter, error) {
-	switch d.Driver {
+func Open(c Conn) (Adapter, error) {
+	switch c.Driver {
 	case "", "postgres":
-		return openPostgres(d)
+		return openPostgres(c)
 	case "mysql":
-		return openMySQL(d)
+		return openMySQL(c)
 	default:
-		return nil, fmt.Errorf("unsupported driver %q", d.Driver)
+		return nil, fmt.Errorf("unsupported driver %q", c.Driver)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"ku-crud/internal/defs"
 	"ku-crud/internal/ds"
 	"ku-crud/internal/hooks"
 	"ku-crud/internal/meta"
@@ -926,7 +927,8 @@ func (s *Server) liveAdapter(dsID int64) (ds.Adapter, error) {
 	if err != nil {
 		return nil, err
 	}
-	a, err := ds.Open(*d)
+	a, err := ds.Open(ds.Conn{Driver: d.Driver, Host: d.Host, Port: d.Port,
+		DB: d.DBName, User: d.Username, Password: d.Password, SSLMode: d.SSLMode, Raw: d.Raw})
 	if err != nil {
 		return nil, errConn
 	}
@@ -956,7 +958,8 @@ func (s *Server) handleDSTables(w http.ResponseWriter, r *http.Request) {
 		s.writeDSErr(w, err)
 		return
 	}
-	a, err := ds.Open(*d)
+	a, err := ds.Open(ds.Conn{Driver: d.Driver, Host: d.Host, Port: d.Port,
+		DB: d.DBName, User: d.Username, Password: d.Password, SSLMode: d.SSLMode, Raw: d.Raw})
 	if err != nil {
 		s.writeLiveErr(w, errConn)
 		return
@@ -996,7 +999,7 @@ func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
 	}
-	rep := ds.CompareDrift(cols, live)
+	rep := ds.CompareDrift(meta.ToCoreDef(*def, cols, nil).Columns, live)
 	if !rep.Empty() {
 		writeErr(w, 409, "DRIFT", "table definition is out of sync with the live schema", rep)
 		return
@@ -1026,7 +1029,7 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
 	}
-	missing := ds.CompareDrift(cols, live).Missing
+	missing := ds.CompareDrift(meta.ToCoreDef(*def, cols, nil).Columns, live).Missing
 	for _, m := range missing {
 		for _, key := range def.KeyColumns {
 			if m == key {
@@ -1057,7 +1060,7 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			continue // dropped
 		}
-		if ds.EffectiveType(c) != lc.FieldType {
+		if ds.EffectiveType(defs.Column{FieldType: c.FieldType, BaseType: c.BaseType}) != lc.FieldType {
 			if c.FieldType == "fk" {
 				c.BaseType = lc.FieldType // keep relation config; only base drifts
 			} else {
@@ -1106,7 +1109,8 @@ func (s *Server) handleDSColumns(w http.ResponseWriter, r *http.Request) {
 		s.writeDSErr(w, err)
 		return
 	}
-	a, err := ds.Open(*d)
+	a, err := ds.Open(ds.Conn{Driver: d.Driver, Host: d.Host, Port: d.Port,
+		DB: d.DBName, User: d.Username, Password: d.Password, SSLMode: d.SSLMode, Raw: d.Raw})
 	if err != nil {
 		s.writeLiveErr(w, errConn)
 		return

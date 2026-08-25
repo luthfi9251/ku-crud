@@ -3,11 +3,11 @@ package ds
 import (
 	"testing"
 
-	"ku-crud/internal/meta"
+	"ku-crud/internal/defs"
 )
 
 func TestCompareDrift(t *testing.T) {
-	defined := []meta.ColumnDef{
+	defined := []defs.Column{
 		{Name: "id", FieldType: "number"},
 		{Name: "gone", FieldType: "text"},
 		{Name: "retyped", FieldType: "text"},
@@ -31,7 +31,7 @@ func TestCompareDrift(t *testing.T) {
 		t.Fatal("report must not be empty")
 	}
 	// clean case
-	rep = CompareDrift([]meta.ColumnDef{{Name: "id", FieldType: "number"}},
+	rep = CompareDrift([]defs.Column{{Name: "id", FieldType: "number"}},
 		[]LiveColumn{{Name: "id", FieldType: "number"}})
 	if !rep.Empty() {
 		t.Fatalf("expected empty, got %+v", rep)
@@ -39,7 +39,7 @@ func TestCompareDrift(t *testing.T) {
 }
 
 func TestCompareDriftUUIDJSON(t *testing.T) {
-	defined := []meta.ColumnDef{
+	defined := []defs.Column{
 		{Name: "id", FieldType: "uuid"},
 		{Name: "meta", FieldType: "json"},
 	}
@@ -57,14 +57,14 @@ func TestCompareDriftUUIDJSON(t *testing.T) {
 }
 
 func TestEffectiveType(t *testing.T) {
-	c := meta.ColumnDef{FieldType: "fk", BaseType: "number"}
+	c := defs.Column{FieldType: "fk", BaseType: "number"}
 	if EffectiveType(c) != "number" {
 		t.Fatalf("fk col should compare as base type, got %q", EffectiveType(c))
 	}
-	if EffectiveType(meta.ColumnDef{FieldType: "text"}) != "text" {
+	if EffectiveType(defs.Column{FieldType: "text"}) != "text" {
 		t.Fatal("non-fk passthrough")
 	}
-	if EffectiveType(meta.ColumnDef{FieldType: "fk"}) != "fk" {
+	if EffectiveType(defs.Column{FieldType: "fk"}) != "fk" {
 		t.Fatal("fk without base falls back to fk")
 	}
 }

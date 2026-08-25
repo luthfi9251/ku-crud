@@ -4,16 +4,14 @@ import (
 	"database/sql"
 	"os"
 	"testing"
-
-	"ku-crud/internal/meta"
 )
 
-func pgTestDS() meta.Datasource {
+func pgTestDS() Conn {
 	cs := os.Getenv("KUCRUD_TEST_PG")
 	if cs == "" {
-		return meta.Datasource{}
+		return Conn{}
 	}
-	return meta.Datasource{Name: "t", Host: "x", Port: 1, DBName: "x", Username: "x",
+	return Conn{Host: "x", Port: 1, DB: "x", User: "x",
 		Password: "x", SSLMode: "disable", Raw: cs, Driver: "postgres"}
 }
 
