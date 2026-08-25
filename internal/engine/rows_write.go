@@ -190,69 +190,21 @@ func stripM2MPayload(cols []defs.Column, body map[string]any) (map[string][]any,
 	return out, nil
 }
 
-// m2mWritePlan is one m2m column's resolved write topology.
-type m2mWritePlan struct {
-	junction *defs.Table
-	srcRef   string
-}
-
-// resolveM2MWrite loads and cross-checks one m2m column against its
-// junction definition, with the platform's historical error messages.
-// Returns nil plan + message on any inconsistency.
-func (s *WriteService) resolveM2MWrite(t *defs.Table, c defs.Column) (*m2mWritePlan, string) {
-	if c.M2M == nil || c.M2M.JunctionTable == "" {
-		return nil, "column " + c.Name + ": junction definition not found (save it first)"
-	}
-	if c.M2M.JunctionTable == t.Name {
-		return nil, "column " + c.Name + ": junction cannot be this table itself"
-	}
-	junction, err := s.R.Resolve(c.M2M.JunctionTable)
-	if err != nil {
-		return nil, "column " + c.Name + ": junction definition not found (save it first)"
-	}
-	var src, tgt *defs.Column
-	for i, jc := range junction.Columns {
-		if jc.Name == c.M2M.SrcCol && jc.FieldType == "fk" {
-			src = &junction.Columns[i]
-		}
-		if jc.Name == c.M2M.TgtCol && jc.FieldType == "fk" {
-			tgt = &junction.Columns[i]
-		}
-	}
-	if src == nil || tgt == nil {
-		return nil, "column " + c.Name + ": junction source/target columns must be defined fk columns"
-	}
-	if src.Name == tgt.Name {
-		return nil, "column " + c.Name + ": junction source and target columns must differ"
-	}
-	if src.FK == nil || src.FK.Table != t.Name {
-		return nil, "column " + c.Name + ": junction source column must reference this table"
-	}
-	// every required junction column must be one of the two link columns —
-	// otherwise link inserts would violate NOT NULL
-	for _, jc := range junction.Columns {
-		if jc.Required && jc.Name != src.Name && jc.Name != tgt.Name {
-			return nil, "column " + c.Name + ": junction has required column " + jc.Name +
-				" outside the two link columns"
-		}
-	}
-	return &m2mWritePlan{junction: junction, srcRef: src.FK.RefColumn}, ""
-}
-
 // precheckM2M validates configs and junction grants before any parent
 // write, so permission failures reject the whole request atomically.
+// (Junction/target resolution is the shared ResolveM2M from rels.go.)
 func (s *WriteService) precheckM2M(t *defs.Table, selections map[string][]any) error {
 	for _, c := range t.Columns {
 		if _, ok := selections[c.Name]; !ok {
 			continue
 		}
-		plan, msg := s.resolveM2MWrite(t, c)
-		if plan == nil {
+		cfg, msg := ResolveM2M(s.R, t, c)
+		if cfg == nil {
 			return &statusErr{status: 400, code: "VALIDATION", msg: msg}
 		}
-		if !s.canWrite(plan.junction.Name, "create") || !s.canWrite(plan.junction.Name, "delete") {
+		if !s.canWrite(cfg.Junction.Name, "create") || !s.canWrite(cfg.Junction.Name, "delete") {
 			return &statusErr{status: 403, code: "FORBIDDEN",
-				msg: "managing " + plan.junction.Label + " relations requires create and delete grants on that table"}
+				msg: "managing " + cfg.Junction.Label + " relations requires create and delete grants on that table"}
 		}
 	}
 	return nil
@@ -269,22 +221,22 @@ func (s *WriteService) applyM2MPayload(t *defs.Table, body map[string]any,
 		if !ok {
 			continue
 		}
-		plan, msg := s.resolveM2MWrite(t, c)
-		if plan == nil {
+		cfg, msg := ResolveM2M(s.R, t, c)
+		if cfg == nil {
 			return &statusErr{status: 400, code: "VALIDATION", msg: msg}
 		}
 		var srcVal any
 		if srcRow != nil {
-			srcVal = srcRow[plan.srcRef]
+			srcVal = srcRow[cfg.SrcRef]
 		}
 		if srcVal == nil {
-			srcVal = body[plan.srcRef]
+			srcVal = body[cfg.SrcRef]
 		}
 		if srcVal == nil {
 			return &statusErr{status: 400, code: "VALIDATION",
-				msg: "column " + c.Name + ": provide the " + plan.srcRef + " value so relations can be created"}
+				msg: "column " + c.Name + ": provide the " + cfg.SrcRef + " value so relations can be created"}
 		}
-		if err := s.syncM2MLinks(c, plan, srcVal, want); err != nil {
+		if err := s.syncM2MLinks(c, cfg, srcVal, want); err != nil {
 			return err
 		}
 	}
@@ -294,24 +246,24 @@ func (s *WriteService) applyM2MPayload(t *defs.Table, body map[string]any,
 // syncM2MLinks diffs the wanted target values against the current junction
 // rows for one source value and applies inserts/deletes. Requires create
 // and delete grants on the junction definition.
-func (s *WriteService) syncM2MLinks(c defs.Column, plan *m2mWritePlan, srcVal any, want []any) error {
+func (s *WriteService) syncM2MLinks(c defs.Column, cfg *M2MCfg, srcVal any, want []any) error {
 	if srcVal == nil {
 		return &statusErr{status: 400, code: "VALIDATION",
 			msg: "column " + c.Name + ": cannot manage relations without a source key value"}
 	}
-	if !s.canWrite(plan.junction.Name, "create") || !s.canWrite(plan.junction.Name, "delete") {
+	if !s.canWrite(cfg.Junction.Name, "create") || !s.canWrite(cfg.Junction.Name, "delete") {
 		return &statusErr{status: 403, code: "FORBIDDEN",
-			msg: "managing " + plan.junction.Label + " relations requires create and delete grants on that table"}
+			msg: "managing " + cfg.Junction.Label + " relations requires create and delete grants on that table"}
 	}
-	if err := s.guard(plan.junction); err != nil {
+	if err := s.guard(cfg.Junction); err != nil {
 		return hookStatusErr(err)
 	}
-	ja, err := s.R.Adapter(plan.junction)
+	ja, err := s.R.Adapter(cfg.Junction)
 	if err != nil {
 		return err
 	}
 	defer ja.Close()
-	pairs, err := ja.FetchPairsByRef(plan.junction.Schema, plan.junction.PhysTab,
+	pairs, err := ja.FetchPairsByRef(cfg.Junction.Schema, cfg.Junction.PhysTab,
 		c.M2M.SrcCol, c.M2M.TgtCol, []any{srcVal})
 	if err != nil {
 		return err
@@ -331,30 +283,30 @@ func (s *WriteService) syncM2MLinks(c defs.Column, plan *m2mWritePlan, srcVal an
 			continue
 		}
 		linkVals := map[string]any{c.M2M.SrcCol: srcVal, c.M2M.TgtCol: w}
-		if _, err := s.runBefore(BeforeCreate, plan.junction, RowPayload{Values: linkVals}); err != nil {
+		if _, err := s.runBefore(BeforeCreate, cfg.Junction, RowPayload{Values: linkVals}); err != nil {
 			return hookStatusErr(err)
 		}
-		if err := ja.Insert(plan.junction.Schema, plan.junction.PhysTab,
+		if err := ja.Insert(cfg.Junction.Schema, cfg.Junction.PhysTab,
 			[]string{c.M2M.SrcCol, c.M2M.TgtCol}, []any{srcVal, w}); err != nil {
 			return err
 		}
 		// audit returns in Task 11 (platformhooks)
-		s.runAfter(AfterCreate, plan.junction, RowPayload{Values: linkVals})
+		s.runAfter(AfterCreate, cfg.Junction, RowPayload{Values: linkVals})
 	}
 	for k, v := range current { // removed links
 		if wantSet[k] {
 			continue
 		}
 		linkVals := map[string]any{c.M2M.SrcCol: srcVal, c.M2M.TgtCol: v}
-		if _, err := s.runBefore(BeforeDelete, plan.junction, RowPayload{Old: linkVals}); err != nil {
+		if _, err := s.runBefore(BeforeDelete, cfg.Junction, RowPayload{Old: linkVals}); err != nil {
 			return hookStatusErr(err)
 		}
-		if _, err := ja.DeletePairs(plan.junction.Schema, plan.junction.PhysTab,
+		if _, err := ja.DeletePairs(cfg.Junction.Schema, cfg.Junction.PhysTab,
 			c.M2M.SrcCol, srcVal, c.M2M.TgtCol, v); err != nil {
 			return err
 		}
 		// audit returns in Task 11 (platformhooks)
-		s.runAfter(AfterDelete, plan.junction, RowPayload{Old: linkVals})
+		s.runAfter(AfterDelete, cfg.Junction, RowPayload{Old: linkVals})
 	}
 	return nil
 }

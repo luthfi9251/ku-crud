@@ -198,6 +198,18 @@ func (s *Server) writeService(u CtxUser, r *http.Request, def *meta.TableDef, co
 	}, &ct
 }
 
+// importService wires the engine import path for one request: the meta
+// resolver and the platform hook adapter (guard up-front, before-hooks
+// synchronous, after-hooks via outbox) — the same adapter the write path
+// uses, so import hooks keep their historical execution semantics.
+func (s *Server) importService(r *http.Request, def *meta.TableDef, cols []meta.ColumnDef) (*engine.ImportService, *defs.Table) {
+	u := userFrom(r)
+	res := s.metaRes(def)
+	ha := &hookAdapter{s: s, u: u, req: r, mainDef: def, mainCols: cols, res: res}
+	ct := meta.ToCoreDef(*def, cols, res.idToName)
+	return &engine.ImportService{R: res, H: ha}, &ct
+}
+
 // fkJoin builds the fk-filter callback for one request: the read grant on
 // the fk target and its physical names (the impure parts around the pure
 // engine parser).

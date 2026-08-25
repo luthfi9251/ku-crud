@@ -30,6 +30,19 @@ func (s *Server) hookGuard(def *meta.TableDef) error {
 	return s.hooks.CheckMissing(asgs)
 }
 
+// apiError routes an exact http status/code/message through helper flows
+// that don't own a ResponseWriter (wrapHookErr and friends).
+type apiError struct {
+	status int
+	code   string
+	msg    string
+}
+
+func (e *apiError) Error() string { return e.msg }
+func newAPIErr(status int, code, msg string) *apiError {
+	return &apiError{status: status, code: code, msg: msg}
+}
+
 // wrapHookErr maps a hook error onto a 400 apiError (HOOK_MISSING for a
 // MissingError, HOOK_REJECTED otherwise) — for write paths without a
 // ResponseWriter, e.g. m2m link sync.

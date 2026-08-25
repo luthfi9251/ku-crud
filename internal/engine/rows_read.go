@@ -409,11 +409,11 @@ func (s *ReadService) ExportCSV(w http.ResponseWriter, r *http.Request, t *defs.
 
 	cw := csv.NewWriter(w)
 	header := make([]string, len(visible))
-	m2mCfgs := map[string]*m2mPlan{}
+	m2mCfgs := map[string]*M2MCfg{}
 	for i, c := range visible {
 		header[i] = c.Name
 		if c.FieldType == "m2m" {
-			if p := s.resolveM2M(t, c); p != nil {
+			if p, _ := ResolveM2M(s.R, t, c); p != nil {
 				m2mCfgs[c.Name] = p
 			}
 		}
@@ -431,10 +431,10 @@ func (s *ReadService) ExportCSV(w http.ResponseWriter, r *http.Request, t *defs.
 			}
 			if c.FieldType == "m2m" {
 				if p := m2mCfgs[c.Name]; p != nil {
-					if list, ok := m2mRels[c.Name][rowValKey(row[p.srcRef])]; ok {
+					if list, ok := m2mRels[c.Name][rowValKey(row[p.SrcRef])]; ok {
 						parts := make([]string, len(list))
 						for j, tr := range list {
-							parts[j] = joinDisplay(tr, c.M2M.DisplayColumns, p.targetRef)
+							parts[j] = joinDisplay(tr, c.M2M.DisplayColumns, p.TargetRef)
 						}
 						rec[i] = strings.Join(parts, ", ")
 						continue
@@ -506,88 +506,35 @@ func (s *ReadService) buildRels(t *defs.Table, cols []defs.Column, rows []map[st
 	return rels
 }
 
-// m2mPlan is one m2m column's resolved link topology: the junction and
-// target definitions plus the ref columns the links hang on.
-type m2mPlan struct {
-	junction  *defs.Table
-	target    *defs.Table
-	srcRef    string // this table's column the junction references
-	targetRef string // target ref column
-}
-
-// resolveM2M loads and cross-checks one m2m column against its junction
-// definition. Returns nil on any inconsistency (drifted configs render
-// nothing rather than failing the request).
-func (s *ReadService) resolveM2M(t *defs.Table, c defs.Column) *m2mPlan {
-	if c.M2M == nil || c.M2M.JunctionTable == "" || c.M2M.JunctionTable == t.Name {
-		return nil
-	}
-	junction, err := s.R.Resolve(c.M2M.JunctionTable)
-	if err != nil {
-		return nil
-	}
-	var src, tgt *defs.Column
-	for i, jc := range junction.Columns {
-		if jc.Name == c.M2M.SrcCol && jc.FieldType == "fk" {
-			src = &junction.Columns[i]
-		}
-		if jc.Name == c.M2M.TgtCol && jc.FieldType == "fk" {
-			tgt = &junction.Columns[i]
-		}
-	}
-	if src == nil || tgt == nil || src.Name == tgt.Name {
-		return nil
-	}
-	if src.FK == nil || src.FK.Table != t.Name || tgt.FK == nil {
-		return nil
-	}
-	// every required junction column must be one of the two link columns —
-	// otherwise link inserts would violate NOT NULL
-	for _, jc := range junction.Columns {
-		if jc.Required && jc.Name != src.Name && jc.Name != tgt.Name {
-			return nil
-		}
-	}
-	// a junction fk targeting the junction itself ("") resolves to the
-	// junction, mirroring id-based resolution on the platform side
-	target := junction
-	if tgt.FK.Table != "" {
-		target, err = s.R.Resolve(tgt.FK.Table)
-		if err != nil {
-			return nil
-		}
-	}
-	return &m2mPlan{junction: junction, target: target,
-		srcRef: src.FK.RefColumn, targetRef: tgt.FK.RefColumn}
-}
-
 // buildM2MRels resolves many-to-many display data for the given rows.
 // Result: m2mRels[colName][String(srcRefValue)] = []target display rows.
 // Requires read grants on both junction and target; otherwise skipped.
+// (Junction/target resolution is the shared ResolveM2M; broken configs
+// render nothing rather than failing the request.)
 func (s *ReadService) buildM2MRels(t *defs.Table, cols []defs.Column, rows []map[string]any) map[string]map[string][]map[string]any {
 	var out map[string]map[string][]map[string]any
 	for _, c := range cols {
 		if c.M2M == nil {
 			continue
 		}
-		cfg := s.resolveM2M(t, c)
+		cfg, _ := ResolveM2M(s.R, t, c)
 		if cfg == nil {
 			continue // broken config (drifted junction) — render nothing
 		}
-		if !s.canRead(cfg.junction.Name) || !s.canRead(cfg.target.Name) {
+		if !s.canRead(cfg.Junction.Name) || !s.canRead(cfg.Target.Name) {
 			continue
 		}
 		// collect distinct source ref values from the page
 		srcVals := map[string]any{}
 		for _, row := range rows {
-			if v := row[cfg.srcRef]; v != nil {
+			if v := row[cfg.SrcRef]; v != nil {
 				srcVals[rowValKey(v)] = v
 			}
 		}
 		if len(srcVals) == 0 {
 			continue
 		}
-		ja, err := s.R.Adapter(cfg.junction)
+		ja, err := s.R.Adapter(cfg.Junction)
 		if err != nil {
 			continue
 		}
@@ -603,7 +550,7 @@ func (s *ReadService) buildM2MRels(t *defs.Table, cols []defs.Column, rows []map
 			if end > len(vals) {
 				end = len(vals)
 			}
-			pairs, err := ja.FetchPairsByRef(cfg.junction.Schema, cfg.junction.PhysTab,
+			pairs, err := ja.FetchPairsByRef(cfg.Junction.Schema, cfg.Junction.PhysTab,
 				c.M2M.SrcCol, c.M2M.TgtCol, vals[i:end])
 			if err != nil {
 				continue
@@ -620,7 +567,7 @@ func (s *ReadService) buildM2MRels(t *defs.Table, cols []defs.Column, rows []map
 			continue
 		}
 		// resolve target display rows for all linked values
-		ta, err := s.R.Adapter(cfg.target)
+		ta, err := s.R.Adapter(cfg.Target)
 		if err != nil {
 			continue
 		}
@@ -634,8 +581,8 @@ func (s *ReadService) buildM2MRels(t *defs.Table, cols []defs.Column, rows []map
 		for _, v := range tgtDistinct {
 			tgtVals = append(tgtVals, v)
 		}
-		tgtRows, err := ta.FetchByRefValues(cfg.target.Schema, cfg.target.PhysTab,
-			cfg.targetRef, c.M2M.DisplayColumns, tgtVals)
+		tgtRows, err := ta.FetchByRefValues(cfg.Target.Schema, cfg.Target.PhysTab,
+			cfg.TargetRef, c.M2M.DisplayColumns, tgtVals)
 		ta.Close()
 		if err != nil {
 			continue

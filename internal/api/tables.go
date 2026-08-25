@@ -637,58 +637,10 @@ func (s *Server) checkActions(def *meta.TableDef) string {
 	return ""
 }
 
-// m2mConfig is the resolved many-to-many configuration of one column.
-type m2mConfig struct {
-	Junction  *meta.TableDef
-	JCols     []meta.ColumnDef
-	SrcCol    *meta.ColumnDef // junction fk column → this table
-	TgtCol    *meta.ColumnDef // junction fk column → target table
-	TargetID  int64           // target def id (from TgtCol.FKTableDefID)
-	TargetRef string          // target ref column (TgtCol.FKRefColumn)
-	SrcRef    string          // this table's column the junction references
-}
-
-// resolveM2M loads and cross-checks one column's m2m payload. Returns nil
-// config + error message on any inconsistency.
-func (s *Server) resolveM2M(def *meta.TableDef, c meta.ColumnDef) (*m2mConfig, string) {
-	jdef, jcols, err := s.store.GetTableDef(c.M2MJunctionDefID)
-	if err != nil {
-		return nil, "column " + c.Name + ": junction definition not found (save it first)"
-	}
-	if jdef.ID == def.ID {
-		return nil, "column " + c.Name + ": junction cannot be this table itself"
-	}
-	var src, tgt *meta.ColumnDef
-	for i, jc := range jcols {
-		if jc.Name == c.M2MJunctionSrcCol && jc.FieldType == "fk" {
-			src = &jcols[i]
-		}
-		if jc.Name == c.M2MJunctionTgtCol && jc.FieldType == "fk" {
-			tgt = &jcols[i]
-		}
-	}
-	if src == nil || tgt == nil {
-		return nil, "column " + c.Name + ": junction source/target columns must be defined fk columns"
-	}
-	if src.Name == tgt.Name {
-		return nil, "column " + c.Name + ": junction source and target columns must differ"
-	}
-	if src.FKTableDefID != def.ID {
-		return nil, "column " + c.Name + ": junction source column must reference this table"
-	}
-	// every required junction column must be one of the two link columns —
-	// otherwise link inserts would violate NOT NULL
-	for _, jc := range jcols {
-		if jc.Required && jc.Name != src.Name && jc.Name != tgt.Name {
-			return nil, "column " + c.Name + ": junction has required column " + jc.Name +
-				" outside the two link columns"
-		}
-	}
-	return &m2mConfig{Junction: jdef, JCols: jcols, SrcCol: src, TgtCol: tgt,
-		TargetID: tgt.FKTableDefID, TargetRef: tgt.FKRefColumn, SrcRef: src.FKRefColumn}, ""
-}
-
 // validateM2M checks one column's m2m payload (mirror of validateFK).
+// Junction/target resolution runs in the engine (engine.ResolveM2M) over
+// the name-based core contract, so the row endpoints and the def-save
+// validation share one set of messages.
 func (s *Server) validateM2M(def *meta.TableDef, cols []meta.ColumnDef, c meta.ColumnDef) string {
 	if c.FieldType != "m2m" {
 		if c.M2MJunctionDefID != 0 || c.M2MJunctionSrcCol != "" || c.M2MJunctionTgtCol != "" || len(c.M2MDisplayColumns) > 0 {
@@ -705,17 +657,22 @@ func (s *Server) validateM2M(def *meta.TableDef, cols []meta.ColumnDef, c meta.C
 	if def.ID == 0 {
 		return "column " + c.Name + ": save this table definition before adding many-to-many relations"
 	}
-	cfg, msg := s.resolveM2M(def, c)
+	res := s.metaRes(def)
+	ct := meta.ToCoreDef(*def, cols, res.idToName)
+	var coreCol defs.Column
+	for _, cc := range ct.Columns {
+		if cc.Name == c.Name {
+			coreCol = cc
+			break
+		}
+	}
+	cfg, msg := engine.ResolveM2M(res, &ct, coreCol)
 	if cfg == nil {
 		return msg
 	}
-	_, tcols, err := s.store.GetTableDef(cfg.TargetID)
-	if err != nil {
-		return "column " + c.Name + ": m2m target definition not found"
-	}
 	names := map[string]bool{}
-	for _, t := range tcols {
-		names[t.Name] = true
+	for _, tc := range cfg.Target.Columns {
+		names[tc.Name] = true
 	}
 	seen := map[string]bool{}
 	for _, d := range c.M2MDisplayColumns {
