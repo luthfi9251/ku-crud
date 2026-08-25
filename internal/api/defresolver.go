@@ -83,6 +83,12 @@ func (s *Server) readService(u CtxUser, def *meta.TableDef, cols []meta.ColumnDe
 		R:      res,
 		FKJoin: s.fkJoin(u, def, cols),
 		CanRead: func(name string) bool {
+			if name == defs.MissingTable {
+				// dangling def id: admins keep implicit access (the old
+				// hasTablePerm short-circuit); everyone else has no stored
+				// grant on a deleted definition
+				return u.IsAdmin
+			}
 			d, ok := res.byName[name]
 			return ok && s.hasTablePerm(u, d.ID, "read")
 		},

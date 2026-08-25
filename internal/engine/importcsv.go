@@ -199,6 +199,9 @@ func (s *ImportService) checkImportFKs(t *defs.Table, mapping map[string]string,
 			continue
 		}
 		target := t
+		if c.FK.Table == defs.MissingTable {
+			continue // drifted target def — historical best-effort skip
+		}
 		if c.FK.Table != "" {
 			resolved, err := s.R.Resolve(c.FK.Table)
 			if err != nil {

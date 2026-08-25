@@ -1,5 +1,10 @@
 package defs
 
+// MissingTable marks an FK/M2M reference whose target definition no
+// longer exists (dangling def id at conversion time). Distinct from the
+// empty string, which means self-reference.
+const MissingTable = "\x00missing"
+
 type SortDir string
 
 const (

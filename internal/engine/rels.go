@@ -20,14 +20,22 @@ type M2MCfg struct {
 	TgtCol    string // junction fk column → target
 	SrcRef    string // this table's column the junction references
 	TargetRef string // target ref column
+	// TargetMissing marks a dangling target definition (the junction's
+	// target fk points at a deleted def): Target is nil then. The old
+	// id-based flow deferred the failure to each endpoint, so callers
+	// reproduce their historical errors.
+	TargetMissing bool
 }
 
 // ResolveM2M loads and cross-checks one m2m column against its junction
 // definition, with the platform's historical error messages. Returns a
 // nil config + message on any inconsistency (an unresolvable target
 // included); callers that prefer silent skips just drop the message.
+// A dangling target def (defs.MissingTable) yields a non-nil config with
+// TargetMissing set and a nil Target, mirroring the old id-based flow
+// which resolved the target lazily per endpoint.
 func ResolveM2M(r Resolver, t *defs.Table, c defs.Column) (*M2MCfg, string) {
-	if c.M2M == nil || c.M2M.JunctionTable == "" {
+	if c.M2M == nil || c.M2M.JunctionTable == "" || c.M2M.JunctionTable == defs.MissingTable {
 		return nil, "column " + c.Name + ": junction definition not found (save it first)"
 	}
 	if c.M2M.JunctionTable == t.Name {
@@ -69,6 +77,13 @@ func ResolveM2M(r Resolver, t *defs.Table, c defs.Column) (*M2MCfg, string) {
 	// a junction fk targeting the junction itself ("") resolves to the
 	// junction, mirroring id-based resolution on the platform side
 	target := junction
+	if tgt.FK.Table == defs.MissingTable {
+		// dangling target def: the old flow kept the config (target def id
+		// unresolved) and let each endpoint fail its own way
+		return &M2MCfg{Junction: junction, Target: nil, TargetMissing: true,
+			SrcCol: src.Name, TgtCol: tgt.Name,
+			SrcRef: src.FK.RefColumn, TargetRef: tgt.FK.RefColumn}, ""
+	}
 	if tgt.FK.Table != "" {
 		target, err = r.Resolve(tgt.FK.Table)
 		if err != nil {
@@ -163,6 +178,16 @@ func (s *ReadService) FKOptions(w http.ResponseWriter, r *http.Request, t *defs.
 		writeErr(w, 403, "FORBIDDEN", "no read access to the related table", nil)
 		return
 	}
+	if fk.FK.Table == defs.MissingTable {
+		// drifted target def: the old flow checked the grant on the dangling
+		// def id first, then the def lookup failed
+		if !s.canRead(defs.MissingTable) {
+			writeErr(w, 403, "FORBIDDEN", "no read access to the related table", nil)
+			return
+		}
+		writeErr(w, 404, "NOT_FOUND", "table def not found", nil)
+		return
+	}
 	target := t
 	if fk.FK.Table != "" {
 		if !s.canRead(fk.FK.Table) {
@@ -199,6 +224,17 @@ func (s *ReadService) M2MOptions(w http.ResponseWriter, r *http.Request, t *defs
 	cfg, msg := ResolveM2M(s.R, t, *col)
 	if cfg == nil {
 		writeErr(w, 400, "VALIDATION", msg, nil)
+		return
+	}
+	if cfg.TargetMissing {
+		// drifted target def: the old flow checked junction+target grants
+		// (the dangling id passes only for admins), then the target def
+		// lookup failed
+		if !s.canRead(cfg.Junction.Name) || !s.canRead(defs.MissingTable) {
+			writeErr(w, 403, "FORBIDDEN", "no read access to the related tables", nil)
+			return
+		}
+		writeErr(w, 404, "NOT_FOUND", "table def not found", nil)
 		return
 	}
 	if !s.canRead(cfg.Junction.Name) || !s.canRead(cfg.Target.Name) {
@@ -256,7 +292,11 @@ func (s *ReadService) M2MLinks(w http.ResponseWriter, r *http.Request, t *defs.T
 		writeJSON(w, 200, map[string]any{"values": []any{}, "rows": []map[string]any{}})
 		return
 	}
-	if !s.canRead(cfg.Junction.Name) || !s.canRead(cfg.Target.Name) {
+	tgtName := defs.MissingTable
+	if !cfg.TargetMissing {
+		tgtName = cfg.Target.Name
+	}
+	if !s.canRead(cfg.Junction.Name) || !s.canRead(tgtName) {
 		writeErr(w, 403, "FORBIDDEN", "no read access to the related tables", nil)
 		return
 	}
@@ -277,6 +317,12 @@ func (s *ReadService) M2MLinks(w http.ResponseWriter, r *http.Request, t *defs.T
 		if p.Ret != nil {
 			values = append(values, p.Ret)
 		}
+	}
+	if cfg.TargetMissing {
+		// drifted target def: the old helper fetched the junction links,
+		// then the target def lookup failed and surfaced as 502
+		writeErr(w, 502, "CONN", "links fetch failed", "not found")
+		return
 	}
 	var rows []map[string]any
 	if len(values) > 0 {

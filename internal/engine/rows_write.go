@@ -328,6 +328,11 @@ func (s *WriteService) checkFKValues(t *defs.Table, names []string, vals []any) 
 		if c.FK == nil {
 			return fmt.Errorf("%s: fk target unavailable", name)
 		}
+		if c.FK.Table == defs.MissingTable {
+			// drifted target def — the old flow's def lookup failed the
+			// same way and surfaced as 502 "reference check failed"
+			return fmt.Errorf("%s: fk target unavailable", name)
+		}
 		target := t
 		if c.FK.Table != "" {
 			resolved, err := s.R.Resolve(c.FK.Table)

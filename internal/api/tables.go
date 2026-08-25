@@ -670,6 +670,9 @@ func (s *Server) validateM2M(def *meta.TableDef, cols []meta.ColumnDef, c meta.C
 	if cfg == nil {
 		return msg
 	}
+	if cfg.TargetMissing {
+		return "column " + c.Name + ": m2m target definition not found"
+	}
 	names := map[string]bool{}
 	for _, tc := range cfg.Target.Columns {
 		names[tc.Name] = true

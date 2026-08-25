@@ -463,6 +463,9 @@ func (s *ReadService) buildRels(t *defs.Table, cols []defs.Column, rows []map[st
 		if c.FieldType != "fk" || c.FK == nil {
 			continue
 		}
+		if c.FK.Table == defs.MissingTable {
+			continue // drifted target def — the old flow skipped these columns
+		}
 		vals := map[string]any{} // String(value) → raw value
 		for _, row := range rows {
 			v, ok := row[c.Name]
@@ -518,8 +521,8 @@ func (s *ReadService) buildM2MRels(t *defs.Table, cols []defs.Column, rows []map
 			continue
 		}
 		cfg, _ := ResolveM2M(s.R, t, c)
-		if cfg == nil {
-			continue // broken config (drifted junction) — render nothing
+		if cfg == nil || cfg.TargetMissing {
+			continue // broken config (drifted junction/target) — render nothing
 		}
 		if !s.canRead(cfg.Junction.Name) || !s.canRead(cfg.Target.Name) {
 			continue

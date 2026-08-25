@@ -314,3 +314,68 @@ func TestM2MExport(t *testing.T) {
 		t.Fatalf("m2m export values = %q", body)
 	}
 }
+
+// TestM2MDanglingTargetErrors pins the pre-extraction behavior when the m2m
+// target definition is deleted after its dependents were saved: the picker
+// never silently resolves to the junction — admins get the old def-lookup
+// 404, grant-less users the old 403.
+func TestM2MDanglingTargetErrors(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	if err := s.store.CreateDatasource(&meta.Datasource{Name: "live", Host: "x", Port: 1,
+		DBName: "x", Username: "x", Password: "x", SSLMode: "disable"}); err != nil {
+		t.Fatal(err)
+	}
+	num := meta.ColumnDef{Name: "id", Label: "ID", FieldType: "number", Editable: false, Required: true,
+		Visible: true, Searchable: true, Sortable: true, Position: 0}
+	if err := s.store.SaveTableDef(&meta.TableDef{DatasourceID: 1, SchemaName: "public",
+		TableName: "customers", Label: "Customers", KeyColumns: []string{"id"}, PageSize: 20},
+		[]meta.ColumnDef{num, {Name: "name", Label: "Name", FieldType: "text", Editable: true,
+			Required: true, Visible: true, Searchable: true, Sortable: true, Position: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.store.SaveTableDef(&meta.TableDef{DatasourceID: 1, SchemaName: "public",
+		TableName: "tags", Label: "Tags", KeyColumns: []string{"id"}, PageSize: 20},
+		[]meta.ColumnDef{num, {Name: "label", Label: "Label", FieldType: "text", Editable: true,
+			Required: true, Visible: true, Searchable: true, Sortable: true, Position: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.store.SaveTableDef(&meta.TableDef{DatasourceID: 1, SchemaName: "public",
+		TableName: "customer_tags", Label: "Customer Tags",
+		KeyColumns: []string{"customer_id", "tag_id"}, PageSize: 20},
+		[]meta.ColumnDef{
+			{Name: "customer_id", Label: "Customer", FieldType: "fk", BaseType: "number",
+				FKTableDefID: 1, FKRefColumn: "id", FKDisplayColumns: []string{"name"},
+				Editable: true, Required: true, Visible: true, Sortable: true, Position: 0},
+			{Name: "tag_id", Label: "Tag", FieldType: "fk", BaseType: "number",
+				FKTableDefID: 2, FKRefColumn: "id", FKDisplayColumns: []string{"label"},
+				Editable: true, Required: true, Visible: true, Sortable: true, Position: 1},
+		}); err != nil {
+		t.Fatal(err)
+	}
+	custTok, tagTok := tdTok(s, 1), tdTok(s, 2)
+	addM2MColumn(t, s, c, custTok, tagTok)
+
+	// delete the target definition through the api — nothing guards the
+	// inbound junction fk, exactly the reachable drift sequence
+	if w := do(s, "DELETE", "/api/tables/"+tagTok, "", c); w.Code != 200 {
+		t.Fatalf("delete target def = %d %s", w.Code, w.Body)
+	}
+
+	// admin: old perm passed on the dangling id, then def lookup failed → 404
+	w := do(s, "GET", "/api/tables/"+custTok+"/m2moptions/m2m_tags", "", c)
+	if w.Code != 404 || !strings.Contains(w.Body.String(), "table def not found") {
+		t.Fatalf("admin m2moptions = %d %s", w.Code, w.Body)
+	}
+
+	// reader with grants on source + junction only: old GrantsFor on the
+	// dangling id found nothing → 403
+	reader := loginAs(t, s, "m2mdrift", &meta.Role{Name: "M2MDrift"}, []meta.TableGrant{
+		{TableDefID: 1, CanRead: true},
+		{TableDefID: 3, CanRead: true},
+	})
+	w = do(s, "GET", "/api/tables/"+custTok+"/m2moptions/m2m_tags", "", reader)
+	if w.Code != 403 || !strings.Contains(w.Body.String(), "no read access to the related tables") {
+		t.Fatalf("reader m2moptions = %d %s", w.Code, w.Body)
+	}
+}

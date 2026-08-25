@@ -82,7 +82,10 @@ func resolveSelfRefs(defID int64, cols []ColumnDef) {
 }
 
 // ToCoreDef converts a persisted definition into the ID-free core contract.
-// FK and M2M links become definition names via idToName; a self-FK targets "".
+// FK and M2M links become definition names via idToName; a self-FK targets
+// "". A non-self def id absent from idToName (its definition was deleted)
+// maps to defs.MissingTable so dangling refs stay distinguishable from
+// self-references.
 func ToCoreDef(md TableDef, cols []ColumnDef, idToName map[int64]string) defs.Table {
 	t := defs.Table{
 		Name:           md.TableName,
@@ -124,12 +127,19 @@ func ToCoreDef(md TableDef, cols []ColumnDef, idToName map[int64]string) defs.Ta
 			fk := &defs.FK{RefColumn: c.FKRefColumn, DisplayColumns: c.FKDisplayColumns}
 			if c.FKTableDefID != md.ID {
 				fk.Table = idToName[c.FKTableDefID]
+				if fk.Table == "" {
+					fk.Table = defs.MissingTable
+				}
 			}
 			dc.FK = fk
 		}
 		if c.FieldType == "m2m" && c.M2MJunctionDefID > 0 {
+			junction := idToName[c.M2MJunctionDefID]
+			if junction == "" {
+				junction = defs.MissingTable
+			}
 			dc.M2M = &defs.M2M{
-				JunctionTable:  idToName[c.M2MJunctionDefID],
+				JunctionTable:  junction,
 				SrcCol:         c.M2MJunctionSrcCol,
 				TgtCol:         c.M2MJunctionTgtCol,
 				DisplayColumns: c.M2MDisplayColumns,
