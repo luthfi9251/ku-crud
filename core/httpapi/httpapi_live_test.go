@@ -15,6 +15,7 @@ import (
 
 	kucrud "github.com/luthfi9251/kucrud-core"
 	"github.com/luthfi9251/kucrud-core/defs"
+	"github.com/luthfi9251/kucrud-core/ds"
 	"github.com/luthfi9251/kucrud-core/engine"
 	"github.com/luthfi9251/kucrud-core/hooks"
 )
@@ -408,6 +409,164 @@ func runLiveSuite(t *testing.T, d liveDSN) {
 
 func TestResourceLivePG(t *testing.T)    { runLiveSuite(t, livePG(t)) }
 func TestResourceLiveMySQL(t *testing.T) { runLiveSuite(t, liveMySQL(t)) }
+
+const t9Markers = "t9_markers"
+
+func createT9Markers(t *testing.T, db *sql.DB, driver string) {
+	t.Helper()
+	var ddl []string
+	if driver == "postgres" {
+		ddl = []string{fmt.Sprintf(`DROP TABLE IF EXISTS %s`, t9Markers),
+			fmt.Sprintf(`CREATE TABLE %s(
+			id BIGSERIAL PRIMARY KEY,
+			note TEXT NOT NULL,
+			before_actor TEXT,
+			after_actor TEXT)`, t9Markers)}
+	} else {
+		ddl = []string{fmt.Sprintf(`DROP TABLE IF EXISTS %s`, t9Markers),
+			fmt.Sprintf(`CREATE TABLE %s(
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			note VARCHAR(255) NOT NULL,
+			before_actor VARCHAR(255),
+			after_actor VARCHAR(255))`, t9Markers)}
+	}
+	for _, q := range ddl {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("ddl: %v", err)
+		}
+	}
+	t.Cleanup(func() { db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", t9Markers)) })
+}
+
+// runAfterHookSuite covers the adapter paths the main suite misses: the
+// synchronous post-commit RunAfter loop (erroring after-hook must not
+// fail the request), the def-name HookContext.Open resolver through the
+// App registry, and actor threading from host middleware into both the
+// before and the after hook.
+func runAfterHookSuite(t *testing.T, d liveDSN) {
+	db := openSQL(t, d)
+	createT9(t, db, d.driver)
+	createT9Markers(t, db, d.driver)
+
+	var beforeActor, afterActor, sawName string
+	sawRow := false
+	reg := hooks.NewRegistry()
+	if err := reg.Register("t9audit", func(ctx context.Context, hc *hooks.HookContext,
+		ev hooks.Event, row hooks.RowPayload, cfg json.RawMessage) (hooks.RowPayload, error) {
+		switch ev {
+		case hooks.BeforeCreate:
+			beforeActor = hc.Actor
+		case hooks.AfterCreate:
+			afterActor = hc.Actor
+			a, err := hc.Open("widgets")
+			if err != nil {
+				return row, err
+			}
+			defer a.Close()
+			rows, err := a.ListRows(ds.ListParams{Schema: hc.Table.Schema,
+				Table: hc.Table.PhysTab, Columns: []string{"id", "name"},
+				SortCol: "id", SortDir: "ASC", Limit: 1,
+				Filters: []ds.ColumnFilter{{Column: "name", Op: "eq",
+					Values: []any{row.Values["name"]}}}})
+			if err != nil {
+				return row, err
+			}
+			if len(rows) == 1 {
+				sawRow = true
+				sawName, _ = rows[0]["name"].(string)
+			}
+			m, err := hc.Open("markers")
+			if err != nil {
+				return row, err
+			}
+			defer m.Close()
+			note, _ := row.Values["name"].(string)
+			return row, m.Insert(hc.Table.Schema, t9Markers,
+				[]string{"note", "before_actor", "after_actor"},
+				[]any{"after:" + note, beforeActor, hc.Actor})
+		}
+		return row, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Register("t9boom", func(ctx context.Context, hc *hooks.HookContext,
+		ev hooks.Event, row hooks.RowPayload, cfg json.RawMessage) (hooks.RowPayload, error) {
+		return row, errors.New("after-hook boom")
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	app, err := kucrud.New(kucrud.Conn{Driver: d.driver, Raw: d.raw},
+		kucrud.WithHookRegistry(reg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { app.Close() })
+	res, err := app.Resource("widgets", kucrud.Def{Table: t9Table,
+		Columns: []kucrud.Override{{Name: "name", Required: true}},
+		Hooks: map[kucrud.Event][]string{
+			kucrud.BeforeCreate: {"t9audit"},
+			kucrud.AfterCreate:  {"t9audit", "t9boom"},
+		}})
+	if err != nil {
+		t.Fatalf("Resource: %v", err)
+	}
+	app.CRUD("/api/data/markers", kucrud.Def{Table: t9Markers})
+
+	host := http.NewServeMux()
+	host.Handle("/api/v1/widgets/", res)
+	host.Handle("/api/", app)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host.ServeHTTP(w, r.WithContext(hooks.WithActor(r.Context(), "e2e-actor")))
+	}))
+	t.Cleanup(srv.Close)
+
+	// RunAfter must swallow the erroring after-hook: committed insert
+	// still answers 200 ok.
+	resp, err := srv.Client().Post(srv.URL+"/api/v1/widgets/rows",
+		"application/json", strings.NewReader(`{"name":"gamma"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || !strings.Contains(string(b), `"ok":true`) {
+		t.Fatalf("insert with failing after-hook: %d %s", resp.StatusCode, b)
+	}
+
+	if !sawRow || sawName != "gamma" {
+		t.Fatalf("after-hook Open(self) row verify: sawRow=%v sawName=%q", sawRow, sawName)
+	}
+	if beforeActor != "e2e-actor" || afterActor != "e2e-actor" {
+		t.Fatalf("actor threading: before=%q after=%q", beforeActor, afterActor)
+	}
+
+	// The marker the after-hook wrote via Open("markers") is readable
+	// through the app.
+	mresp, err := srv.Client().Get(srv.URL + "/api/data/markers/rows")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mb, _ := io.ReadAll(mresp.Body)
+	mresp.Body.Close()
+	if mresp.StatusCode != 200 {
+		t.Fatalf("markers list: %d %s", mresp.StatusCode, mb)
+	}
+	var list struct {
+		Total float64          `json:"total"`
+		Rows  []map[string]any `json:"rows"`
+	}
+	if err := json.Unmarshal(mb, &list); err != nil || list.Total != 1 || len(list.Rows) != 1 {
+		t.Fatalf("markers list: %s err %v", mb, err)
+	}
+	if mr := list.Rows[0]; mr["note"] != "after:gamma" ||
+		mr["before_actor"] != "e2e-actor" || mr["after_actor"] != "e2e-actor" {
+		t.Fatalf("marker row: %v", mr)
+	}
+}
+
+func TestResourceLiveAfterHookPG(t *testing.T)    { runAfterHookSuite(t, livePG(t)) }
+func TestResourceLiveAfterHookMySQL(t *testing.T) { runAfterHookSuite(t, liveMySQL(t)) }
 
 func min(a, b int) int {
 	if a < b {
