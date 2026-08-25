@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"ku-crud/internal/engine"
 	"ku-crud/internal/meta"
 )
 
@@ -182,18 +183,18 @@ func TestM2MEndToEnd(t *testing.T) {
 	}
 
 	// 3. links endpoint for row jo (key 1)
-	w = do(s, "GET", "/api/tables/"+custTok+"/rows/"+encodeRowKey([]string{"1"})+"/m2m/m2m_tags", "", c)
+	w = do(s, "GET", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"})+"/m2m/m2m_tags", "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"values":[1,2]`) {
 		t.Fatalf("links = %d %s", w.Code, w.Body)
 	}
 
 	// 4. update: jo gets [vip, lead] → beta removed, lead added
-	w = do(s, "PUT", "/api/tables/"+custTok+"/rows/"+encodeRowKey([]string{"1"}),
+	w = do(s, "PUT", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}),
 		`{"name":"jo","m2m_tags":[1,3]}`, c)
 	if w.Code != 200 {
 		t.Fatalf("update with m2m = %d %s", w.Code, w.Body)
 	}
-	w = do(s, "GET", "/api/tables/"+custTok+"/rows/"+encodeRowKey([]string{"1"})+"/m2m/m2m_tags", "", c)
+	w = do(s, "GET", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"})+"/m2m/m2m_tags", "", c)
 	if !strings.Contains(w.Body.String(), `"values":[1,3]`) {
 		t.Fatalf("links after update = %s", w.Body)
 	}
@@ -203,7 +204,7 @@ func TestM2MEndToEnd(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("create with m2m = %d %s", w.Code, w.Body)
 	}
-	w = do(s, "GET", "/api/tables/"+custTok+"/rows/"+encodeRowKey([]string{"3"})+"/m2m/m2m_tags", "", c)
+	w = do(s, "GET", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"3"})+"/m2m/m2m_tags", "", c)
 	if !strings.Contains(w.Body.String(), `"values":[2,3]`) {
 		t.Fatalf("links after create = %s", w.Body)
 	}
@@ -215,13 +216,13 @@ func TestM2MEndToEnd(t *testing.T) {
 	}
 
 	// 7. delete protection: jo has links → delete blocked
-	w = do(s, "DELETE", "/api/tables/"+custTok+"/rows/"+encodeRowKey([]string{"1"}), "", c)
+	w = do(s, "DELETE", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c)
 	if w.Code != 409 || !strings.Contains(w.Body.String(), "Customer Tags") {
 		t.Fatalf("delete protection = %d %s", w.Code, w.Body)
 	}
 
 	// 8. bad selection shape → 400
-	w = do(s, "PUT", "/api/tables/"+custTok+"/rows/"+encodeRowKey([]string{"1"}),
+	w = do(s, "PUT", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}),
 		`{"name":"jo","m2m_tags":"vip"}`, c)
 	if w.Code != 400 {
 		t.Fatalf("bad shape = %d %s", w.Code, w.Body)
@@ -288,7 +289,7 @@ func TestM2MJunctionGrants(t *testing.T) {
 	if w.Code != 200 || strings.Contains(w.Body.String(), `"m2mRels":{"m2m_tags"`) {
 		t.Fatalf("m2mRels without junction read = %d %s", w.Code, w.Body)
 	}
-	w = do(s, "PUT", "/api/tables/"+custTok+"/rows/"+encodeRowKey([]string{"1"}),
+	w = do(s, "PUT", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}),
 		`{"name":"jo","m2m_tags":[1]}`, reader)
 	if w.Code != 403 || !strings.Contains(w.Body.String(), "Customer Tags") {
 		t.Fatalf("junction grant = %d %s", w.Code, w.Body)

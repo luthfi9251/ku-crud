@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"ku-crud/internal/ds"
+	"ku-crud/internal/engine"
 	"ku-crud/internal/meta"
 )
 
@@ -280,7 +281,7 @@ func (s *Server) handleM2MLinks(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "VALIDATION", msg, nil)
 		return
 	}
-	pkVals, err := rowKeyVals(def, cols, r.PathValue("pk"))
+	pkVals, err := engine.DecodeKey(toCore(def, cols), r.PathValue("pk"))
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return

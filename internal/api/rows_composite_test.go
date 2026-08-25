@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"ku-crud/internal/engine"
 	"ku-crud/internal/meta"
 )
 
@@ -56,7 +57,7 @@ func seedComposite(t *testing.T, s *Server) {
 	}
 }
 
-func key2(a, b string) string { return encodeRowKey([]string{a, b}) }
+func key2(a, b string) string { return engine.EncodeRowKey([]string{a, b}) }
 
 func TestCompositeKeyCRUD(t *testing.T) {
 	s := newTestServer(t)
@@ -77,7 +78,7 @@ func TestCompositeKeyCRUD(t *testing.T) {
 	}
 
 	// wrong arity → 400
-	if w = do(s, "GET", "/api/tables/"+tok+"/rows/"+encodeRowKey([]string{"1"}), "", c); w.Code != 400 {
+	if w = do(s, "GET", "/api/tables/"+tok+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c); w.Code != 400 {
 		t.Fatalf("single-value key = %d", w.Code)
 	}
 	// garbage key → 400

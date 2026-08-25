@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"ku-crud/internal/engine"
 	"ku-crud/internal/hooks"
 )
 
@@ -116,10 +117,10 @@ func TestBulkDeleteHookReject(t *testing.T) {
 	s := newTestServerHooks(t, noBobReg(&runs))
 	c := login(s)
 	seedLive(t, s) // rows: 1=jo, 2=joe, 3=ana
-	do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"2"}), `{"name":"bob"}`, c)
+	do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"2"}), `{"name":"bob"}`, c)
 	setHooks(t, s, 1, `{"beforeDelete":[{"hook":"NoBob","order":1}],"afterDelete":[{"hook":"NoteAfter","order":1}]}`)
 
-	keys := encodeRowKey([]string{"2"}) + `","` + encodeRowKey([]string{"3"})
+	keys := engine.EncodeRowKey([]string{"2"}) + `","` + engine.EncodeRowKey([]string{"3"})
 	w := do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows/bulk-delete", `{"keys":["`+keys+`"]}`, c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"deleted":1`) || !strings.Contains(w.Body.String(), `"failed":1`) {
 		t.Fatalf("bulk = %d %s", w.Code, w.Body)
@@ -149,11 +150,11 @@ func TestM2MJunctionHookReject(t *testing.T) {
 	c := login(s)
 	custTok, _ := seedM2M(t, s) // junction def 3; jo(1) has tags 1,2
 	addM2MColumn(t, s, c, custTok, tdTok(s, 2))
-	m2mURL := "/api/tables/" + custTok + "/rows/" + encodeRowKey([]string{"1"}) + "/m2m/m2m_tags"
+	m2mURL := "/api/tables/" + custTok + "/rows/" + engine.EncodeRowKey([]string{"1"}) + "/m2m/m2m_tags"
 
 	// add tag 3 → junction beforeCreate rejects the link insert
 	setHooks(t, s, 3, `{"beforeCreate":[{"hook":"NoBob","order":1}]}`)
-	w := do(s, "PUT", "/api/tables/"+custTok+"/rows/"+encodeRowKey([]string{"1"}),
+	w := do(s, "PUT", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}),
 		`{"name":"jo","m2m_tags":[1,2,3]}`, c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "HOOK_REJECTED") {
 		t.Fatalf("m2m add reject = %d %s", w.Code, w.Body)
@@ -164,7 +165,7 @@ func TestM2MJunctionHookReject(t *testing.T) {
 
 	// remove tag 2 → junction beforeDelete rejects the link delete
 	setHooks(t, s, 3, `{"beforeDelete":[{"hook":"NoBob","order":1}]}`)
-	w = do(s, "PUT", "/api/tables/"+custTok+"/rows/"+encodeRowKey([]string{"1"}),
+	w = do(s, "PUT", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}),
 		`{"name":"jo","m2m_tags":[1]}`, c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "HOOK_REJECTED") {
 		t.Fatalf("m2m remove reject = %d %s", w.Code, w.Body)

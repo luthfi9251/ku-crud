@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"ku-crud/internal/engine"
 	"ku-crud/internal/hooks"
 )
 
@@ -43,7 +44,7 @@ func (s *Server) handleRowAction(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "FORBIDDEN", "no "+act.Grant+" access to this table", nil)
 		return
 	}
-	keyVals, err := rowKeyVals(def, cols, r.PathValue("pk"))
+	keyVals, err := engine.DecodeKey(toCore(def, cols), r.PathValue("pk"))
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return
@@ -71,7 +72,8 @@ func (s *Server) handleRowAction(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status = "error"
 	}
-	s.auditBestEffort(u, def.ID, "ACTION", rowKeyString(def, row), nil, map[string]any{
+	rowPK, _ := engine.EncodeKey(toCore(def, cols), row)
+	s.auditBestEffort(u, def.ID, "ACTION", rowPK, nil, map[string]any{
 		"actionId": act.ID, "label": act.Label, "message": msg, "status": status,
 	})
 	if err != nil {

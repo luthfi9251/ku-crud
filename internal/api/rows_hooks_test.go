@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"ku-crud/internal/engine"
 	"ku-crud/internal/hooks"
 )
 
@@ -117,7 +118,7 @@ func TestBeforeDeleteRejection(t *testing.T) {
 	// create with an explicit key so the row key is known (PKs are insertable)
 	do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"id":50,"name":"forbidden"}`, c)
 	setHooks(t, s, 1, `{"beforeDelete":[{"hook":"RejectNames","order":1}]}`)
-	w := do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"50"}), "", c)
+	w := do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"50"}), "", c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "HOOK_REJECTED") {
 		t.Fatalf("delete reject = %d %s", w.Code, w.Body)
 	}
@@ -136,7 +137,7 @@ func TestAfterDeleteEnqueues(t *testing.T) {
 	c := login(s)
 	do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"id":51,"name":"gone"}`, c)
 	setHooks(t, s, 1, `{"afterDelete":[{"hook":"NoteAfter","order":1}]}`)
-	w := do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"51"}), "", c)
+	w := do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"51"}), "", c)
 	if w.Code != 200 {
 		t.Fatalf("delete = %d %s", w.Code, w.Body)
 	}
@@ -159,7 +160,7 @@ func TestBeforeUpdateRejectAndAfterEnqueue(t *testing.T) {
 
 	// beforeUpdate rejection: row keeps its old name
 	setHooks(t, s, 1, `{"beforeUpdate":[{"hook":"RejectNames","order":1}]}`)
-	w := do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"60"}), `{"name":"forbidden"}`, c)
+	w := do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"60"}), `{"name":"forbidden"}`, c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "HOOK_REJECTED") {
 		t.Fatalf("update reject = %d %s", w.Code, w.Body)
 	}
@@ -169,7 +170,7 @@ func TestBeforeUpdateRejectAndAfterEnqueue(t *testing.T) {
 
 	// afterUpdate enqueue: valid PUT snapshots old + merged new values
 	setHooks(t, s, 1, `{"afterUpdate":[{"hook":"NoteAfter","order":1}]}`)
-	w = do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"60"}), `{"name":"mia2"}`, c)
+	w = do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"60"}), `{"name":"mia2"}`, c)
 	if w.Code != 200 {
 		t.Fatalf("update = %d %s", w.Code, w.Body)
 	}

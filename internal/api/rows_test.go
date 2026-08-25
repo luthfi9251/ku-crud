@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"ku-crud/internal/engine"
 	"ku-crud/internal/meta"
 )
 
@@ -102,11 +103,11 @@ func TestRowListAndGet(t *testing.T) {
 		t.Fatalf("page2 = %s", w.Body)
 	}
 
-	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"2"}), "", c)
+	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"2"}), "", c)
 	if !strings.Contains(w.Body.String(), `"name":"joe"`) {
 		t.Fatalf("get row = %s", w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"999"}), "", c); w.Code != 404 {
+	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"999"}), "", c); w.Code != 404 {
 		t.Fatalf("missing row = %d", w.Code)
 	}
 }

@@ -837,15 +837,6 @@ func (s *Server) writeDefErr(w http.ResponseWriter, err error) {
 	writeErr(w, 500, "INTERNAL", "server error", nil)
 }
 
-func fieldTypeOf(cols []meta.ColumnDef, name string) string {
-	for _, c := range cols {
-		if c.Name == name {
-			return c.FieldType
-		}
-	}
-	return "text"
-}
-
 func (s *Server) handleTableGet(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
 	def, cols, err := s.tableCtx(r)

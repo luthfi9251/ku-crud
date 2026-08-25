@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"ku-crud/internal/engine"
 	"ku-crud/internal/meta"
 )
 
@@ -87,7 +88,7 @@ func TestRowListRels(t *testing.T) {
 	}
 
 	// single row get enriches too
-	w = do(s, "GET", "/api/tables/"+tdTok(s, 2)+"/rows/"+encodeRowKey([]string{"1"}), "", c)
+	w = do(s, "GET", "/api/tables/"+tdTok(s, 2)+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c)
 	if !strings.Contains(w.Body.String(), `"rels":{"customer_id"`) ||
 		!strings.Contains(w.Body.String(), `"name":"jo"`) {
 		t.Fatalf("get rels: %s", w.Body)
@@ -171,7 +172,7 @@ func TestFKWriteAndDeleteProtection(t *testing.T) {
 	}
 
 	// update to dangling fk → 400
-	w = do(s, "PUT", "/api/tables/"+tdTok(s, 2)+"/rows/"+encodeRowKey([]string{"1"}),
+	w = do(s, "PUT", "/api/tables/"+tdTok(s, 2)+"/rows/"+engine.EncodeRowKey([]string{"1"}),
 		`{"customer_id":999}`, c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "referenced row not found") {
 		t.Fatalf("dangling fk update = %d %s", w.Code, w.Body)
@@ -190,7 +191,7 @@ func TestFKWriteAndDeleteProtection(t *testing.T) {
 	}
 
 	// delete referenced customer (id 1, referenced by order 1) → 409 with detail
-	w = do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"1"}), "", c)
+	w = do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c)
 	if w.Code != 409 || !strings.Contains(w.Body.String(), "Orders") ||
 		!strings.Contains(w.Body.String(), "customer_id") {
 		t.Fatalf("delete blocked = %d %s", w.Code, w.Body)
@@ -198,10 +199,10 @@ func TestFKWriteAndDeleteProtection(t *testing.T) {
 
 	// delete unreferenced customer (id 3 — order 'o9' references it after create above;
 	// so delete the order first, then the customer succeeds)
-	if w = do(s, "DELETE", "/api/tables/"+tdTok(s, 2)+"/rows/"+encodeRowKey([]string{"4"}), "", c); w.Code != 200 {
+	if w = do(s, "DELETE", "/api/tables/"+tdTok(s, 2)+"/rows/"+engine.EncodeRowKey([]string{"4"}), "", c); w.Code != 200 {
 		t.Fatalf("delete order o9 = %d %s", w.Code, w.Body)
 	}
-	if w = do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"3"}), "", c); w.Code != 200 {
+	if w = do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"3"}), "", c); w.Code != 200 {
 		t.Fatalf("delete unreferenced customer = %d %s", w.Code, w.Body)
 	}
 
@@ -271,17 +272,17 @@ func TestDeleteProtectionMultiRow(t *testing.T) {
 
 	// delete via the NON-UNIQUE key grp='g1' matches r1 AND r2; r2 (a later
 	// match, metadata-only relation) is referenced by item_refs → 409
-	w := do(s, "DELETE", "/api/tables/"+tdTok(s, itemsID)+"/rows/"+encodeRowKey([]string{"g1"}), "", c)
+	w := do(s, "DELETE", "/api/tables/"+tdTok(s, itemsID)+"/rows/"+engine.EncodeRowKey([]string{"g1"}), "", c)
 	if w.Code != 409 || !strings.Contains(w.Body.String(), "ItemRefs") ||
 		!strings.Contains(w.Body.String(), "note_ref") {
 		t.Fatalf("multi-row delete blocked = %d %s", w.Code, w.Body)
 	}
 
 	// remove the referencing child row, retry → both g1 rows deleted
-	if w = do(s, "DELETE", "/api/tables/"+tdTok(s, refsID)+"/rows/"+encodeRowKey([]string{"1"}), "", c); w.Code != 200 {
+	if w = do(s, "DELETE", "/api/tables/"+tdTok(s, refsID)+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c); w.Code != 200 {
 		t.Fatalf("delete child = %d %s", w.Code, w.Body)
 	}
-	w = do(s, "DELETE", "/api/tables/"+tdTok(s, itemsID)+"/rows/"+encodeRowKey([]string{"g1"}), "", c)
+	w = do(s, "DELETE", "/api/tables/"+tdTok(s, itemsID)+"/rows/"+engine.EncodeRowKey([]string{"g1"}), "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"affected":2`) {
 		t.Fatalf("retry delete = %d %s", w.Code, w.Body)
 	}

@@ -1,14 +1,14 @@
-package api
+package engine
 
 import (
 	"reflect"
 	"testing"
 
-	"ku-crud/internal/meta"
+	"ku-crud/internal/defs"
 )
 
 func TestRowKeyCodec(t *testing.T) {
-	enc := encodeRowKey([]string{"3"})
+	enc := EncodeRowKey([]string{"3"})
 	if enc != "WyIzIl0" {
 		t.Fatalf("single key: %q", enc)
 	}
@@ -17,7 +17,7 @@ func TestRowKeyCodec(t *testing.T) {
 		t.Fatalf("decode: %v %v", got, err)
 	}
 
-	enc = encodeRowKey([]string{"1", "a b/c"})
+	enc = EncodeRowKey([]string{"1", "a b/c"})
 	got, err = decodeRowKey(enc)
 	if err != nil || !reflect.DeepEqual(got, []string{"1", "a b/c"}) {
 		t.Fatalf("composite: %v %v", got, err)
@@ -31,12 +31,11 @@ func TestRowKeyCodec(t *testing.T) {
 }
 
 func TestRowKeyVals(t *testing.T) {
-	def := &meta.TableDef{KeyColumns: []string{"id", "code"}}
-	cols := []meta.ColumnDef{
+	tbl := &defs.Table{Keys: []string{"id", "code"}, Columns: []defs.Column{
 		{Name: "id", Label: "id", FieldType: "number"},
 		{Name: "code", Label: "code", FieldType: "text"},
-	}
-	vals, err := rowKeyVals(def, cols, encodeRowKey([]string{"42", "x"}))
+	}}
+	vals, err := DecodeKey(tbl, EncodeRowKey([]string{"42", "x"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,15 +43,16 @@ func TestRowKeyVals(t *testing.T) {
 		t.Fatalf("vals=%#v", vals)
 	}
 	// wrong arity rejected
-	if _, err := rowKeyVals(def, cols, encodeRowKey([]string{"42"})); err == nil {
+	if _, err := DecodeKey(tbl, EncodeRowKey([]string{"42"})); err == nil {
 		t.Fatal("wrong arity accepted")
 	}
 }
 
 func TestRowKeyString(t *testing.T) {
-	def := &meta.TableDef{KeyColumns: []string{"a", "b"}}
+	tbl := &defs.Table{Keys: []string{"a", "b"}}
 	row := map[string]any{"a": "1", "b": "x", "c": "other"}
-	if got := rowKeyString(def, row); got != `["1","x"]` {
-		t.Fatalf("got %q", got)
+	got, err := EncodeKey(tbl, row)
+	if err != nil || got != `["1","x"]` {
+		t.Fatalf("got %q %v", got, err)
 	}
 }

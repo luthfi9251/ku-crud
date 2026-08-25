@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"strconv"
 
+	"ku-crud/internal/defs"
 	"ku-crud/internal/ds"
+	"ku-crud/internal/engine"
 	"ku-crud/internal/hooks"
 	"ku-crud/internal/meta"
 )
@@ -35,6 +37,14 @@ func realCols(cols []meta.ColumnDef) []meta.ColumnDef {
 }
 
 func realColNames(cols []meta.ColumnDef) []string { return colNames(realCols(cols)) }
+
+// toCore converts a persisted definition to the ID-free core contract for
+// the pure engine helpers. FK/M2M name resolution needs an id→name map,
+// which the helpers used here don't require (joins resolve in api).
+func toCore(def *meta.TableDef, cols []meta.ColumnDef) *defs.Table {
+	t := meta.ToCoreDef(*def, cols, nil)
+	return &t
+}
 
 // resolveSort picks the effective sort for a list query: an explicit sortable
 // column from the request wins; otherwise the definition's default sort when
@@ -178,7 +188,7 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 	defer a.Close()
 
 	names := realColNames(cols)
-	keyVals, err := rowKeyVals(def, cols, r.PathValue("pk"))
+	keyVals, err := engine.DecodeKey(toCore(def, cols), r.PathValue("pk"))
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return
@@ -434,12 +444,13 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "INTERNAL", "relation check failed", nil)
 		return
 	}
+	ct := toCore(def, cols)
 	names, vals, err := editablePayload(body, cols, def.KeyColumns, false)
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", err.Error(), nil)
 		return
 	}
-	pkVals, err := rowKeyVals(def, cols, r.PathValue("pk"))
+	pkVals, err := engine.DecodeKey(ct, r.PathValue("pk"))
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return
@@ -504,7 +515,8 @@ func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
 			merged[k] = v
 		}
 		mergedLast = merged
-		s.auditBestEffort(u, def.ID, "UPDATE", rowKeyString(def, old), old, merged)
+		rowPK, _ := engine.EncodeKey(ct, old)
+		s.auditBestEffort(u, def.ID, "UPDATE", rowPK, old, merged)
 	}
 	s.enqueueAfter(u, def, hooks.AfterUpdate, oldRows[0], mergedLast)
 	if err := s.applyM2MPayload(u, def, cols, body, oldRows[0], selections); err != nil {
@@ -533,7 +545,8 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "FORBIDDEN", "no delete access to this table", nil)
 		return
 	}
-	pkVals, err := rowKeyVals(def, cols, r.PathValue("pk"))
+	ct := toCore(def, cols)
+	pkVals, err := engine.DecodeKey(ct, r.PathValue("pk"))
 	if err != nil {
 		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
 		return
@@ -586,7 +599,8 @@ func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, old := range oldRows {
-		s.auditBestEffort(u, def.ID, "DELETE", rowKeyString(def, old), old, nil)
+		rowPK, _ := engine.EncodeKey(ct, old)
+		s.auditBestEffort(u, def.ID, "DELETE", rowPK, old, nil)
 	}
 	for _, old := range oldRows {
 		s.enqueueAfter(u, def, hooks.AfterDelete, old, nil)

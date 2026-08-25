@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"ku-crud/internal/engine"
 	"ku-crud/internal/meta"
 )
 
@@ -134,8 +135,8 @@ func TestTableGrantMatrix(t *testing.T) {
 	// write without grant → 403 (fires before PG connection)
 	for _, p := range []struct{ method, path string }{
 		{"POST", "/api/tables/" + tdTok(s, 1) + "/rows"},
-		{"PUT", "/api/tables/" + tdTok(s, 1) + "/rows/" + encodeRowKey([]string{"1"})},
-		{"DELETE", "/api/tables/" + tdTok(s, 1) + "/rows/" + encodeRowKey([]string{"1"})},
+		{"PUT", "/api/tables/" + tdTok(s, 1) + "/rows/" + engine.EncodeRowKey([]string{"1"})},
+		{"DELETE", "/api/tables/" + tdTok(s, 1) + "/rows/" + engine.EncodeRowKey([]string{"1"})},
 	} {
 		w := do(s, p.method, p.path, "", reader)
 		if w.Code != 403 {

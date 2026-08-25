@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"ku-crud/internal/engine"
 	"ku-crud/internal/meta"
 )
 
@@ -45,24 +46,24 @@ func TestRowWriteAndAudit(t *testing.T) {
 		t.Fatalf("missing required with key = %d %s", w.Code, w.Body)
 	}
 	// non-editable column (id) rejected on UPDATE
-	if w = do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"1"}), `{"id":99}`, c); w.Code != 400 {
+	if w = do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"1"}), `{"id":99}`, c); w.Code != 400 {
 		t.Fatalf("non-editable update = %d %s", w.Code, w.Body)
 	}
 
 	// UPDATE row 1
-	w = do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"1"}), `{"name":"jo!"}`, c)
+	w = do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"1"}), `{"name":"jo!"}`, c)
 	if w.Code != 200 {
 		t.Fatalf("update = %d %s", w.Code, w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"1"}), "", c); !strings.Contains(w.Body.String(), `"name":"jo!"`) {
+	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c); !strings.Contains(w.Body.String(), `"name":"jo!"`) {
 		t.Fatalf("row after update = %s", w.Body)
 	}
 
 	// DELETE row 4 (nia)
-	if w = do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"4"}), "", c); w.Code != 200 {
+	if w = do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"4"}), "", c); w.Code != 200 {
 		t.Fatalf("delete = %d %s", w.Code, w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"4"}), "", c); w.Code != 404 {
+	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"4"}), "", c); w.Code != 404 {
 		t.Fatalf("deleted row still there = %d", w.Code)
 	}
 
@@ -174,7 +175,7 @@ func TestUUIDJSONColumns(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("create = %d %s", w.Code, w.Body)
 	}
-	key := encodeRowKey([]string{"123e4567-e89b-12d3-a456-426614174009"})
+	key := engine.EncodeRowKey([]string{"123e4567-e89b-12d3-a456-426614174009"})
 	w = do(s, "GET", "/api/tables/"+tok+"/rows/"+key, "", c)
 	if w.Code != 200 {
 		t.Fatalf("get after create = %d %s", w.Code, w.Body)

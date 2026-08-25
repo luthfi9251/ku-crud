@@ -9,6 +9,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"ku-crud/internal/engine"
 	"ku-crud/internal/meta"
 )
 
@@ -126,7 +127,7 @@ func TestCrossDriverRelations(t *testing.T) {
 	}
 
 	// delete referenced PG customer via API → 409 (metadata protection, cross-driver)
-	w = do(s, "DELETE", "/api/tables/"+custTok+"/rows/"+encodeRowKey([]string{"1"}), "", c)
+	w = do(s, "DELETE", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c)
 	if w.Code != 409 || !strings.Contains(w.Body.String(), "Orders") {
 		t.Fatalf("cross delete protection = %d %s", w.Code, w.Body)
 	}
@@ -185,7 +186,7 @@ func TestMySQLFKViolation409(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	w := do(s, "DELETE", "/api/tables/"+tdTok(s, def.ID)+"/rows/"+encodeRowKey([]string{"1"}), "", c)
+	w := do(s, "DELETE", "/api/tables/"+tdTok(s, def.ID)+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c)
 	if w.Code != 409 {
 		t.Fatalf("mysql fk violation = %d %s", w.Code, w.Body)
 	}

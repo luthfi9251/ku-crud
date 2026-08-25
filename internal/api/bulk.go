@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"ku-crud/internal/engine"
 	"ku-crud/internal/hooks"
 )
 
@@ -63,12 +64,13 @@ func (s *Server) handleRowBulkDelete(w http.ResponseWriter, r *http.Request) {
 	var failures []bulkFailure
 	var deletedOlds []map[string]any
 	seen := map[string]bool{}
+	ct := toCore(def, cols)
 	for _, key := range body.Keys {
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		pkVals, err := rowKeyVals(def, cols, key)
+		pkVals, err := engine.DecodeKey(ct, key)
 		if err != nil {
 			failures = append(failures, bulkFailure{Key: key, Code: "VALIDATION", Message: "bad row key"})
 			continue
@@ -117,7 +119,8 @@ func (s *Server) handleRowBulkDelete(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		for _, old := range oldRows {
-			s.auditBestEffort(u, def.ID, "DELETE", rowKeyString(def, old), old, nil)
+			rowPK, _ := engine.EncodeKey(ct, old)
+			s.auditBestEffort(u, def.ID, "DELETE", rowPK, old, nil)
 			deletedOlds = append(deletedOlds, old)
 		}
 		deleted++
