@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"ku-crud/internal/defs"
+	"github.com/luthfi9251/kucrud-core/defs"
 )
 
 // Row keys travel in the URL path as base64url(JSON array of key value

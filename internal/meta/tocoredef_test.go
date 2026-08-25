@@ -1,10 +1,10 @@
-package defs_test
+package meta_test
 
 import (
 	"reflect"
 	"testing"
 
-	"ku-crud/internal/defs"
+	"github.com/luthfi9251/kucrud-core/defs"
 	"ku-crud/internal/meta"
 )
 

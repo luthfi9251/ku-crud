@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	h "ku-crud/internal/hooks"
+	h "github.com/luthfi9251/kucrud-core/hooks"
 )
 
 func AliasedHook(ctx context.Context, hc *h.HookContext, ev h.Event,

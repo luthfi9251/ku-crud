@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"ku-crud/internal/defs"
+	"github.com/luthfi9251/kucrud-core/defs"
 )
 
 func TestRowKeyCodec(t *testing.T) {

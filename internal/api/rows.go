@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"ku-crud/internal/defs"
+	"github.com/luthfi9251/kucrud-core/defs"
 	"ku-crud/internal/meta"
 )
 

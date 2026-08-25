@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"ku-crud/internal/defs"
+	"github.com/luthfi9251/kucrud-core/defs"
 )
 
 // ImportMaxRows / ImportMaxFile bound CSV imports.

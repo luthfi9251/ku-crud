@@ -2,7 +2,7 @@
 
 package hooks
 
-import kuhooks "ku-crud/internal/hooks"
+import kuhooks "github.com/luthfi9251/kucrud-core/hooks"
 
 func init() {
 	kuhooks.Register("LogAfterCreate", LogAfterCreate)

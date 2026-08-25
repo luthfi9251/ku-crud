@@ -7,9 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 
-	"ku-crud/internal/defs"
-	"ku-crud/internal/ds"
-	"ku-crud/internal/hooks"
+	"github.com/luthfi9251/kucrud-core/defs"
+	"github.com/luthfi9251/kucrud-core/ds"
+	"github.com/luthfi9251/kucrud-core/hooks"
+	kuhooks "ku-crud/internal/hooks"
 	"ku-crud/internal/meta"
 )
 
@@ -27,7 +28,7 @@ func (s *Server) hookCtx(actor string, res *metaResolver, t *defs.Table) *hooks.
 			if !ok || name == "" {
 				return nil, fmt.Errorf("unknown table definition %q", name)
 			}
-			return hooks.OpenDatasource(s.store, d.DatasourceID)
+			return kuhooks.OpenDatasource(s.store, d.DatasourceID)
 		},
 		Host:   s.store,
 		Logger: slog.Default(),

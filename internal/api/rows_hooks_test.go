@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"ku-crud/internal/engine"
-	"ku-crud/internal/hooks"
+	"github.com/luthfi9251/kucrud-core/engine"
+	"github.com/luthfi9251/kucrud-core/hooks"
 )
 
 // hookEnv wires a server with three hooks: RejectNames refuses values of

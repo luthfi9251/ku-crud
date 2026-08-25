@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"ku-crud/internal/defs"
-	"ku-crud/internal/ds"
+	"github.com/luthfi9251/kucrud-core/defs"
+	"github.com/luthfi9251/kucrud-core/ds"
 )
 
 // These tests pin the pre-extraction behavior for dangling def references

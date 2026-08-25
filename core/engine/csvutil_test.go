@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"ku-crud/internal/defs"
+	"github.com/luthfi9251/kucrud-core/defs"
 )
 
 func TestSniffDelimiter(t *testing.T) {

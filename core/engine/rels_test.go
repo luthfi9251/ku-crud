@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"ku-crud/internal/defs"
-	"ku-crud/internal/ds"
+	"github.com/luthfi9251/kucrud-core/defs"
+	"github.com/luthfi9251/kucrud-core/ds"
 )
 
 func doRels(svc *ReadService, endpoint string, t *defs.Table, column, pk, query string) *httptest.ResponseRecorder {

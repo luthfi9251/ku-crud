@@ -8,7 +8,8 @@ import (
 	"log/slog"
 	"time"
 
-	"ku-crud/internal/ds"
+	"github.com/luthfi9251/kucrud-core/ds"
+	corehooks "github.com/luthfi9251/kucrud-core/hooks"
 	"ku-crud/internal/meta"
 )
 
@@ -23,7 +24,7 @@ const workerPoll = 5 * time.Second
 // serializes with the API on the single SQLite connection.
 type Worker struct {
 	Store  *meta.Store
-	Reg    *Registry
+	Reg    *corehooks.Registry
 	Logger *slog.Logger
 }
 
@@ -68,19 +69,19 @@ func (w *Worker) execOne(ctx context.Context, e meta.OutboxEntry) {
 		return
 	}
 	hc := w.hookCtx(def, cols, e.Username)
-	row := RowPayload{Values: map[string]any{}}
+	row := corehooks.RowPayload{Values: map[string]any{}}
 	if e.OldValues != "" {
 		json.Unmarshal([]byte(e.OldValues), &row.Old)
 	}
 	if e.NewValues != "" {
 		json.Unmarshal([]byte(e.NewValues), &row.Values)
 	}
-	err = w.Reg.RunOne(ctx, hc, Event(e.Event), row, Assignment{Hook: e.HookName, Config: json.RawMessage(e.Config)})
+	err = w.Reg.RunOne(ctx, hc, corehooks.Event(e.Event), row, corehooks.Assignment{Hook: e.HookName, Config: json.RawMessage(e.Config)})
 	if err == nil {
 		w.Store.MarkOutboxDone(e.ID)
 		return
 	}
-	var me *MissingError
+	var me *corehooks.MissingError
 	if errors.As(err, &me) { // can never succeed in this binary
 		w.log().Error("hook outbox entry dead (hook missing)", "hook", e.HookName, "err", err.Error())
 		w.Store.MarkOutboxFailed(e.ID, 6, "", err.Error())
@@ -101,7 +102,7 @@ func (w *Worker) execOne(ctx context.Context, e meta.OutboxEntry) {
 // the table as the ID-free core contract, a name-keyed datasource opener
 // and the store as Host. This file stays platform-side (meta-backed);
 // the contract files (hooks.go, exec.go) never import meta.
-func (w *Worker) hookCtx(def *meta.TableDef, cols []meta.ColumnDef, actor string) *HookContext {
+func (w *Worker) hookCtx(def *meta.TableDef, cols []meta.ColumnDef, actor string) *corehooks.HookContext {
 	byName := map[string]*meta.TableDef{}
 	idToName := map[int64]string{}
 	if list, err := w.Store.ListTableDefs(); err == nil {
@@ -113,7 +114,7 @@ func (w *Worker) hookCtx(def *meta.TableDef, cols []meta.ColumnDef, actor string
 		}
 	}
 	ct := meta.ToCoreDef(*def, cols, idToName)
-	return &HookContext{
+	return &corehooks.HookContext{
 		Actor:   actor,
 		Table:   &ct,
 		Columns: ct.Columns,

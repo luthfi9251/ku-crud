@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"ku-crud/internal/ds"
+	"github.com/luthfi9251/kucrud-core/ds"
 	"ku-crud/internal/meta"
 )
 

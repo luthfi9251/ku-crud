@@ -3,7 +3,7 @@ package ds
 import (
 	"testing"
 
-	"ku-crud/internal/defs"
+	"github.com/luthfi9251/kucrud-core/defs"
 )
 
 func TestCompareDrift(t *testing.T) {

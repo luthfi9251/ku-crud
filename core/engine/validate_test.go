@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"ku-crud/internal/defs"
+	"github.com/luthfi9251/kucrud-core/defs"
 )
 
 func TestValidateValueUUID(t *testing.T) {

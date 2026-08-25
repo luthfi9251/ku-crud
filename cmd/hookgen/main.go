@@ -15,7 +15,7 @@ import (
 )
 
 // hooksImportPath is the contract package every hook signature refers to.
-const hooksImportPath = "ku-crud/internal/hooks"
+const hooksImportPath = "github.com/luthfi9251/kucrud-core/hooks"
 
 func generate(dir string) (string, error) {
 	entries, err := os.ReadDir(dir)

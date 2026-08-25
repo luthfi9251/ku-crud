@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 
-	"ku-crud/internal/defs"
+	"github.com/luthfi9251/kucrud-core/defs"
 )
 
 // SelfRef marks an FK target as "this table definition"; Save/Update rewrite

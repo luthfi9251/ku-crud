@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"ku-crud/internal/engine"
+	"github.com/luthfi9251/kucrud-core/engine"
 	"ku-crud/internal/meta"
 )
 

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	corehooks "github.com/luthfi9251/kucrud-core/hooks"
+
 	"ku-crud/internal/meta"
 )
 
@@ -31,8 +33,8 @@ func TestWorkerExecutesAndRetries(t *testing.T) {
 	store.SaveTableDef(def, nil)
 
 	var runs int
-	reg := NewRegistry()
-	reg.Register("H", func(ctx context.Context, hc *HookContext, ev Event, row RowPayload, cfg json.RawMessage) (RowPayload, error) {
+	reg := corehooks.NewRegistry()
+	reg.Register("H", func(ctx context.Context, hc *corehooks.HookContext, ev corehooks.Event, row corehooks.RowPayload, cfg json.RawMessage) (corehooks.RowPayload, error) {
 		runs++
 		if hc.Actor != "admin" || hc.Table.Name != def.TableName || hc.Host != store {
 			t.Errorf("hook ctx = %+v", hc)
@@ -74,8 +76,8 @@ func TestWorkerDeadAfterSixFailures(t *testing.T) {
 	def := &meta.TableDef{DatasourceID: 1, SchemaName: "public", TableName: "t",
 		Label: "T", KeyColumns: []string{"id"}, PageSize: 20}
 	store.SaveTableDef(def, nil)
-	reg := NewRegistry()
-	reg.Register("Bad", func(ctx context.Context, hc *HookContext, ev Event, row RowPayload, cfg json.RawMessage) (RowPayload, error) {
+	reg := corehooks.NewRegistry()
+	reg.Register("Bad", func(ctx context.Context, hc *corehooks.HookContext, ev corehooks.Event, row corehooks.RowPayload, cfg json.RawMessage) (corehooks.RowPayload, error) {
 		return row, errors.New("always")
 	})
 	w := &Worker{Store: store, Reg: reg, Logger: slog.Default()}
@@ -105,7 +107,7 @@ func TestWorkerMissingHookGoesDead(t *testing.T) {
 	def := &meta.TableDef{DatasourceID: 1, SchemaName: "public", TableName: "t",
 		Label: "T", KeyColumns: []string{"id"}, PageSize: 20}
 	store.SaveTableDef(def, nil)
-	w := &Worker{Store: store, Reg: NewRegistry(), Logger: slog.Default()}
+	w := &Worker{Store: store, Reg: corehooks.NewRegistry(), Logger: slog.Default()}
 	store.EnqueueOutbox(&meta.OutboxEntry{TableDefID: def.ID, Event: "afterCreate", HookName: "Gone"})
 	w.ExecuteDue(context.Background())
 	e, _ := store.GetOutbox(1)

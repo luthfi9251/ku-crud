@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"ku-crud/internal/defs"
-	"ku-crud/internal/ds"
-	"ku-crud/internal/hooks"
+	"github.com/luthfi9251/kucrud-core/defs"
+	"github.com/luthfi9251/kucrud-core/ds"
+	"github.com/luthfi9251/kucrud-core/hooks"
 )
 
 // importDef is the import fixture: required name (editable), optional

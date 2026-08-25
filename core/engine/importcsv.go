@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"ku-crud/internal/defs"
-	"ku-crud/internal/hooks"
+	"github.com/luthfi9251/kucrud-core/defs"
+	"github.com/luthfi9251/kucrud-core/hooks"
 )
 
 // importRowError is one validation problem on one CSV row, keyed by the

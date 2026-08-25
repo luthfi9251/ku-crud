@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
-	"ku-crud/internal/defs"
-	"ku-crud/internal/ds"
-	"ku-crud/internal/engine"
-	"ku-crud/internal/hooks"
+	"github.com/luthfi9251/kucrud-core/defs"
+	"github.com/luthfi9251/kucrud-core/ds"
+	"github.com/luthfi9251/kucrud-core/engine"
+	"github.com/luthfi9251/kucrud-core/hooks"
 	"ku-crud/internal/meta"
 )
 

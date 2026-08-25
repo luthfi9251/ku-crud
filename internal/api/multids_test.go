@@ -9,7 +9,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"ku-crud/internal/engine"
+	"github.com/luthfi9251/kucrud-core/engine"
 	"ku-crud/internal/meta"
 )
 
