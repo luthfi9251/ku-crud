@@ -4,7 +4,7 @@
 
 **Goal:** Extract the CRUD engine from the ku-crud platform into a zero-persistence, auth-free Go module (`kucrud-core`) consumed by both the existing platform and a new full-stack template.
 
-**Architecture:** Freeze the definition contract into ID-free types (`defs`), decouple `ds` from `meta`, lift the row pipeline out of `internal/api` into an `engine` package parameterized on (Adapter, defs, resolver, callbacks), then split into a `core/` module with name-based HTTP routes and a `Def` builder. The platform re-consumes core via a meta-backed resolver + RBAC gate; audit/outbox become platform hook implementations.
+**Architecture:** Freeze the definition contract into ID-free types (`defs`), decouple `ds` from `meta`, lift the row pipeline out of `internal/api` into an `engine` package parameterized on (Adapter, defs, resolver, callbacks), then split into a `core/` module with name-based HTTP routes and a `Def` builder. The platform re-consumes core via a meta-backed resolver + RBAC gate; audit/outbox become platform hook implementations. Once the switchover is green, `core/` is promoted to its own repository (Task 13); `Resource(name, Def) http.Handler` is the primary library API — the host owns server, router, and middleware.
 
 **Tech Stack:** Go 1.25, SQLite (platform only), Postgres/MySQL (adapters), React+Vite (template consumer).
 
@@ -17,11 +17,13 @@
 - No behavior change in platform endpoints until Task 9 (extraction is refactor-first, switchover last).
 - Integration suites share one schema — run with `-p 1` under load.
 - Core module path: `github.com/luthfi9251/kucrud-core` (root uses `replace` until first tag).
+- End state: core in its own repository (Task 13, triggered by Tasks 10–11 green).
 
 ## Target layout
 
 ```
 core/                        module github.com/luthfi9251/kucrud-core
+                             (own repository after Task 13)
   go.mod
   defs/defs.go               ID-free Table, Column, ValidationRule, Sort
   ds/                        adapter.go, postgres.go, mysql.go, sqlkit.go,
@@ -365,11 +367,21 @@ type Override struct {
     Searchable, Sortable    *bool
 }
 
-type App struct{ /* mux, defs registry, resolver over registered defs */ }
+type App struct{ /* internal mux, defs registry, resolver over registered defs */ }
 
-func New(ds Conn, opts ...Option) (*App, error)
-func (a *App) CRUD(path string, d Def) *App   // introspects defaults, applies overrides
-func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request)
+func New(c Conn, opts ...Option) (*App, error)
+
+// Resource is the PRIMARY API — a plain http.Handler. The host mounts it
+// on its own router, path, and middleware chain; kucrud never owns the
+// server, router, or auth.
+func (a *App) Resource(name string, d Def) (http.Handler, error)
+
+// CRUD is sugar for the lazy path: registers a Resource on App's
+// internal mux and panics on registration error (startup config
+// error, fail fast). The template uses this.
+func (a *App) CRUD(path string, d Def) *App
+
+func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) // internal mux
 
 // Gate is the single auth/RBAC slot: return non-nil to reject.
 type Gate func(r *http.Request, op Op, table string) error
@@ -390,9 +402,9 @@ type (
 func Sort(col string, dir defs.SortDir) SortSpec { return SortSpec{Col: col, Dir: dir} }
 ```
 
-- [ ] **Step 1: Write the failing end-to-end test** — register one PG table with two overrides, drive full CRUD over `httptest`: list/sort/filter, insert (with before-hook mutation), update, delete, CSV export, 400 on validation failure, 403 through a Gate. Starts failing: `kucrud.New` undefined.
+- [ ] **Step 1: Write the failing end-to-end test** — register one PG table with two overrides via `app.Resource`, mount the returned handler on a HOST mux at a custom path with a host middleware in front (proves the mount-anywhere pattern), then drive full CRUD over `httptest`: list/sort/filter, insert (with before-hook mutation), update, delete, CSV export, 400 on validation failure, 403 through a Gate. Starts failing: `kucrud.New`/`Resource` undefined.
 - [ ] **Step 2: Implement `httpapi` name-based routes** mounting engine services (`/api/data/{name}/rows...`, `GET /api/defs`) with the `Gate` called per op.
-- [ ] **Step 3: Implement `App.CRUD`** — `InspectTable` fills default columns; overrides merge by `Name`; defs registry backs the engine `Resolver`.
+- [ ] **Step 3: Implement `App.Resource` and `CRUD` sugar** — `InspectTable` fills default columns; overrides merge by `Name`; the defs registry backs the engine `Resolver`. `CRUD(path, Def)` registers a Resource on the internal mux (panic on registration error); `Resource` returns the bare handler.
 - [ ] **Step 4: E2E test green (PG; MySQL variant reusing same harness with `KUCRUD_TEST_MYSQL`).**
 - [ ] **Step 5: Commit** — `feat(core): public App/Def API with introspection defaults and Gate slot`
 
@@ -437,9 +449,46 @@ func Sort(col string, dir defs.SortDir) SortSpec { return SortSpec{Col: col, Dir
 
 ---
 
+### Task 13: core repository split
+
+**Trigger:** Tasks 10–11 green — platform runs on core, full suites pass, core churn complete.
+
+**Files:**
+- Create: new repository `kucrud-core` (from `core/`, history preserved)
+- Modify: root `go.mod` (drop `replace`, require the pushed module), `template/go.mod` (same, or keep `replace` until tags exist)
+- Delete: `core/` from the platform repo
+
+**Interfaces:**
+- None new — the import path `github.com/luthfi9251/kucrud-core` is unchanged from Task 8; only its source of truth moves.
+
+- [ ] **Step 1: Split with history** — in a fresh clone, `git filter-repo` with `--path-rename` mappings for every old→new path (`internal/ds/` → `core/ds/`, etc., plus `core/` → `core/`) so pre-split history survives; push as `luthfi9251/kucrud-core`. Verify: `git log --oneline` in the new repo shows commits predating Task 8.
+- [ ] **Step 2: Platform consumes the repo** — drop `replace`, `go get github.com/luthfi9251/kucrud-core@<main-commit>`; full gate green (`go vet ./... && gofmt -l . && go test ./... -p 1` + both dialect env runs).
+- [ ] **Step 3: Template consumes the repo** — same swap; `go build ./...` in the `/tmp` clone-simulation from Task 12 still works.
+- [ ] **Step 4: Tag only if the pilot demands it** — publishing/tagging `core/v0.x` stays deferred until the company pilot (spec §5, Appendix B); the split itself does not publish anything.
+- [ ] **Step 5: Commit** — `chore: consume kucrud-core from its own repository`
+
+---
+
 ## Appendix A — end-state usage (target of Tasks 9+12)
 
-Template `main.go`:
+Embedded in a host app (primary pattern — developer owns the handler):
+
+```go
+products, err := app.Resource("products", core.Def{
+    Table: "products", Keys: []string{"id"},
+    Columns: []core.Override{
+        {Name: "price", Label: "Harga", Format: `{"prefix":"Rp","thousands":true}`},
+    },
+    DefaultSort: core.Sort("created_at", core.Desc),
+})
+
+mux := http.NewServeMux()                               // host-owned router
+mux.Handle("/api/data/products/", withAuth(products))   // host middleware/auth
+mux.HandleFunc("/healthz", healthz)                     // host domain
+http.ListenAndServe(":8080", mux)
+```
+
+Template `main.go` (lazy path — `CRUD` sugar, host mounts `app` wholesale):
 
 ```go
 package main

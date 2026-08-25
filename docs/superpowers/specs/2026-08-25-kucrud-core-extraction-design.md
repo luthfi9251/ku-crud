@@ -40,6 +40,8 @@ move down into platform-level hook implementations.
 | Persistence in core | **Zero persistence.** No SQLite, no runtime state. If a project needs audit/outbox, the developer implements it at definition time (hooks). |
 | Definitions | **Code-first, grocery-style**: `app.CRUD("/products", Def{...})` — table, column overrides, sort, etc. registered in Go. Code is the source of truth. |
 | Frontend ownership | Template frontend is user-owned for layout/pages; CRUD screens consume core's API contract. Wholesale rewrite allowed; API contract is the stability guarantee. |
+| API ownership | **The developer owns the handler.** kucrud is a mounted `http.Handler`; the host keeps its server, router, middleware, and auth. `Resource(name, Def) http.Handler` is the primary API; `CRUD(path, Def)` is sugar over an internal mux. |
+| Repository | **Separate repository (end state).** `kucrud-core` gets its own repo once the platform switchover suite is green — history preserved via path-aware split. Until then it lives as an in-repo module behind a `replace` directive. |
 | Audit trail | Not a core feature. Actor injected via context (`WithActor`); audit persistence is a host-side hook recipe. |
 | After-hooks / outbox | Plain callbacks in core. The durable outbox (v1.6) remains a platform feature / reference recipe. |
 | MySQL | **First-class from day one** — GroceryCRUD shops are historically MySQL shops. Adapter + tests already exist; keep parity. |
@@ -83,16 +85,27 @@ move down into platform-level hook implementations.
 
 ## 4. Def API sketch (directional, not final)
 
+The library lives *inside* the host application — the developer keeps the
+server, router, and middleware. kucrud is a mounted `http.Handler`:
+
 ```go
-app.CRUD("/products", kucrud.Def{
-    Table: "products",            // columns auto-derived via introspection
+products, err := app.Resource("products", kucrud.Def{
+    Table: "products",          // columns auto-derived via introspection
     Columns: []kucrud.Override{
         {Name: "price", Format: kucrud.Currency("Rp")},
         {Name: "internal_note", Hidden: true},
     },
     DefaultSort: kucrud.Sort("created_at", kucrud.Desc),
 })
+
+mux := http.NewServeMux()                              // host-owned router
+mux.Handle("/api/data/products/", withAuth(products))  // host-owned middleware
+http.ListenAndServe(":8080", mux)                      // host-owned server
 ```
+
+`CRUD(path, Def)` remains as sugar for the lazy path (registers the
+resource on an internal mux the host mounts wholesale) — the template
+uses it; embedded apps use `Resource`.
 
 The `Def` struct is the JSON definition contract that already exists
 between wizard and engine, surfaced as a public Go API. Freezing that
@@ -102,10 +115,13 @@ contract is a precondition for any external release.
 
 1. **Pilot one screen** of one company app on the core before committing
    to full extraction — cheapest honest validation.
-2. Extract within one repo first (module boundary, e.g. `core/` with its
-   own `go.mod`, tagged `core/v0.x` only when stable) — split repos later
-   if ever. Avoids premature two-repo churn; note: extraction must leave
-   `internal/` (Go forbids cross-module imports of `internal/`).
+2. Extract within one repo first (module boundary: `core/` with its own
+   `go.mod` behind a `replace` directive; extraction must leave `internal/`
+   — Go forbids cross-module imports of `internal/`). Once the platform
+   switchover suite is green, promote `core/` to its own repository
+   (history preserved by mapping the old `internal/` paths to their `core/`
+   destinations in the split). That is the end state: clean identity,
+   `go get`, semver tags. In-repo first avoids two-repo churn mid-refactor.
 3. Platform consumes core via the same API the template would.
 4. Company migration proceeds per-app, pilot-first, no converter.
 
