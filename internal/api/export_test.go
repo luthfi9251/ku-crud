@@ -7,37 +7,8 @@ import (
 	"ku-crud/internal/meta"
 )
 
-func TestCSVCell(t *testing.T) {
-	cases := []struct {
-		in   any
-		want string
-	}{
-		{nil, ""},
-		{true, "true"},
-		{false, "false"},
-		{"plain", "plain"},
-		{[]byte("bytes"), "bytes"},
-		{float64(10.5), "10.5"},
-		{float64(2), "2"},
-		{int64(7), "7"},
-	}
-	for _, c := range cases {
-		if got := csvCell(c.in); got != c.want {
-			t.Errorf("csvCell(%v) = %q want %q", c.in, got, c.want)
-		}
-	}
-}
-
-func TestJoinDisplay(t *testing.T) {
-	rel := map[string]any{"id": 3.0, "name": "jo", "email": "jo@x.io"}
-	if got := joinDisplay(rel, []string{"name", "email"}, "id"); got != "jo — jo@x.io" {
-		t.Fatalf("joinDisplay = %q", got)
-	}
-	// no display columns configured → ref column value
-	if got := joinDisplay(rel, nil, "id"); got != "3" {
-		t.Fatalf("fallback = %q", got)
-	}
-}
+// csvCell/joinDisplay unit tests moved to internal/engine/rows_read_test.go
+// with the functions themselves.
 
 // exportCSV runs the export endpoint and returns the body with the BOM
 // stripped, plus the raw first three bytes for BOM assertions.

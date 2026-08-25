@@ -7,10 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	"ku-crud/internal/defs"
-	"ku-crud/internal/ds"
 	"ku-crud/internal/engine"
 	"ku-crud/internal/hooks"
 	"ku-crud/internal/meta"
@@ -57,80 +55,8 @@ func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
 		return
 	}
-	a, err := s.liveAdapter(def.DatasourceID)
-	if err != nil {
-		s.writeLiveErr(w, err)
-		return
-	}
-	defer a.Close()
-
-	var searchable []string
-	for _, c := range cols {
-		if c.Searchable {
-			searchable = append(searchable, c.Name)
-		}
-	}
-
-	q := r.URL.Query()
-	ct := toCore(def, cols)
-	sortCol, sortDir := engine.ResolveSort(ct, q.Get("sort"), q.Get("dir"))
-	filters, fmsg := s.parseFilters(def, cols, u, q.Get("filters"))
-	if fmsg != "" {
-		writeErr(w, 400, "FILTER_INVALID", fmsg, nil)
-		return
-	}
-	page := 1
-	if p, err := strconv.Atoi(q.Get("page")); err == nil && p > 0 {
-		page = p
-	}
-
-	names := realColNames(cols)
-	var rows []map[string]any
-	var total int
-	if isQueryDef(def) {
-		if sortCol == "" {
-			writeErr(w, 400, "VALIDATION", "query view has no sortable column", nil)
-			return
-		}
-		qp := ds.QueryParams{Query: def.QuerySQL, Columns: names,
-			Searchable: searchable, Search: q.Get("search"),
-			SortCol: sortCol, SortDir: sortDir, Filters: filters,
-			Limit: def.PageSize, Offset: (page - 1) * def.PageSize}
-		rows, err = a.ListQueryRows(qp)
-		if err != nil {
-			writeQueryErr(w, err)
-			return
-		}
-		total, err = a.CountQueryRows(qp)
-		if err != nil {
-			writeQueryErr(w, err)
-			return
-		}
-	} else {
-		lp := ds.ListParams{Schema: def.SchemaName, Table: def.TableName, Columns: names,
-			Searchable: searchable, Search: q.Get("search"),
-			SortCol: sortCol, SortDir: sortDir,
-			Filters: filters,
-			Limit:   def.PageSize, Offset: (page - 1) * def.PageSize}
-		rows, err = a.ListRows(lp)
-		if err != nil {
-			writeErr(w, 502, "CONN", "query failed", err.Error())
-			return
-		}
-		total, err = a.CountRows(lp)
-		if err != nil {
-			writeErr(w, 502, "CONN", "count failed", err.Error())
-			return
-		}
-	}
-	engine.ApplyComputed(ct.Columns, rows)
-	rels := s.buildRels(u, cols, rows)
-	m2mRels := s.buildM2MRels(u, def, cols, rows)
-	if rows == nil {
-		rows = []map[string]any{}
-	}
-	writeJSON(w, 200, map[string]any{"rows": rows, "total": total, "page": page,
-		"pageSize": def.PageSize, "rels": rels, "m2mRels": m2mRels})
+	svc, ct := s.readService(u, def, cols)
+	svc.List(w, r, ct)
 }
 
 func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
@@ -139,63 +65,15 @@ func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
 		s.writeDefErr(w, err)
 		return
 	}
-	// perm check before QUERY_NO_KEY so no-grant users can't probe whether
-	// a query view has key columns
-	if !s.hasTablePerm(userFrom(r), def.ID, "read") {
+	// perm check before the engine's QUERY_NO_KEY so no-grant users can't
+	// probe whether a query view has key columns
+	u := userFrom(r)
+	if !s.hasTablePerm(u, def.ID, "read") {
 		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
 		return
 	}
-	if isQueryDef(def) && len(def.KeyColumns) == 0 {
-		writeErr(w, 400, "QUERY_NO_KEY", "this query view has no key columns", nil)
-		return
-	}
-	a, err := s.liveAdapter(def.DatasourceID)
-	if err != nil {
-		s.writeLiveErr(w, err)
-		return
-	}
-	defer a.Close()
-
-	names := realColNames(cols)
-	ct := toCore(def, cols)
-	keyVals, err := engine.DecodeKey(ct, r.PathValue("pk"))
-	if err != nil {
-		writeErr(w, 400, "VALIDATION", "bad row key", err.Error())
-		return
-	}
-	var row map[string]any
-	if isQueryDef(def) {
-		kf := make([]ds.ColumnFilter, len(keyVals))
-		for i, k := range def.KeyColumns {
-			kf[i] = ds.ColumnFilter{Column: k, Op: "eq", Values: []any{keyVals[i]}}
-		}
-		qp := ds.QueryParams{Query: def.QuerySQL, Columns: names,
-			SortCol: def.KeyColumns[0], SortDir: "ASC", Filters: kf, Limit: 1}
-		rowsOut, err := a.ListQueryRows(qp)
-		if err != nil {
-			writeQueryErr(w, err)
-			return
-		}
-		if len(rowsOut) == 0 {
-			writeErr(w, 404, "NOT_FOUND", "row not found", nil)
-			return
-		}
-		row = rowsOut[0]
-	} else {
-		rowsOut, err := a.FetchByKey(def.SchemaName, def.TableName, def.KeyColumns, keyVals, names)
-		if err != nil {
-			writeErr(w, 502, "CONN", "query failed", err.Error())
-			return
-		}
-		if len(rowsOut) == 0 {
-			writeErr(w, 404, "NOT_FOUND", "row not found", nil)
-			return
-		}
-		row = rowsOut[0]
-	}
-	engine.ApplyComputed(ct.Columns, []map[string]any{row})
-	rels := s.buildRels(userFrom(r), cols, []map[string]any{row})
-	writeJSON(w, 200, map[string]any{"row": row, "rels": rels})
+	svc, ct := s.readService(u, def, cols)
+	svc.Get(w, r, ct)
 }
 
 func mustJSON(v any) []byte {
