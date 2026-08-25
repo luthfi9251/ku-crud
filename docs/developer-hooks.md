@@ -116,22 +116,38 @@ Notes:
 
 ```go
 type HookContext struct {
-    User     ActingUser        // ID + username of the acting user
-    TableDef *meta.TableDef    // the definition the hook is assigned to
-    Columns  []meta.ColumnDef  // its columns
-    Open     func(datasourceID int64) (ds.Adapter, error) // lazy adapter opener
-    Store    *meta.Store       // metadata store (read defs/audit)
-    Logger   *slog.Logger      // server logger
+    Actor   string                                     // acting user's name; "" when anonymous
+    Table   *defs.Table                                // the definition the hook is assigned to
+    Columns []defs.Column                              // its columns
+    Open    func(name string) (ds.Adapter, error)      // open a datasource by definition name
+    Logger  *slog.Logger                               // server logger
+    Host    any                                        // host-private payload (platform: *meta.Store)
 }
 ```
 
-- **`Open`** gives you a live connection to any registered datasource
-  (same lazily-opened adapter the API uses). **You must `Close()` the
-  adapter when done.** For `after*` hooks the acting user's session is long
-  gone — only the `User` snapshot in the context survives.
-- **`Store`** is the SQLite metadata store: you can read table definitions,
-  audit entries, users, etc. It is the full store — treat it as trusted
-  code (see Do/Don't).
+> **Breaking change (core extraction):** the context previously carried
+> `User ActingUser`, `TableDef *meta.TableDef`, `Columns []meta.ColumnDef`,
+> `Open(datasourceID int64)` and `Store *meta.Store`. It now uses the
+> ID-free `defs` contract types, opens datasources **by definition name**,
+> and exposes the acting user as `Actor` plus the host store as `Host`.
+> Update any hook reading `hc.User`, `hc.TableDef`, `hc.Store` or calling
+> `hc.Open(id)`.
+
+- **`Actor`** is the acting user's username (injected by the host via
+  `hooks.WithActor`; `""` when anonymous). It is also readable from the
+  context with `hooks.ActorFrom(ctx)`. For `after*` hooks the actor is
+  the user who made the write — the outbox snapshots it at enqueue time,
+  long after their session is gone.
+- **`Open`** gives you a live connection to the datasource of any
+  registered **table definition, by name** (e.g. `hc.Open("customers")`).
+  **You must `Close()` the adapter when done.** The definition's own
+  datasource is `hc.Open(hc.Table.Name)`.
+- **`Table` / `Columns`** are the ID-free definition contract
+  (`ku-crud/internal/defs`): names, types, validations, FK/M2M links by
+  target *name* — never internal integer ids.
+- **`Host`** is a host-private payload. On this platform it is the
+  SQLite metadata store (`hc.Host.(*meta.Store)`); for library users it
+  may be nil. Treat it as trusted, host-specific extension surface.
 - **`Logger`** — use it instead of `fmt.Printf` so log lines carry
   structured fields and the server's log level.
 
@@ -260,8 +276,9 @@ enqueues one entry **per assignment** into a durable SQLite outbox
 ### 4.3 What the outbox stores
 
 Per entry: `table_def_id`, `event`, `hook_name`, `config`, `old_values`,
-`new_values` snapshots, the **acting user** (id + username, so the hook
-knows who triggered it even after the session is gone), `status`
+`new_values` snapshots, the **acting user** (id + username, snapshot at
+enqueue time so the hook knows who triggered it even after the session is
+gone — the hook context surfaces it as `Actor`), `status`
 (`pending | done | dead`), `attempts`, `next_retry_at`, `last_error`.
 
 ### 4.4 Monitoring
@@ -387,7 +404,7 @@ Panics inside a hook are recovered and turned into `HOOK_REJECTED`
   codes, default a column from another.
 - Business-rule guards: block status transitions, block writes on
   read-only records, enforce "no negative stock" at the application layer.
-- Auto-set auditing columns from `hc.User` (e.g. `updated_by`).
+- Auto-set auditing columns from `hc.Actor` (e.g. `updated_by`).
 
 **`after*` (side effects, via the durable outbox):**
 

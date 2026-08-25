@@ -3,20 +3,34 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
+	"ku-crud/internal/defs"
 	"ku-crud/internal/ds"
 	"ku-crud/internal/hooks"
 	"ku-crud/internal/meta"
 )
 
-func (s *Server) hookCtx(u CtxUser, def *meta.TableDef, cols []meta.ColumnDef) *hooks.HookContext {
+// hookCtx builds the definitions-shaped hook context for one request:
+// the actor from the request user, the table as the ID-free core
+// contract, a name-keyed datasource opener backed by the meta resolver
+// (name → definition → its datasource), and the store as Host.
+func (s *Server) hookCtx(actor string, res *metaResolver, t *defs.Table) *hooks.HookContext {
 	return &hooks.HookContext{
-		User:     hooks.ActingUser{ID: u.ID, Username: u.Username},
-		TableDef: def, Columns: cols,
-		Open:  func(id int64) (ds.Adapter, error) { return hooks.OpenDatasource(s.store, id) },
-		Store: s.store, Logger: slog.Default(),
+		Actor:   actor,
+		Table:   t,
+		Columns: t.Columns,
+		Open: func(name string) (ds.Adapter, error) {
+			d, ok := res.byName[name]
+			if !ok || name == "" {
+				return nil, fmt.Errorf("unknown table definition %q", name)
+			}
+			return hooks.OpenDatasource(s.store, d.DatasourceID)
+		},
+		Host:   s.store,
+		Logger: slog.Default(),
 	}
 }
 
@@ -61,10 +75,12 @@ func writeHookErr(w http.ResponseWriter, err error) {
 
 // runBefore executes the def's before-hooks for ev, returning the modified
 // values map. All registry methods are nil-safe — no-hooks = passthrough.
-func (s *Server) runBefore(ctx context.Context, u CtxUser, def *meta.TableDef,
-	cols []meta.ColumnDef, ev hooks.Event, values, old map[string]any,
+// Assignments come from the core table (the same JSON the stored def
+// carries); hc carries actor/table/opener.
+func (s *Server) runBefore(ctx context.Context, hc *hooks.HookContext,
+	t *defs.Table, ev hooks.Event, values, old map[string]any,
 ) (map[string]any, error) {
-	asgs, err := hooks.ParseAssignments(def.Hooks)
+	asgs, err := hooks.ParseAssignments(t.Hooks)
 	if err != nil {
 		return values, err
 	}
@@ -74,7 +90,7 @@ func (s *Server) runBefore(ctx context.Context, u CtxUser, def *meta.TableDef,
 	if values == nil {
 		values = map[string]any{}
 	}
-	out, err := s.hooks.RunBefore(ctx, ev, asgs[ev], s.hookCtx(u, def, cols),
+	out, err := s.hooks.RunBefore(ctx, ev, asgs[ev], hc,
 		hooks.RowPayload{Values: values, Old: old})
 	return out.Values, err
 }

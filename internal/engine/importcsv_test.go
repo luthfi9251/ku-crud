@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 
 	"ku-crud/internal/defs"
 	"ku-crud/internal/ds"
+	"ku-crud/internal/hooks"
 )
 
 // importDef is the import fixture: required name (editable), optional
@@ -179,7 +181,7 @@ func TestImportApplyValidation(t *testing.T) {
 		t.Fatalf("bad mode = %d %s", w.Code, w.Body)
 	}
 	// guard rejection before any parsing side effects
-	guarded := &ImportService{R: res, H: &fakeHooks{guardErr: &HookError{Missing: true, Msg: "gone"}}}
+	guarded := &ImportService{R: res, H: &fakeHooks{guardErr: &hooks.MissingError{Name: "gone"}}}
 	w = doImport(guarded, res.tables["customers"], "name\nx\n",
 		map[string]string{"mapping": `{"name":"name"}`, "mode": "valid"}, true)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "HOOK_MISSING") {
@@ -222,9 +224,9 @@ func TestImportHooks(t *testing.T) {
 			return nil
 		}}, nil
 	}
-	h := &fakeHooks{before: func(ev Event, t *defs.Table, row RowPayload) (RowPayload, error) {
+	h := &fakeHooks{before: func(ev hooks.Event, t *defs.Table, row hooks.RowPayload) (hooks.RowPayload, error) {
 		if row.Values["name"] == "bob" {
-			return row, &HookError{Msg: "no bob allowed"}
+			return row, errors.New("no bob allowed")
 		}
 		if row.Values["name"] == "mut" {
 			row.Values["name"] = "mutated"

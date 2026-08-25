@@ -9,20 +9,21 @@ import (
 
 	"ku-crud/internal/defs"
 	"ku-crud/internal/ds"
+	"ku-crud/internal/hooks"
 )
 
 // fakeHooks records the callback flow; before may mutate the payload.
 type fakeHooks struct {
 	guardErr  error
-	before    func(ev Event, t *defs.Table, row RowPayload) (RowPayload, error)
+	before    func(ev hooks.Event, t *defs.Table, row hooks.RowPayload) (hooks.RowPayload, error)
 	beforeLog []string
 	afterLog  []string
-	afterSnap []RowPayload
+	afterSnap []hooks.RowPayload
 }
 
 func (f *fakeHooks) Guard(t *defs.Table) error { return f.guardErr }
 
-func (f *fakeHooks) RunBefore(ev Event, t *defs.Table, row RowPayload) (RowPayload, error) {
+func (f *fakeHooks) RunBefore(ev hooks.Event, t *defs.Table, row hooks.RowPayload) (hooks.RowPayload, error) {
 	f.beforeLog = append(f.beforeLog, string(ev)+":"+t.Name)
 	if f.before != nil {
 		return f.before(ev, t, row)
@@ -30,7 +31,7 @@ func (f *fakeHooks) RunBefore(ev Event, t *defs.Table, row RowPayload) (RowPaylo
 	return row, nil
 }
 
-func (f *fakeHooks) RunAfter(ev Event, t *defs.Table, row RowPayload) error {
+func (f *fakeHooks) RunAfter(ev hooks.Event, t *defs.Table, row hooks.RowPayload) error {
 	f.afterLog = append(f.afterLog, string(ev)+":"+t.Name)
 	f.afterSnap = append(f.afterSnap, row)
 	return nil
@@ -173,14 +174,14 @@ func TestWriteInsertHookMissingAndReject(t *testing.T) {
 	res.adapter = func(tb *defs.Table) (ds.Adapter, error) { return &fakeAdapter{}, nil }
 	c := res.tables["customers"]
 	svc := &WriteService{R: res, H: &fakeHooks{
-		guardErr: &HookError{Missing: true, Msg: "hook Ghost is not registered in this binary"},
+		guardErr: &hooks.MissingError{Name: "Ghost"},
 	}}
 	if w := doWrite(svc, "POST", "", `{"name":"x"}`, c); w.Code != 400 ||
 		!strings.Contains(w.Body.String(), "HOOK_MISSING") {
 		t.Fatalf("guard missing = %d %s", w.Code, w.Body)
 	}
 	svc = &WriteService{R: res, H: &fakeHooks{
-		before: func(ev Event, tb *defs.Table, row RowPayload) (RowPayload, error) {
+		before: func(ev hooks.Event, tb *defs.Table, row hooks.RowPayload) (hooks.RowPayload, error) {
 			return row, errors.New("nope")
 		},
 	}}
@@ -192,7 +193,7 @@ func TestWriteInsertHookMissingAndReject(t *testing.T) {
 
 func TestWriteUpdateMutateAndAfterSnapshot(t *testing.T) {
 	res := writeResolver()
-	h := &fakeHooks{before: func(ev Event, tb *defs.Table, row RowPayload) (RowPayload, error) {
+	h := &fakeHooks{before: func(ev hooks.Event, tb *defs.Table, row hooks.RowPayload) (hooks.RowPayload, error) {
 		row.Values["name"] = strings.ToUpper(row.Values["name"].(string))
 		return row, nil
 	}}

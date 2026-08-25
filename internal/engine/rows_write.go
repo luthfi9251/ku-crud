@@ -8,48 +8,20 @@ import (
 	"net/http"
 
 	"ku-crud/internal/defs"
+	"ku-crud/internal/hooks"
 )
 
-// Event mirrors the platform's hook event names. The engine keeps a local
-// copy because the hooks package still depends on platform metadata; the
-// two unify when hooks moves into core.
-type Event string
-
-const (
-	BeforeCreate Event = "beforeCreate"
-	AfterCreate  Event = "afterCreate"
-	BeforeUpdate Event = "beforeUpdate"
-	AfterUpdate  Event = "afterUpdate"
-	BeforeDelete Event = "beforeDelete"
-	AfterDelete  Event = "afterDelete"
-)
-
-// RowPayload carries the write through hooks: Values is the new payload
-// (nil on delete), Old the pre-write row (nil on create).
-type RowPayload struct {
-	Values map[string]any
-	Old    map[string]any
-}
-
-// HookError carries hook failure semantics across the boundary (the
-// engine cannot import the hooks package, which still depends on meta).
-// Missing marks an assignment naming a hook absent from the registry.
-type HookError struct {
-	Missing bool
-	Msg     string
-}
-
-func (e *HookError) Error() string { return e.Msg }
-
-// Hooks is the zero-persistence callback contract. Guard rejects a write
-// when a definition's assignments are unusable; RunBefore runs
-// synchronously before the write and may rewrite the payload; RunAfter
-// schedules post-commit side effects and must not fail the request (the
-// platform's outbox is one possible implementation).
+// Hooks is the zero-persistence callback contract over the hooks
+// package's types. Guard rejects a write when a definition's assignments
+// are unusable (a *hooks.MissingError names a hook absent from the
+// registry); RunBefore runs synchronously before the write and may
+// rewrite the payload; RunAfter schedules post-commit side effects and
+// must not fail the request (the platform's outbox is one possible
+// implementation).
 type Hooks interface {
 	Guard(t *defs.Table) error
-	RunBefore(ev Event, t *defs.Table, row RowPayload) (RowPayload, error)
-	RunAfter(ev Event, t *defs.Table, row RowPayload) error
+	RunBefore(ev hooks.Event, t *defs.Table, row hooks.RowPayload) (hooks.RowPayload, error)
+	RunAfter(ev hooks.Event, t *defs.Table, row hooks.RowPayload) error
 }
 
 // RefSource is one inbound fk reference for delete protection: Src is the
@@ -88,9 +60,9 @@ type statusErr struct {
 func (e *statusErr) Error() string { return e.msg }
 
 func writeHookErr(w http.ResponseWriter, err error) {
-	var he *HookError
-	if errors.As(err, &he) && he.Missing {
-		writeErr(w, 400, "HOOK_MISSING", he.Msg, nil)
+	var me *hooks.MissingError
+	if errors.As(err, &me) {
+		writeErr(w, 400, "HOOK_MISSING", err.Error(), nil)
 		return
 	}
 	writeErr(w, 400, "HOOK_REJECTED", err.Error(), nil)
@@ -98,9 +70,9 @@ func writeHookErr(w http.ResponseWriter, err error) {
 
 // hookStatusErr maps a hook failure onto the 400 m2m-sync error shape.
 func hookStatusErr(err error) error {
-	var he *HookError
-	if errors.As(err, &he) && he.Missing {
-		return &statusErr{status: 400, code: "HOOK_MISSING", msg: he.Msg}
+	var me *hooks.MissingError
+	if errors.As(err, &me) {
+		return &statusErr{status: 400, code: "HOOK_MISSING", msg: err.Error()}
 	}
 	return &statusErr{status: 400, code: "HOOK_REJECTED", msg: err.Error()}
 }
@@ -133,14 +105,14 @@ func (s *WriteService) guard(t *defs.Table) error {
 	return s.H.Guard(t)
 }
 
-func (s *WriteService) runBefore(ev Event, t *defs.Table, row RowPayload) (RowPayload, error) {
+func (s *WriteService) runBefore(ev hooks.Event, t *defs.Table, row hooks.RowPayload) (hooks.RowPayload, error) {
 	if s.H == nil {
 		return row, nil
 	}
 	return s.H.RunBefore(ev, t, row)
 }
 
-func (s *WriteService) runAfter(ev Event, t *defs.Table, row RowPayload) {
+func (s *WriteService) runAfter(ev hooks.Event, t *defs.Table, row hooks.RowPayload) {
 	if s.H == nil {
 		return
 	}
@@ -283,7 +255,7 @@ func (s *WriteService) syncM2MLinks(c defs.Column, cfg *M2MCfg, srcVal any, want
 			continue
 		}
 		linkVals := map[string]any{c.M2M.SrcCol: srcVal, c.M2M.TgtCol: w}
-		if _, err := s.runBefore(BeforeCreate, cfg.Junction, RowPayload{Values: linkVals}); err != nil {
+		if _, err := s.runBefore(hooks.BeforeCreate, cfg.Junction, hooks.RowPayload{Values: linkVals}); err != nil {
 			return hookStatusErr(err)
 		}
 		if err := ja.Insert(cfg.Junction.Schema, cfg.Junction.PhysTab,
@@ -291,14 +263,14 @@ func (s *WriteService) syncM2MLinks(c defs.Column, cfg *M2MCfg, srcVal any, want
 			return err
 		}
 		// audit returns in Task 11 (platformhooks)
-		s.runAfter(AfterCreate, cfg.Junction, RowPayload{Values: linkVals})
+		s.runAfter(hooks.AfterCreate, cfg.Junction, hooks.RowPayload{Values: linkVals})
 	}
 	for k, v := range current { // removed links
 		if wantSet[k] {
 			continue
 		}
 		linkVals := map[string]any{c.M2M.SrcCol: srcVal, c.M2M.TgtCol: v}
-		if _, err := s.runBefore(BeforeDelete, cfg.Junction, RowPayload{Old: linkVals}); err != nil {
+		if _, err := s.runBefore(hooks.BeforeDelete, cfg.Junction, hooks.RowPayload{Old: linkVals}); err != nil {
 			return hookStatusErr(err)
 		}
 		if _, err := ja.DeletePairs(cfg.Junction.Schema, cfg.Junction.PhysTab,
@@ -306,7 +278,7 @@ func (s *WriteService) syncM2MLinks(c defs.Column, cfg *M2MCfg, srcVal any, want
 			return err
 		}
 		// audit returns in Task 11 (platformhooks)
-		s.runAfter(AfterDelete, cfg.Junction, RowPayload{Old: linkVals})
+		s.runAfter(hooks.AfterDelete, cfg.Junction, hooks.RowPayload{Old: linkVals})
 	}
 	return nil
 }
@@ -444,7 +416,7 @@ func (s *WriteService) Insert(w http.ResponseWriter, r *http.Request, t *defs.Ta
 		writeHookErr(w, err)
 		return
 	}
-	out, err := s.runBefore(BeforeCreate, t, RowPayload{Values: body})
+	out, err := s.runBefore(hooks.BeforeCreate, t, hooks.RowPayload{Values: body})
 	if err != nil {
 		writeHookErr(w, err)
 		return
@@ -482,7 +454,7 @@ func (s *WriteService) Insert(w http.ResponseWriter, r *http.Request, t *defs.Ta
 		return
 	}
 	// audit returns in Task 11 (platformhooks)
-	s.runAfter(AfterCreate, t, RowPayload{Values: body})
+	s.runAfter(hooks.AfterCreate, t, hooks.RowPayload{Values: body})
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -553,7 +525,7 @@ func (s *WriteService) Update(w http.ResponseWriter, r *http.Request, t *defs.Ta
 		writeHookErr(w, err)
 		return
 	}
-	out, err := s.runBefore(BeforeUpdate, t, RowPayload{Values: body, Old: oldRows[0]})
+	out, err := s.runBefore(hooks.BeforeUpdate, t, hooks.RowPayload{Values: body, Old: oldRows[0]})
 	if err != nil {
 		writeHookErr(w, err)
 		return
@@ -586,7 +558,7 @@ func (s *WriteService) Update(w http.ResponseWriter, r *http.Request, t *defs.Ta
 		mergedLast = merged
 		// audit returns in Task 11 (platformhooks)
 	}
-	s.runAfter(AfterUpdate, t, RowPayload{Values: mergedLast, Old: oldRows[0]})
+	s.runAfter(hooks.AfterUpdate, t, hooks.RowPayload{Values: mergedLast, Old: oldRows[0]})
 	if err := s.applyM2MPayload(t, body, oldRows[0], selections); err != nil {
 		writeM2MErr(w, err)
 		return
@@ -636,7 +608,7 @@ func (s *WriteService) Delete(w http.ResponseWriter, r *http.Request, t *defs.Ta
 		return
 	}
 	for _, old := range oldRows {
-		if _, err := s.runBefore(BeforeDelete, t, RowPayload{Old: old}); err != nil {
+		if _, err := s.runBefore(hooks.BeforeDelete, t, hooks.RowPayload{Old: old}); err != nil {
 			writeHookErr(w, err)
 			return
 		}
@@ -651,7 +623,7 @@ func (s *WriteService) Delete(w http.ResponseWriter, r *http.Request, t *defs.Ta
 	}
 	// audit returns in Task 11 (platformhooks)
 	for _, old := range oldRows {
-		s.runAfter(AfterDelete, t, RowPayload{Old: old})
+		s.runAfter(hooks.AfterDelete, t, hooks.RowPayload{Old: old})
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "affected": len(oldRows)})
 }
@@ -736,7 +708,7 @@ func (s *WriteService) BulkDelete(w http.ResponseWriter, r *http.Request, t *def
 		}
 		blocked := false
 		for _, old := range oldRows {
-			if _, err := s.runBefore(BeforeDelete, t, RowPayload{Old: old}); err != nil {
+			if _, err := s.runBefore(hooks.BeforeDelete, t, hooks.RowPayload{Old: old}); err != nil {
 				failures = append(failures, bulkFailure{Key: key, Code: "HOOK_REJECTED", Message: err.Error()})
 				blocked = true
 				break
@@ -760,7 +732,7 @@ func (s *WriteService) BulkDelete(w http.ResponseWriter, r *http.Request, t *def
 		deleted++
 	}
 	for _, old := range deletedOlds {
-		s.runAfter(AfterDelete, t, RowPayload{Old: old})
+		s.runAfter(hooks.AfterDelete, t, hooks.RowPayload{Old: old})
 	}
 	if failures == nil {
 		failures = []bulkFailure{}

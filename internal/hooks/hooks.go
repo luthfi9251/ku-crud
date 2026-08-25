@@ -14,8 +14,8 @@ import (
 	"strings"
 	"sync"
 
+	"ku-crud/internal/defs"
 	"ku-crud/internal/ds"
-	"ku-crud/internal/meta"
 )
 
 type Event string
@@ -36,11 +36,6 @@ const (
 var allEvents = map[Event]bool{BeforeCreate: true, AfterCreate: true,
 	BeforeUpdate: true, AfterUpdate: true, BeforeDelete: true, AfterDelete: true}
 
-type ActingUser struct {
-	ID       int64
-	Username string
-}
-
 // RowPayload carries the write through hooks. Values is the new payload
 // (empty map for delete); Old is the pre-write row (nil on create).
 // Message is set by onAction hooks (custom row actions) and ignored by
@@ -51,15 +46,40 @@ type RowPayload struct {
 	Message string
 }
 
-// HookContext gives a hook full platform access: every registered
-// datasource (lazily opened, hook must Close), the metadata store, a logger.
+// HookContext gives a hook host-level access: the definition it is
+// assigned to, a lazy datasource opener (hook must Close), a logger, the
+// acting user's name, and a host-private payload. The contract depends
+// only on defs/ds/stdlib — hosts (this platform) fill Actor/Host.
 type HookContext struct {
-	User     ActingUser
-	TableDef *meta.TableDef
-	Columns  []meta.ColumnDef
-	Open     func(datasourceID int64) (ds.Adapter, error)
-	Store    *meta.Store
-	Logger   *slog.Logger
+	Actor   string // injected by host via WithActor; "" when anonymous
+	Table   *defs.Table
+	Columns []defs.Column
+	Open    func(name string) (ds.Adapter, error) // by definition name
+	Logger  *slog.Logger
+	Host    any // host-private payload (platform: *meta.Store); nil for library users
+}
+
+// actorKey is the context key for the acting user's name.
+type actorKey struct{}
+
+// WithActor returns a context carrying the acting user's name, so hosts
+// can thread the actor alongside the request context. An empty name
+// leaves the context unchanged (anonymous).
+func WithActor(ctx context.Context, name string) context.Context {
+	if name == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, actorKey{}, name)
+}
+
+// ActorFrom returns the acting user's name injected via WithActor, or ""
+// when absent/anonymous.
+func ActorFrom(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	name, _ := ctx.Value(actorKey{}).(string)
+	return name
 }
 
 type HookFunc func(ctx context.Context, hc *HookContext, ev Event,

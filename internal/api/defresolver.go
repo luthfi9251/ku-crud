@@ -99,8 +99,9 @@ func (s *Server) readService(u CtxUser, def *meta.TableDef, cols []meta.ColumnDe
 // platform: Guard checks a definition's assignments against this binary's
 // registry, RunBefore executes compiled-in before-hooks (request context
 // on the request's own table, background elsewhere — the m2m link sync
-// always ran detached), RunAfter enqueues one outbox entry per after-hook
-// assignment for the worker.
+// always ran detached; the actor rides both the context and the hook
+// context), RunAfter enqueues one outbox entry per after-hook assignment
+// for the worker.
 type hookAdapter struct {
 	s        *Server
 	u        CtxUser
@@ -123,44 +124,33 @@ func (h *hookAdapter) defCols(t *defs.Table) (*meta.TableDef, []meta.ColumnDef, 
 	return h.s.store.GetTableDef(d.ID)
 }
 
-func (h *hookAdapter) toHookErr(err error) error {
-	var me *hooks.MissingError
-	return &engine.HookError{Missing: errors.As(err, &me), Msg: err.Error()}
-}
-
 func (h *hookAdapter) Guard(t *defs.Table) error {
 	def, _, err := h.defCols(t)
 	if err != nil {
-		return h.toHookErr(err)
+		return err
 	}
-	if err := h.s.hookGuard(def); err != nil {
-		return h.toHookErr(err)
-	}
-	return nil
+	return h.s.hookGuard(def)
 }
 
-func (h *hookAdapter) RunBefore(ev engine.Event, t *defs.Table, row engine.RowPayload) (engine.RowPayload, error) {
-	def, cols, err := h.defCols(t)
-	if err != nil {
-		return row, h.toHookErr(err)
-	}
+func (h *hookAdapter) RunBefore(ev hooks.Event, t *defs.Table, row hooks.RowPayload) (hooks.RowPayload, error) {
 	ctx := context.Background()
 	if t.Name == h.mainDef.TableName {
 		ctx = h.req.Context()
 	}
-	out, err := h.s.runBefore(ctx, h.u, def, cols, hooks.Event(ev), row.Values, row.Old)
+	ctx = hooks.WithActor(ctx, h.u.Username)
+	out, err := h.s.runBefore(ctx, h.s.hookCtx(h.u.Username, h.res, t), t, ev, row.Values, row.Old)
 	if err != nil {
-		return row, h.toHookErr(err)
+		return row, err
 	}
-	return engine.RowPayload{Values: out, Old: row.Old}, nil
+	return hooks.RowPayload{Values: out, Old: row.Old, Message: row.Message}, nil
 }
 
-func (h *hookAdapter) RunAfter(ev engine.Event, t *defs.Table, row engine.RowPayload) error {
+func (h *hookAdapter) RunAfter(ev hooks.Event, t *defs.Table, row hooks.RowPayload) error {
 	def, _, err := h.defCols(t)
 	if err != nil {
 		return nil // best-effort, mirrors enqueueAfter's swallow-on-error
 	}
-	h.s.enqueueAfter(h.u, def, hooks.Event(ev), row.Old, row.Values)
+	h.s.enqueueAfter(h.u, def, ev, row.Old, row.Values)
 	return nil
 }
 

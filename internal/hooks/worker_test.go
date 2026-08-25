@@ -34,7 +34,7 @@ func TestWorkerExecutesAndRetries(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register("H", func(ctx context.Context, hc *HookContext, ev Event, row RowPayload, cfg json.RawMessage) (RowPayload, error) {
 		runs++
-		if hc.User.Username != "admin" || hc.TableDef.ID != def.ID {
+		if hc.Actor != "admin" || hc.Table.Name != def.TableName || hc.Host != store {
 			t.Errorf("hook ctx = %+v", hc)
 		}
 		if row.Values["x"] != float64(1) {

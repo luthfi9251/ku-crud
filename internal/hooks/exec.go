@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
-
-	"ku-crud/internal/ds"
-	"ku-crud/internal/meta"
 )
 
 const (
@@ -88,17 +85,6 @@ func (r *Registry) RunOne(ctx context.Context, hc *HookContext, ev Event,
 	}
 	_, err := r.runGuarded(ctx, AfterTimeout, fn, hc, ev, row, a.Config)
 	return err
-}
-
-// OpenDatasource opens a live adapter for a stored datasource id — the
-// opener injected into HookContext by both the API and the worker.
-func OpenDatasource(store *meta.Store, dsID int64) (ds.Adapter, error) {
-	d, err := store.GetDatasource(dsID)
-	if err != nil {
-		return nil, err
-	}
-	return ds.Open(ds.Conn{Driver: d.Driver, Host: d.Host, Port: d.Port,
-		DB: d.DBName, User: d.Username, Password: d.Password, SSLMode: d.SSLMode, Raw: d.Raw})
 }
 
 // RunAction executes one custom action's hook synchronously and returns

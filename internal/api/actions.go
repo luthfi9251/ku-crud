@@ -6,6 +6,7 @@ import (
 
 	"ku-crud/internal/engine"
 	"ku-crud/internal/hooks"
+	"ku-crud/internal/meta"
 )
 
 // handleRowAction runs one custom row action synchronously (v1.9):
@@ -65,7 +66,10 @@ func (s *Server) handleRowAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	row := rowsOut[0]
-	msg, err := s.hooks.RunAction(r.Context(), s.hookCtx(u, def, cols),
+	res := s.metaRes(def)
+	ct := meta.ToCoreDef(*def, cols, res.idToName)
+	msg, err := s.hooks.RunAction(hooks.WithActor(r.Context(), u.Username),
+		s.hookCtx(u.Username, res, &ct),
 		hooks.RowPayload{Values: row},
 		hooks.Assignment{Hook: act.Hook, Config: act.Config, Order: act.Order})
 	status := "ok"

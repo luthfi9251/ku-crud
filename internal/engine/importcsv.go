@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"ku-crud/internal/defs"
+	"ku-crud/internal/hooks"
 )
 
 // importRowError is one validation problem on one CSV row, keyed by the
@@ -41,14 +42,14 @@ func (s *ImportService) guard(t *defs.Table) error {
 	return s.H.Guard(t)
 }
 
-func (s *ImportService) runBefore(ev Event, t *defs.Table, row RowPayload) (RowPayload, error) {
+func (s *ImportService) runBefore(ev hooks.Event, t *defs.Table, row hooks.RowPayload) (hooks.RowPayload, error) {
 	if s.H == nil {
 		return row, nil
 	}
 	return s.H.RunBefore(ev, t, row)
 }
 
-func (s *ImportService) runAfter(ev Event, t *defs.Table, row RowPayload) {
+func (s *ImportService) runAfter(ev hooks.Event, t *defs.Table, row hooks.RowPayload) {
 	if s.H == nil {
 		return
 	}
@@ -172,7 +173,7 @@ func (s *ImportService) validateImportRows(t *defs.Table,
 			if !rows[i].Valid {
 				continue
 			}
-			if _, err := s.runBefore(BeforeCreate, t, RowPayload{Values: payloads[i]}); err != nil {
+			if _, err := s.runBefore(hooks.BeforeCreate, t, hooks.RowPayload{Values: payloads[i]}); err != nil {
 				rows[i].Valid = false
 				rows[i].Errors = append(rows[i].Errors, importRowError{Message: "hook: " + err.Error()})
 			}
@@ -321,7 +322,7 @@ func (s *ImportService) ApplyImport(w http.ResponseWriter, r *http.Request, t *d
 		}
 		// hooks run exactly once per row, here — before editablePayload so
 		// mutations are part of the inserted values
-		hooked, err := s.runBefore(BeforeCreate, t, RowPayload{Values: payloads[i]})
+		hooked, err := s.runBefore(hooks.BeforeCreate, t, hooks.RowPayload{Values: payloads[i]})
 		if err != nil {
 			failed++
 			failures = append(failures, failure{Row: i, Errors: []importRowError{{Column: "", Message: err.Error()}}})
@@ -352,7 +353,7 @@ func (s *ImportService) ApplyImport(w http.ResponseWriter, r *http.Request, t *d
 		// audit returns in Task 11 (platformhooks)
 	}
 	for _, p := range insertedPayloads {
-		s.runAfter(AfterCreate, t, RowPayload{Values: p})
+		s.runAfter(hooks.AfterCreate, t, hooks.RowPayload{Values: p})
 	}
 	if failures == nil {
 		failures = []failure{}
