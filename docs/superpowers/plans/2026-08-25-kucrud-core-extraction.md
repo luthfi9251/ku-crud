@@ -17,7 +17,7 @@
 - No behavior change in platform endpoints until Task 9 (extraction is refactor-first, switchover last).
 - Integration suites share one schema — run with `-p 1` under load.
 - Core module path: `github.com/luthfi9251/kucrud-core` (root uses `replace` until first tag).
-- End state: core in its own repository (Task 13, triggered by Tasks 10–11 green).
+- End state: core in its own repository (Task 13 — DEFERRED pending owner verification; runs only with explicit owner approval).
 
 ## Target layout
 
@@ -449,9 +449,14 @@ func Sort(col string, dir defs.SortDir) SortSpec { return SortSpec{Col: col, Dir
 
 ---
 
-### Task 13: core repository split
+### Task 13: core repository split — DEFERRED (owner decision pending)
 
-**Trigger:** Tasks 10–11 green — platform runs on core, full suites pass, core churn complete.
+**Status:** On hold by owner decision (2026-08-25): manual verification of the
+in-repo extraction comes first; the split is executed only after the owner
+confirms. Do not start this task without explicit owner approval.
+
+**Trigger:** Tasks 10–11 green AND owner sign-off after manual verification —
+platform runs on core, full suites pass, owner has validated behavior hands-on.
 
 **Files:**
 - Create: new repository `kucrud-core` (from `core/`, history preserved)
