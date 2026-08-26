@@ -200,6 +200,87 @@ func (s *ReadService) List(w http.ResponseWriter, r *http.Request, t *defs.Table
 		"pageSize": t.PageSize, "rels": rels, "m2mRels": m2mRels})
 }
 
+// aggFuncs is the stats allowlist; the ds builder carries its own copy so
+// only these names can ever reach SQL text.
+var aggFuncs = map[string]bool{"count": true, "sum": true, "avg": true, "min": true, "max": true}
+
+// Stats renders GET stats: one aggregate value over the def with optional
+// grid-format filters (dashboard cards).
+func (s *ReadService) Stats(w http.ResponseWriter, r *http.Request, t *defs.Table) {
+	q := r.URL.Query()
+	fn := q.Get("func")
+	colName := q.Get("column")
+	if !aggFuncs[fn] {
+		writeErr(w, 400, "STATS_INVALID", "func must be one of count|sum|avg|min|max", nil)
+		return
+	}
+	var col *defs.Column
+	if colName != "" {
+		for i := range t.Columns {
+			if t.Columns[i].Name == colName {
+				col = &t.Columns[i]
+				break
+			}
+		}
+		if col == nil || col.FieldType == "m2m" || col.IsComputed {
+			writeErr(w, 400, "STATS_INVALID", "unknown or virtual column "+colName, nil)
+			return
+		}
+	}
+	switch fn {
+	case "count":
+		if colName != "" {
+			writeErr(w, 400, "STATS_INVALID", "count takes no column", nil)
+			return
+		}
+	case "sum", "avg":
+		if col == nil || col.FieldType != "number" {
+			writeErr(w, 400, "STATS_INVALID", fn+" requires a number column", nil)
+			return
+		}
+	case "min", "max":
+		if col == nil || (col.FieldType != "number" && col.FieldType != "datetime") {
+			writeErr(w, 400, "STATS_INVALID", fn+" requires a number or datetime column", nil)
+			return
+		}
+	}
+	filters, ferr := ParseFilters(t, q.Get("filters"), s.FKJoin)
+	if ferr != nil {
+		writeErr(w, 400, "FILTER_INVALID", ferr.Error(), nil)
+		return
+	}
+	a, err := s.R.Adapter(t)
+	if err != nil {
+		writeLiveErr(w, err)
+		return
+	}
+	defer a.Close()
+	ap := ds.AggregateParams{Func: fn, Column: colName, Filters: filters}
+	if t.SourceType == "query" {
+		ap.Query = t.QuerySQL
+	} else {
+		ap.Schema, ap.Table = t.Schema, t.PhysTab
+	}
+	res, err := a.AggregateRows(ap)
+	if err != nil {
+		if t.SourceType == "query" {
+			writeQueryErr(w, err)
+			return
+		}
+		writeErr(w, 502, "CONN", "query failed", err.Error())
+		return
+	}
+	v := res.Value
+	if col != nil && col.FieldType == "number" {
+		if sv, ok := v.(string); ok {
+			if f, perr := strconv.ParseFloat(sv, 64); perr == nil {
+				v = f // numeric aggregates arrive as strings on some drivers
+			}
+		}
+	}
+	writeJSON(w, 200, map[string]any{"func": fn, "column": colName, "value": v, "hasRows": res.HasRows})
+}
+
 // Get renders one row by key, enriched with fk rels.
 func (s *ReadService) Get(w http.ResponseWriter, r *http.Request, t *defs.Table) {
 	// checked before the adapter so no-grant callers can't probe whether a

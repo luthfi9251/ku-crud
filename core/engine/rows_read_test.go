@@ -21,6 +21,7 @@ type fakeAdapter struct {
 	fetchPairs  func(schema, table, col, retCol string, vals []any) ([]ds.Pair, error)
 	listQuery   func(ds.QueryParams) ([]map[string]any, error)
 	countQuery  func(ds.QueryParams) (int, error)
+	aggregate   func(ds.AggregateParams) (*ds.AggregateResult, error)
 	insert      func(schema, table string, cols []string, vals []any) error
 	updateByKey func(schema, table string, setCols []string, setVals []any, keyCols []string, keyVals []any) (int64, error)
 	deleteByKey func(schema, table string, keyCols []string, keyVals []any) (int64, error)
@@ -45,6 +46,9 @@ func (f *fakeAdapter) ListQueryRows(p ds.QueryParams) ([]map[string]any, error) 
 	return f.listQuery(p)
 }
 func (f *fakeAdapter) CountQueryRows(p ds.QueryParams) (int, error) { return f.countQuery(p) }
+func (f *fakeAdapter) AggregateRows(p ds.AggregateParams) (*ds.AggregateResult, error) {
+	return f.aggregate(p)
+}
 func (f *fakeAdapter) Insert(sc, tb string, cols []string, vals []any) error {
 	return f.insert(sc, tb, cols, vals)
 }
