@@ -1,6 +1,10 @@
 package meta
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/luthfi9251/kucrud-core/defs"
+)
 
 func TestTableDefCRUD(t *testing.T) {
 	s := openTest(t)
@@ -195,5 +199,97 @@ func TestTableDefDescription(t *testing.T) {
 	got, _, _ = s.GetTableDef(def.ID)
 	if got.Description != "All orders" {
 		t.Fatalf("description after update: %q", got.Description)
+	}
+}
+
+func TestToCoreDefDanglingRefs(t *testing.T) {
+	s := openTest(t)
+	if err := s.CreateDatasource(&Datasource{Name: "d", Host: "h", Port: 1, DBName: "db",
+		Username: "u", Password: "p", SSLMode: "disable"}); err != nil {
+		t.Fatal(err)
+	}
+	target := &TableDef{DatasourceID: 1, SchemaName: "public", TableName: "tags",
+		Label: "Tags", KeyColumns: []string{"id"}, PageSize: 20}
+	junction := &TableDef{DatasourceID: 1, SchemaName: "public", TableName: "customer_tags",
+		Label: "CT", KeyColumns: []string{"customer_id", "tag_id"}, PageSize: 20}
+	src := &TableDef{DatasourceID: 1, SchemaName: "public", TableName: "customers",
+		Label: "Customers", KeyColumns: []string{"id"}, PageSize: 20}
+	if err := s.SaveTableDef(target, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveTableDef(junction, []ColumnDef{
+		{Name: "customer_id", FieldType: "fk", FKTableDefID: 3, FKRefColumn: "id"},
+		{Name: "tag_id", FieldType: "fk", FKTableDefID: 1, FKRefColumn: "id"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveTableDef(src, []ColumnDef{
+		{Name: "self_ref", FieldType: "fk", FKTableDefID: 3, FKRefColumn: "id"},
+		{Name: "fk_tag", FieldType: "fk", FKTableDefID: 1, FKRefColumn: "id"},
+		{Name: "m2m_tags", FieldType: "m2m", M2MJunctionDefID: 2,
+			M2MJunctionSrcCol: "customer_id", M2MJunctionTgtCol: "tag_id"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	buildIDToName := func() map[int64]string {
+		list, err := s.ListTableDefs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[int64]string{}
+		for _, d := range list {
+			m[d.ID] = d.TableName
+		}
+		return m
+	}
+
+	// delete the target def: its id dangles in fk_tag and the junction's
+	// tag_id, while self_ref and the junction id stay intact
+	if err := s.DeleteTableDef(1); err != nil {
+		t.Fatal(err)
+	}
+	def, cols, err := s.GetTableDef(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct := ToCoreDef(*def, cols, buildIDToName())
+	var fkSelf, fkTag *defs.FK
+	var m2m *defs.M2M
+	for i := range ct.Columns {
+		switch ct.Columns[i].Name {
+		case "self_ref":
+			fkSelf = ct.Columns[i].FK
+		case "fk_tag":
+			fkTag = ct.Columns[i].FK
+		case "m2m_tags":
+			m2m = ct.Columns[i].M2M
+		}
+	}
+	if fkSelf == nil || fkSelf.Table != "" {
+		t.Fatalf("self fk table = %+v (must stay the \"\" self convention)", fkSelf)
+	}
+	if fkTag == nil || fkTag.Table != defs.MissingTable {
+		t.Fatalf("dangling fk table = %+v (must be defs.MissingTable)", fkTag)
+	}
+	if m2m == nil || m2m.JunctionTable != "customer_tags" {
+		t.Fatalf("junction mapping changed: %+v", m2m)
+	}
+
+	// delete the junction too: the m2m ref dangles as well
+	if err := s.DeleteTableDef(2); err != nil {
+		t.Fatal(err)
+	}
+	def, cols, err = s.GetTableDef(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct = ToCoreDef(*def, cols, buildIDToName())
+	for i := range ct.Columns {
+		if ct.Columns[i].Name == "m2m_tags" {
+			m2m = ct.Columns[i].M2M
+		}
+	}
+	if m2m == nil || m2m.JunctionTable != defs.MissingTable {
+		t.Fatalf("dangling junction = %+v (must be defs.MissingTable)", m2m)
 	}
 }

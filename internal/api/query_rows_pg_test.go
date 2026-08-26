@@ -29,6 +29,7 @@ func seedQueryLive(t *testing.T, s *Server) string {
 	if err := s.store.SaveTableDef(def, cols); err != nil {
 		t.Fatal(err)
 	}
+	// query views have no table name; the /api/data address is the token
 	return tdTok(s, def.ID)
 }
 
@@ -37,7 +38,7 @@ func TestQueryRowsListFilterSort(t *testing.T) {
 	c := login(s)
 	tok := seedQueryLive(t, s)
 
-	w := do(s, "GET", "/api/tables/"+tok+"/rows", "", c)
+	w := do(s, "GET", "/api/data/"+tok+"/rows", "", c)
 	if w.Code != 200 {
 		t.Fatalf("list = %d %s", w.Code, w.Body)
 	}
@@ -51,13 +52,13 @@ func TestQueryRowsListFilterSort(t *testing.T) {
 	}
 
 	f := url.QueryEscape(`[{"column":"customer_name","op":"contains","values":["jo"]}]`)
-	w = do(s, "GET", "/api/tables/"+tok+"/rows?filters="+f+"&sort=balance&dir=DESC", "", c)
+	w = do(s, "GET", "/api/data/"+tok+"/rows?filters="+f+"&sort=balance&dir=DESC", "", c)
 	json.Unmarshal(w.Body.Bytes(), &res)
 	if res.Total != 2 || res.Rows[0]["customer_name"] != "jo" { // DESC: 10.50 > 2.00
 		t.Fatalf("filter+sort = total %d rows %+v", res.Total, res.Rows)
 	}
 
-	w = do(s, "GET", "/api/tables/"+tok+"/rows?search=ana", "", c)
+	w = do(s, "GET", "/api/data/"+tok+"/rows?search=ana", "", c)
 	json.Unmarshal(w.Body.Bytes(), &res)
 	if res.Total != 1 {
 		t.Fatalf("search = %d", res.Total)
@@ -70,7 +71,7 @@ func TestQueryRowsGetAndExport(t *testing.T) {
 	tok := seedQueryLive(t, s)
 
 	pk := rowKeyToken([]string{"jo"})
-	w := do(s, "GET", "/api/tables/"+tok+"/rows/"+pk, "", c)
+	w := do(s, "GET", "/api/data/"+tok+"/rows/"+pk, "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "customer_name") {
 		t.Fatalf("row get = %d %s", w.Code, w.Body)
 	}

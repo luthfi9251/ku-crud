@@ -16,11 +16,11 @@ func TestFiltersPG(t *testing.T) {
 	s := newTestServer(t)
 	c := login(s)
 	seedLive(t, s) // def 1: customers(name text, ...) — see rows_test.go:14
-	tok := tdTok(s, 1)
+	tok := defName(s, 1)
 
 	// 1. filtered list returns 200 and a sane total
 	f := url.QueryEscape(`[{"column":"name","op":"contains","values":["o"]}]`)
-	w := do(s, "GET", "/api/tables/"+tok+"/rows?filters="+f, "", c)
+	w := do(s, "GET", "/api/data/"+tok+"/rows?filters="+f, "", c)
 	if w.Code != 200 {
 		t.Fatalf("list = %d %s", w.Code, w.Body)
 	}
@@ -47,13 +47,13 @@ func TestFiltersPG(t *testing.T) {
 	}
 
 	// 4. invalid filter -> 400 FILTER_INVALID
-	w = do(s, "GET", "/api/tables/"+tok+"/rows?filters="+
+	w = do(s, "GET", "/api/data/"+tok+"/rows?filters="+
 		url.QueryEscape(`[{"column":"hax","op":"eq","values":["1"]}]`), "", c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "FILTER_INVALID") {
 		t.Fatalf("bad filter = %d %s", w.Code, w.Body)
 	}
 	// 5. injection payload in column name -> 400, never reaches SQL
-	w = do(s, "GET", "/api/tables/"+tok+"/rows?filters="+
+	w = do(s, "GET", "/api/data/"+tok+"/rows?filters="+
 		url.QueryEscape(`[{"column":"name; DROP TABLE x","op":"eq","values":["1"]}]`), "", c)
 	if w.Code != 400 {
 		t.Fatalf("injection filter = %d %s", w.Code, w.Body)
@@ -70,11 +70,11 @@ func TestFiltersFKPG(t *testing.T) {
 	s := newTestServer(t)
 	c := login(s)
 	seedFKLive(t, s) // defs: customers=1, orders=2 (fk customer_id)
-	tok := tdTok(s, 2)
+	tok := defName(s, 2)
 
 	// contains "joe" matches only customer 'joe' → order o2
 	f := url.QueryEscape(`[{"column":"customer_id","op":"contains","values":["joe"]}]`)
-	w := do(s, "GET", "/api/tables/"+tok+"/rows?filters="+f, "", c)
+	w := do(s, "GET", "/api/data/"+tok+"/rows?filters="+f, "", c)
 	if w.Code != 200 {
 		t.Fatalf("fk filtered list = %d %s", w.Code, w.Body)
 	}
@@ -89,7 +89,7 @@ func TestFiltersFKPG(t *testing.T) {
 
 	// contains "jo" matches customers 'jo' and 'joe' → orders o1, o2
 	f = url.QueryEscape(`[{"column":"customer_id","op":"contains","values":["jo"]}]`)
-	w = do(s, "GET", "/api/tables/"+tok+"/rows?filters="+f, "", c)
+	w = do(s, "GET", "/api/data/"+tok+"/rows?filters="+f, "", c)
 	json.Unmarshal(w.Body.Bytes(), &res)
 	if w.Code != 200 || res.Total != 2 {
 		t.Fatalf("fk contains jo = %d %s (total=%d)", w.Code, w.Body, res.Total)

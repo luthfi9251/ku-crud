@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/luthfi9251/kucrud-core/hooks"
 	_ "ku-crud/hooks" // compiled-in hooks register via registry_gen init()
 	"ku-crud/internal/api"
 	kuhooks "ku-crud/internal/hooks"
@@ -33,13 +34,13 @@ func main() {
 		slog.Error("metadata store failed", "err", err.Error())
 		os.Exit(1)
 	}
-	srv, err := api.New(store, kuhooks.Default)
+	srv, err := api.New(store, hooks.Default)
 	if err != nil {
 		slog.Error("server init failed", "err", err.Error())
 		os.Exit(1)
 	}
 
-	worker := &kuhooks.Worker{Store: store, Reg: kuhooks.Default, Logger: slog.Default()}
+	worker := &kuhooks.Worker{Store: store, Reg: hooks.Default, Logger: slog.Default()}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go worker.Run(ctx)

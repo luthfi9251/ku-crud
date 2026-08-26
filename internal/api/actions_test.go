@@ -10,7 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"ku-crud/internal/hooks"
+	"github.com/luthfi9251/kucrud-core/engine"
+	"github.com/luthfi9251/kucrud-core/hooks"
 	"ku-crud/internal/meta"
 )
 
@@ -30,9 +31,13 @@ func defsEnv(t *testing.T) *Server {
 	return s
 }
 
-// defBodyWithActions splices an actions field into defBody(s).
+// defBodyWithActions splices an actions field into defBody(s); the def
+// gets its own table name so action-save tests can create it next to the
+// seeded def (table names are a globally unique namespace).
 func defBodyWithActions(s *Server, actions string) string {
-	return strings.Replace(defBody(s), `"columns":[`, `"actions":`+actions+`,"columns":[`, 1)
+	return strings.Replace(strings.Replace(defBody(s),
+		`"tableName":"customers"`, `"tableName":"actions_def"`, 1),
+		`"columns":[`, `"actions":`+actions+`,"columns":[`, 1)
 }
 
 // createWithActions saves a def carrying the actions JSON and returns the
@@ -126,9 +131,9 @@ func TestActionHappyPathAndAudit(t *testing.T) {
 	}
 	s := actionEnv(t)
 	c := login(s)
-	do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"id":70,"name":"nia"}`, c)
+	do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"id":70,"name":"nia"}`, c)
 	setActions(t, s, 1, `{"custom":[{"id":"hello","label":"Say hello","grant":"update","hook":"SayHello","order":1}]}`)
-	w := do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"70"})+"/action",
+	w := do(s, "POST", "/api/data/"+defName(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"70"})+"/action",
 		`{"actionId":"hello"}`, c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "hello nia") {
 		t.Fatalf("action = %d %s", w.Code, w.Body)
@@ -151,13 +156,13 @@ func TestActionGrantGate(t *testing.T) {
 	}
 	s := actionEnv(t)
 	c := login(s)
-	do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"id":71,"name":"mia"}`, c)
+	do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"id":71,"name":"mia"}`, c)
 	setActions(t, s, 1, `{"custom":[{"id":"hello","label":"Say hello","grant":"update","hook":"SayHello","order":1}]}`)
 	reader := loginAs(t, s, "areader", &meta.Role{Name: "AReader"},
 		[]meta.TableGrant{{TableDefID: 1, CanRead: true}})
 	writer := loginAs(t, s, "awriter", &meta.Role{Name: "AWriter"},
 		[]meta.TableGrant{{TableDefID: 1, CanRead: true, CanUpdate: true}})
-	url := "/api/tables/" + tdTok(s, 1) + "/rows/" + encodeRowKey([]string{"71"}) + "/action"
+	url := "/api/data/" + defName(s, 1) + "/rows/" + engine.EncodeRowKey([]string{"71"}) + "/action"
 	if w := do(s, "POST", url, `{"actionId":"hello"}`, reader); w.Code != 403 {
 		t.Fatalf("reader = %d %s", w.Code, w.Body)
 	}
@@ -178,13 +183,13 @@ func TestActionNotFoundRowMissing(t *testing.T) {
 	s := actionEnv(t)
 	c := login(s)
 	setActions(t, s, 1, `{"custom":[{"id":"hello","label":"Say hello","grant":"read","hook":"SayHello","order":1}]}`)
-	tok := tdTok(s, 1)
-	w := do(s, "POST", "/api/tables/"+tok+"/rows/"+encodeRowKey([]string{"1"})+"/action",
+	tok := defName(s, 1)
+	w := do(s, "POST", "/api/data/"+tok+"/rows/"+engine.EncodeRowKey([]string{"1"})+"/action",
 		`{"actionId":"nope"}`, c)
 	if w.Code != 404 || !strings.Contains(w.Body.String(), "ACTION_NOT_FOUND") {
 		t.Fatalf("unknown = %d %s", w.Code, w.Body)
 	}
-	w = do(s, "POST", "/api/tables/"+tok+"/rows/"+encodeRowKey([]string{"999"})+"/action",
+	w = do(s, "POST", "/api/data/"+tok+"/rows/"+engine.EncodeRowKey([]string{"999"})+"/action",
 		`{"actionId":"hello"}`, c)
 	if w.Code != 404 || !strings.Contains(w.Body.String(), "NOT_FOUND") {
 		t.Fatalf("row missing = %d %s", w.Code, w.Body)
@@ -197,8 +202,8 @@ func TestActionHookMissingAndFailure(t *testing.T) {
 	}
 	s := actionEnv(t)
 	c := login(s)
-	do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"id":72,"name":"jo"}`, c)
-	url := "/api/tables/" + tdTok(s, 1) + "/rows/" + encodeRowKey([]string{"72"}) + "/action"
+	do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"id":72,"name":"jo"}`, c)
+	url := "/api/data/" + defName(s, 1) + "/rows/" + engine.EncodeRowKey([]string{"72"}) + "/action"
 	setActions(t, s, 1, `{"custom":[{"id":"g","label":"G","grant":"read","hook":"Ghost","order":1}]}`)
 	if w := do(s, "POST", url, `{"actionId":"g"}`, c); w.Code != 400 || !strings.Contains(w.Body.String(), "HOOK_MISSING") {
 		t.Fatalf("missing = %d %s", w.Code, w.Body)
@@ -230,7 +235,7 @@ func TestActionQueryViewRejected(t *testing.T) {
 	stranger := loginAs(t, s, "qact", &meta.Role{Name: "QAct"},
 		[]meta.TableGrant{{TableDefID: 1, CanRead: true}})
 	setActions(t, s, 1, `{"custom":[{"id":"x","label":"X","grant":"read","hook":"H","order":1}]}`)
-	w := do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows/"+rowKeyToken([]string{"jo"})+"/action",
+	w := do(s, "POST", "/api/data/"+defName(s, 1)+"/rows/"+rowKeyToken([]string{"jo"})+"/action",
 		`{"actionId":"x"}`, stranger)
 	if w.Code != 403 || !strings.Contains(w.Body.String(), "QUERY_READONLY") {
 		t.Fatalf("query action = %d %s", w.Code, w.Body)

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"ku-crud/internal/ds"
+	"github.com/luthfi9251/kucrud-core/ds"
 	"ku-crud/internal/meta"
 )
 
@@ -194,7 +194,8 @@ func (s *Server) handleDSQueryIntrospect(w http.ResponseWriter, r *http.Request)
 		s.writeDSErr(w, err)
 		return
 	}
-	a, err := ds.Open(*d)
+	a, err := ds.Open(ds.Conn{Driver: d.Driver, Host: d.Host, Port: d.Port,
+		DB: d.DBName, User: d.Username, Password: d.Password, SSLMode: d.SSLMode, Raw: d.Raw})
 	if err != nil {
 		writeErr(w, 502, "CONN", "connection failed", err.Error())
 		return
@@ -229,7 +230,8 @@ func (s *Server) handleDSTest(w http.ResponseWriter, r *http.Request) {
 		s.writeDSErr(w, err)
 		return
 	}
-	a, err := ds.Open(*d)
+	a, err := ds.Open(ds.Conn{Driver: d.Driver, Host: d.Host, Port: d.Port,
+		DB: d.DBName, User: d.Username, Password: d.Password, SSLMode: d.SSLMode, Raw: d.Raw})
 	if err != nil {
 		writeErr(w, 502, "CONN", "connection failed", err.Error())
 		return

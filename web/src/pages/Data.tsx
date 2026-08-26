@@ -61,6 +61,9 @@ export default function Data() {
   const qc = useQueryClient();
   const def = useQuery({ queryKey: ["def", id], queryFn: () => api<TableDefPayload>(`/tables/${id}`) });
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/auth/me") });
+  // data endpoints are name-addressed (/api/data/{name}); nameless query
+  // views fall back to the masked def id the router already carries
+  const dataName = def.data?.tableName || id || "";
   const [search, setSearch] = useState(searchParam);
   const [debounced, setDebounced] = useState(searchParam);
   const [sort, setSort] = useState("");
@@ -157,7 +160,7 @@ export default function Data() {
         p.set("dir", dir);
       }
       p.set("page", String(page));
-      return api<RowsRes>(`/tables/${id}/rows?${p}`);
+      return api<RowsRes>(`/data/${dataName}/rows?${p}`);
     },
   });
 
@@ -185,7 +188,7 @@ export default function Data() {
         }
         p.set("page", String(page));
         p.set("limit", String(Math.min(200, CAP)));
-        const res = await api<RowsRes>(`/tables/${id}/rows?${p}`);
+        const res = await api<RowsRes>(`/data/${dataName}/rows?${p}`);
         all.push(...res.rows);
         for (const [col, m] of Object.entries(res.rels ?? {})) {
           rels[col] = { ...(rels[col] ?? {}), ...m };
@@ -267,7 +270,7 @@ export default function Data() {
             payload[c.name] = v;
           }
         }
-        await api(`/tables/${id}/rows`, { method: "POST", body: JSON.stringify(payload) });
+        await api(`/data/${dataName}/rows`, { method: "POST", body: JSON.stringify(payload) });
       } else {
         // In edit mode, strip PKs and non-editable fields from PUT payload
         // (m2m selections always ride along — the server strips and syncs them)
@@ -281,7 +284,7 @@ export default function Data() {
         }
         const key = form!.initialKey || rowKey(form!.row);
         if (!key) throw new Error("row has a null key value");
-        await api(`/tables/${id}/rows/${encodeRowKey(key)}`, { method: "PUT", body: JSON.stringify(payload) });
+        await api(`/data/${dataName}/rows/${encodeRowKey(key)}`, { method: "PUT", body: JSON.stringify(payload) });
       }
     },
     onSuccess: () => {
@@ -313,7 +316,7 @@ export default function Data() {
     setActionBusy(act.id);
     try {
       const res = await api<{ message: string }>(
-        `/tables/${id}/rows/${encodeRowKey(key)}/action`,
+        `/data/${dataName}/rows/${encodeRowKey(key)}/action`,
         { method: "POST", body: JSON.stringify({ actionId: act.id }) }
       );
       setNotice({ kind: "ok", text: `${act.label}: ${res.message || t("data.actionDone")}` });
@@ -339,7 +342,7 @@ export default function Data() {
       }
       const fs = serializeFilters(filters);
       if (fs) p.set("filters", fs);
-      const res = await fetch(`/api/tables/${id}/rows/export?${p}`, { credentials: "same-origin" });
+      const res = await fetch(`/api/data/${dataName}/rows/export?${p}`, { credentials: "same-origin" });
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;
         try {
@@ -365,7 +368,7 @@ export default function Data() {
     }
   };
   const del = useMutation({
-    mutationFn: (key: string[]) => api(`/tables/${id}/rows/${encodeRowKey(key)}`, { method: "DELETE" }),
+    mutationFn: (key: string[]) => api(`/data/${dataName}/rows/${encodeRowKey(key)}`, { method: "DELETE" }),
     onSuccess: () => {
       setDelErr("");
       setDataVersion((v) => v + 1);
@@ -410,7 +413,7 @@ export default function Data() {
       const failed: { key: string; code: string; message: string }[] = [];
       for (let i = 0; i < keys.length; i += 500) {
         const res = await api<{ deleted: number; failures: { key: string; code: string; message: string }[] }>(
-          `/tables/${id}/rows/bulk-delete`,
+          `/data/${dataName}/rows/bulk-delete`,
           { method: "POST", body: JSON.stringify({ keys: keys.slice(i, i + 500) }) }
         );
         deleted += res.deleted;
@@ -1158,7 +1161,7 @@ export default function Data() {
                   <FkField
                     key={c.name}
                     col={c}
-                    tableId={id}
+                    tableId={dataName}
                     row={form.row}
                     rels={rows.data?.rels}
                     onChange={(v) => setForm({ ...form, row: { ...form.row, [c.name]: v } })}
@@ -1167,7 +1170,7 @@ export default function Data() {
                   <div key={c.name} className="md:col-span-2">
                     <M2MField
                       col={c}
-                      tableId={id}
+                      tableId={dataName}
                       mode={form.mode}
                       rowKey={form.initialKey || rowKey(form.row)}
                       value={(form.row[c.name] as unknown[]) ?? []}
@@ -1366,7 +1369,7 @@ function FkField({
     enabled: open,
     queryFn: () =>
       api<FkOptionsRes>(
-        `/tables/${tableId}/fkoptions/${col.name}?` +
+        `/data/${tableId}/fkoptions/${col.name}?` +
           new URLSearchParams({ ...(debounced ? { search: debounced } : {}), page: String(page) })
       ),
   });
@@ -1552,7 +1555,7 @@ function M2MField({
     enabled: open,
     queryFn: () =>
       api<FkOptionsRes>(
-        `/tables/${tableId}/m2moptions/${col.name}?` +
+        `/data/${tableId}/m2moptions/${col.name}?` +
           new URLSearchParams({ ...(debounced ? { search: debounced } : {}), page: String(page) })
       ),
   });
@@ -1564,7 +1567,7 @@ function M2MField({
     enabled: mode === "edit" && !!encodedKey,
     queryFn: () =>
       api<{ values: unknown[]; rows: Row[] }>(
-        `/tables/${tableId}/rows/${encodedKey}/m2m/${col.name}`
+        `/data/${tableId}/rows/${encodedKey}/m2m/${col.name}`
       ),
   });
 

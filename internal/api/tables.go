@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"strings"
 
-	"ku-crud/internal/ds"
-	"ku-crud/internal/hooks"
+	"github.com/luthfi9251/kucrud-core/defs"
+	"github.com/luthfi9251/kucrud-core/ds"
+	"github.com/luthfi9251/kucrud-core/engine"
+	"github.com/luthfi9251/kucrud-core/hooks"
 	"ku-crud/internal/meta"
 )
 
@@ -494,6 +496,7 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 	}
 	keySeen := make([]bool, len(def.KeyColumns))
 	sortable := map[string]bool{}
+	ccols := toCore(def, cols).Columns
 	for i, c := range cols {
 		sortable[c.Name] = c.Sortable
 		if !validFieldTypes[c.FieldType] {
@@ -545,7 +548,7 @@ func (s *Server) validateDef(def *meta.TableDef, cols []meta.ColumnDef) string {
 			if c.ComputedFormula == "" {
 				return "column " + c.Name + ": computed columns need computedFormula"
 			}
-			ft, _, err := compileComputed(c, cols)
+			ft, _, err := engine.CompileComputed(ccols[i], ccols)
 			if err != nil {
 				return "column " + c.Name + ": " + err.Error()
 			}
@@ -634,58 +637,10 @@ func (s *Server) checkActions(def *meta.TableDef) string {
 	return ""
 }
 
-// m2mConfig is the resolved many-to-many configuration of one column.
-type m2mConfig struct {
-	Junction  *meta.TableDef
-	JCols     []meta.ColumnDef
-	SrcCol    *meta.ColumnDef // junction fk column → this table
-	TgtCol    *meta.ColumnDef // junction fk column → target table
-	TargetID  int64           // target def id (from TgtCol.FKTableDefID)
-	TargetRef string          // target ref column (TgtCol.FKRefColumn)
-	SrcRef    string          // this table's column the junction references
-}
-
-// resolveM2M loads and cross-checks one column's m2m payload. Returns nil
-// config + error message on any inconsistency.
-func (s *Server) resolveM2M(def *meta.TableDef, c meta.ColumnDef) (*m2mConfig, string) {
-	jdef, jcols, err := s.store.GetTableDef(c.M2MJunctionDefID)
-	if err != nil {
-		return nil, "column " + c.Name + ": junction definition not found (save it first)"
-	}
-	if jdef.ID == def.ID {
-		return nil, "column " + c.Name + ": junction cannot be this table itself"
-	}
-	var src, tgt *meta.ColumnDef
-	for i, jc := range jcols {
-		if jc.Name == c.M2MJunctionSrcCol && jc.FieldType == "fk" {
-			src = &jcols[i]
-		}
-		if jc.Name == c.M2MJunctionTgtCol && jc.FieldType == "fk" {
-			tgt = &jcols[i]
-		}
-	}
-	if src == nil || tgt == nil {
-		return nil, "column " + c.Name + ": junction source/target columns must be defined fk columns"
-	}
-	if src.Name == tgt.Name {
-		return nil, "column " + c.Name + ": junction source and target columns must differ"
-	}
-	if src.FKTableDefID != def.ID {
-		return nil, "column " + c.Name + ": junction source column must reference this table"
-	}
-	// every required junction column must be one of the two link columns —
-	// otherwise link inserts would violate NOT NULL
-	for _, jc := range jcols {
-		if jc.Required && jc.Name != src.Name && jc.Name != tgt.Name {
-			return nil, "column " + c.Name + ": junction has required column " + jc.Name +
-				" outside the two link columns"
-		}
-	}
-	return &m2mConfig{Junction: jdef, JCols: jcols, SrcCol: src, TgtCol: tgt,
-		TargetID: tgt.FKTableDefID, TargetRef: tgt.FKRefColumn, SrcRef: src.FKRefColumn}, ""
-}
-
 // validateM2M checks one column's m2m payload (mirror of validateFK).
+// Junction/target resolution runs in the engine (engine.ResolveM2M) over
+// the name-based core contract, so the row endpoints and the def-save
+// validation share one set of messages.
 func (s *Server) validateM2M(def *meta.TableDef, cols []meta.ColumnDef, c meta.ColumnDef) string {
 	if c.FieldType != "m2m" {
 		if c.M2MJunctionDefID != 0 || c.M2MJunctionSrcCol != "" || c.M2MJunctionTgtCol != "" || len(c.M2MDisplayColumns) > 0 {
@@ -702,17 +657,25 @@ func (s *Server) validateM2M(def *meta.TableDef, cols []meta.ColumnDef, c meta.C
 	if def.ID == 0 {
 		return "column " + c.Name + ": save this table definition before adding many-to-many relations"
 	}
-	cfg, msg := s.resolveM2M(def, c)
+	res := s.metaRes(def)
+	ct := meta.ToCoreDef(*def, cols, res.idToName)
+	var coreCol defs.Column
+	for _, cc := range ct.Columns {
+		if cc.Name == c.Name {
+			coreCol = cc
+			break
+		}
+	}
+	cfg, msg := engine.ResolveM2M(res, &ct, coreCol)
 	if cfg == nil {
 		return msg
 	}
-	_, tcols, err := s.store.GetTableDef(cfg.TargetID)
-	if err != nil {
+	if cfg.TargetMissing {
 		return "column " + c.Name + ": m2m target definition not found"
 	}
 	names := map[string]bool{}
-	for _, t := range tcols {
-		names[t.Name] = true
+	for _, tc := range cfg.Target.Columns {
+		names[tc.Name] = true
 	}
 	seen := map[string]bool{}
 	for _, d := range c.M2MDisplayColumns {
@@ -772,6 +735,26 @@ func (s *Server) validateFK(def *meta.TableDef, cols []meta.ColumnDef, c meta.Co
 	return ""
 }
 
+// writeTableNameTaken rejects a def save whose table name another
+// definition already owns: /api/data/{name} is a global name namespace,
+// so two defs sharing a TableName would serve one def's page with
+// another def's rows (silent wrong-data). Mirrors the group-taken
+// convention (meta.ErrGroupTaken → 409 GROUP_NAME_TAKEN); the def being
+// saved keeps its own name (its id is excluded). Runs after validateDef
+// so structural 400s win, and before the save-time EXPLAIN. Returns true
+// when it wrote the error response.
+func (s *Server) writeTableNameTaken(w http.ResponseWriter, def *meta.TableDef) bool {
+	if err := s.store.CheckTableDefName(def.TableName, def.ID); err != nil {
+		if errors.Is(err, meta.ErrTableTaken) {
+			writeErr(w, 409, "TABLE_NAME_TAKEN", "table name already exists", nil)
+			return true
+		}
+		writeErr(w, 500, "INTERNAL", "server error", nil)
+		return true
+	}
+	return false
+}
+
 func (s *Server) handleTableCreate(w http.ResponseWriter, r *http.Request) {
 	var in tableDefInput
 	if err := readJSON(r, &in); err != nil {
@@ -786,6 +769,9 @@ func (s *Server) handleTableCreate(w http.ResponseWriter, r *http.Request) {
 	cols := s.toCols(in.Columns)
 	if msg := s.validateDef(def, cols); msg != "" {
 		writeErr(w, 400, "VALIDATION", msg, nil)
+		return
+	}
+	if s.writeTableNameTaken(w, def) {
 		return
 	}
 	if s.explainQueryDef(w, def) {
@@ -836,15 +822,6 @@ func (s *Server) writeDefErr(w http.ResponseWriter, err error) {
 	writeErr(w, 500, "INTERNAL", "server error", nil)
 }
 
-func fieldTypeOf(cols []meta.ColumnDef, name string) string {
-	for _, c := range cols {
-		if c.Name == name {
-			return c.FieldType
-		}
-	}
-	return "text"
-}
-
 func (s *Server) handleTableGet(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
 	def, cols, err := s.tableCtx(r)
@@ -884,6 +861,9 @@ func (s *Server) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if msg := s.validateDef(def, cols); msg != "" {
 		writeErr(w, 400, "VALIDATION", msg, nil)
+		return
+	}
+	if s.writeTableNameTaken(w, def) {
 		return
 	}
 	if s.explainQueryDef(w, def) {
@@ -926,7 +906,8 @@ func (s *Server) liveAdapter(dsID int64) (ds.Adapter, error) {
 	if err != nil {
 		return nil, err
 	}
-	a, err := ds.Open(*d)
+	a, err := ds.Open(ds.Conn{Driver: d.Driver, Host: d.Host, Port: d.Port,
+		DB: d.DBName, User: d.Username, Password: d.Password, SSLMode: d.SSLMode, Raw: d.Raw})
 	if err != nil {
 		return nil, errConn
 	}
@@ -956,7 +937,8 @@ func (s *Server) handleDSTables(w http.ResponseWriter, r *http.Request) {
 		s.writeDSErr(w, err)
 		return
 	}
-	a, err := ds.Open(*d)
+	a, err := ds.Open(ds.Conn{Driver: d.Driver, Host: d.Host, Port: d.Port,
+		DB: d.DBName, User: d.Username, Password: d.Password, SSLMode: d.SSLMode, Raw: d.Raw})
 	if err != nil {
 		s.writeLiveErr(w, errConn)
 		return
@@ -996,7 +978,7 @@ func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
 	}
-	rep := ds.CompareDrift(cols, live)
+	rep := ds.CompareDrift(meta.ToCoreDef(*def, cols, nil).Columns, live)
 	if !rep.Empty() {
 		writeErr(w, 409, "DRIFT", "table definition is out of sync with the live schema", rep)
 		return
@@ -1026,7 +1008,7 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "CONN", "introspection failed", err.Error())
 		return
 	}
-	missing := ds.CompareDrift(cols, live).Missing
+	missing := ds.CompareDrift(meta.ToCoreDef(*def, cols, nil).Columns, live).Missing
 	for _, m := range missing {
 		for _, key := range def.KeyColumns {
 			if m == key {
@@ -1057,7 +1039,7 @@ func (s *Server) handleResync(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			continue // dropped
 		}
-		if ds.EffectiveType(c) != lc.FieldType {
+		if ds.EffectiveType(defs.Column{FieldType: c.FieldType, BaseType: c.BaseType}) != lc.FieldType {
 			if c.FieldType == "fk" {
 				c.BaseType = lc.FieldType // keep relation config; only base drifts
 			} else {
@@ -1106,7 +1088,8 @@ func (s *Server) handleDSColumns(w http.ResponseWriter, r *http.Request) {
 		s.writeDSErr(w, err)
 		return
 	}
-	a, err := ds.Open(*d)
+	a, err := ds.Open(ds.Conn{Driver: d.Driver, Host: d.Host, Port: d.Port,
+		DB: d.DBName, User: d.Username, Password: d.Password, SSLMode: d.SSLMode, Raw: d.Raw})
 	if err != nil {
 		s.writeLiveErr(w, errConn)
 		return

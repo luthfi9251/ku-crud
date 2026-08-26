@@ -47,10 +47,10 @@ export function CalendarView({ def, startCol, endCol, filters, search, pageSize,
       if (fs) q.set("filters", fs);
       if (search) q.set("search", search);
       q.set("page", "1"); q.set("limit", String(pageSize));
-      const res = await api<RowsRes>(`/tables/${def.id}/rows?${q}`); // seed fetch — page 1
+      const res = await api<RowsRes>(`/data/${def.tableName || def.id}/rows?${q}`); // seed fetch — page 1
       const out: Row[] = [...res.rows];
       for (let page = 2; out.length < res.total; page++) {
-        const cur = await api<RowsRes>(`/tables/${def.id}/rows?${q2(q, page)}`);
+        const cur = await api<RowsRes>(`/data/${def.tableName || def.id}/rows?${q2(q, page)}`);
         out.push(...cur.rows);
         if (cur.rows.length === 0) break;
       }

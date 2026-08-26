@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -24,6 +25,11 @@ var gateProbes = []string{
 	"/api/hooks",        // RequireTablesManage (definition editor dropdown)
 }
 
+// probePostSeq uniquifies each probe's table name: gate tests POST the
+// def body repeatedly and expect 200, but table names are a globally
+// unique namespace (TestTableDefDuplicateNameRejected).
+var probePostSeq int
+
 func probeStatus(t *testing.T, s *Server, cookie *string, probe string) int {
 	t.Helper()
 	method, path := "GET", probe
@@ -32,7 +38,9 @@ func probeStatus(t *testing.T, s *Server, cookie *string, probe string) int {
 	}
 	body := ""
 	if method == "POST" {
-		body = defBody(s)
+		probePostSeq++
+		body = strings.Replace(defBody(s), `"tableName":"customers"`,
+			fmt.Sprintf(`"tableName":"customers%d"`, probePostSeq), 1)
 	}
 	return do(s, method, path, body, cookie).Code
 }

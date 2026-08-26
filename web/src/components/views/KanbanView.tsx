@@ -51,12 +51,12 @@ export function KanbanView({ def, boardCol, displayCol, search, filters, pageSiz
     if (search) q.set("search", search);
     q.set("page", String(page));
     q.set("limit", String(pageSize));
-    const res = await api<RowsRes>(`/tables/${def.id}/rows?${q}`);
+    const res = await api<RowsRes>(`/data/${def.tableName || def.id}/rows?${q}`);
     const rows = value === ""
       ? res.rows.filter((r) => r[boardCol.name] === null || r[boardCol.name] === undefined)
       : res.rows;
     return { rows, total: res.total };
-  }, [boardCol, filters, search, pageSize, def.id]);
+  }, [boardCol, filters, search, pageSize, def.tableName, def.id]);
 
   const loadMore = useCallback(async (value: string) => {
     const st = perCol[value];
@@ -108,7 +108,7 @@ export function KanbanView({ def, boardCol, displayCol, search, filters, pageSiz
     const to = String(newVal ?? "");
     setBusy(keyStr);
     try {
-      await api(`/tables/${def.id}/rows/${keyStr}`, {
+      await api(`/data/${def.tableName || def.id}/rows/${keyStr}`, {
         method: "PUT", body: JSON.stringify({ [boardCol.name]: newVal }),
       });
       // move the card locally — the server accepted the update; a plain

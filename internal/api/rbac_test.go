@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luthfi9251/kucrud-core/engine"
 	"ku-crud/internal/meta"
 )
 
@@ -133,9 +134,9 @@ func TestTableGrantMatrix(t *testing.T) {
 
 	// write without grant → 403 (fires before PG connection)
 	for _, p := range []struct{ method, path string }{
-		{"POST", "/api/tables/" + tdTok(s, 1) + "/rows"},
-		{"PUT", "/api/tables/" + tdTok(s, 1) + "/rows/" + encodeRowKey([]string{"1"})},
-		{"DELETE", "/api/tables/" + tdTok(s, 1) + "/rows/" + encodeRowKey([]string{"1"})},
+		{"POST", "/api/data/" + defName(s, 1) + "/rows"},
+		{"PUT", "/api/data/" + defName(s, 1) + "/rows/" + engine.EncodeRowKey([]string{"1"})},
+		{"DELETE", "/api/data/" + defName(s, 1) + "/rows/" + engine.EncodeRowKey([]string{"1"})},
 	} {
 		w := do(s, p.method, p.path, "", reader)
 		if w.Code != 403 {
@@ -153,7 +154,7 @@ func TestTableGrantMatrix(t *testing.T) {
 	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1), "", editor); w.Code != 403 {
 		t.Fatalf("editor def = %d", w.Code)
 	}
-	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows", "", editor); w.Code != 403 {
+	if w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows", "", editor); w.Code != 403 {
 		t.Fatalf("editor rows = %d", w.Code)
 	}
 
@@ -169,7 +170,7 @@ func TestTableGrantMatrix(t *testing.T) {
 	if permsNoGrant["read"] != false || permsNoGrant["delete"] != false {
 		t.Fatalf("platform without grants perms=%v", permsNoGrant)
 	}
-	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows", "", plat); w.Code != 403 {
+	if w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows", "", plat); w.Code != 403 {
 		t.Fatalf("platform rows without grant = %d", w.Code)
 	}
 	// platform role WITH a grant behaves per that grant
@@ -242,3 +243,16 @@ func TestDisabledUserRejected(t *testing.T) {
 
 // tdTok masks a table-def id for URLs in tests.
 func tdTok(s *Server, id int64) string { return s.ids.Encode("td", id) }
+
+// defName returns the def's /api/data address: its table name, or the
+// masked id for nameless query views.
+func defName(s *Server, id int64) string {
+	d, _, err := s.store.GetTableDef(id)
+	if err != nil {
+		panic(err)
+	}
+	if d.TableName != "" {
+		return d.TableName
+	}
+	return tdTok(s, id)
+}
