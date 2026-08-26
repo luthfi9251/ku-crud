@@ -45,16 +45,16 @@ and CRUD away.
    custom roles: four independent platform grants (datasources, table definitions,
    audit trail, hook outbox) plus independent read/create/update/delete grants per table.
    User & role management is admin-only; the first user is immutable.
-8. **CSV import/export (v1.3)** — export the grid as CSV (active search/sort
-   applied, all pages, fk/m2m relations resolved to display values, BOM-prefixed
-   UTF-8 format up to 100,000 rows via `GET /api/tables/{id}/rows/export`); import
-   CSV with server-side parsing (comma/semicolon/tab auto-detected, 5MB / 10,000
-   rows caps), editable column mapping, per-row validation preview (`POST
-   /api/tables/{id}/rows/import/preview`) and batch insert (`POST
-   /api/tables/{id}/rows/import` with `valid` or `all` mode), every insert audited.
-9. **Bulk operations (v1.3)** — multi-select rows on the grid and delete them
-   in one confirmed action (up to 1,000 keys per request via `POST
-   /api/tables/{id}/rows/bulk-delete`); per-row conflict reporting and audit entries.
+ 8. **CSV import/export (v1.3)** — export the grid as CSV (active search/sort
+    applied, all pages, fk/m2m relations resolved to display values, BOM-prefixed
+    UTF-8 format up to 100,000 rows via `GET /api/data/{name}/rows/export`); import
+    CSV with server-side parsing (comma/semicolon/tab auto-detected, 5MB / 10,000
+    rows caps), editable column mapping, per-row validation preview (`POST
+    /api/data/{name}/import/preview`) and batch insert (`POST
+    /api/data/{name}/import/apply` with `valid` or `all` mode), every insert audited.
+ 9. **Bulk operations (v1.3)** — multi-select rows on the grid and delete them
+    in one confirmed action (up to 1,000 keys per request via `POST
+    /api/data/{name}/rows/bulk-delete`); per-row conflict reporting and audit entries.
 10. **Many-to-Many (v1.3)** — a virtual `m2m` column models a junction table
     (a defined table with two fk columns: one → this table, one → target).
     Grids show joined display values; forms manage links through a
@@ -159,18 +159,24 @@ All API endpoints are under `/api` and return JSON. Authenticated endpoints requ
 | POST | `/api/tables/{id}/resync` | Re-sync table definition columns with live schema |
 
 ### Data Rows & Bulk Operations (v1.3)
+Data routes are name-addressed under `/api/data/{name}`, where `{name}` is the
+definition's table name (masked def-id token for nameless query views). The
+endpoints are served by the extracted `kucrud-core` engine.
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/tables/{id}/rows` | List rows with search (`search=`), sort (`sort=`, `dir=`), and pagination (`page=`, `limit=`) |
-| POST | `/api/tables/{id}/rows` | Insert a new row |
-| GET / PUT / DELETE | `/api/tables/{id}/rows/{rowKey}` | View, update, or delete a specific row by composite key |
-| GET | `/api/tables/{id}/rows/export` | Export filtered/sorted rows to BOM UTF-8 CSV (up to 100,000 rows) |
-| POST | `/api/tables/{id}/rows/import/preview` | Upload and preview CSV file with column auto-mapping and validation |
-| POST | `/api/tables/{id}/rows/import` | Batch insert records from CSV (`mode=valid` or `mode=all`) |
-| POST | `/api/tables/{id}/rows/bulk-delete` | Bulk delete rows by array of keys (up to 1,000 keys per request) |
-| POST | `/api/tables/{id}/rows/{rowKey}/action` | Run a custom row action (sync hook, returns `{"message"}`) |
-| GET | `/api/tables/{id}/rows/m2m-options` | Fetch target table options for Many-to-Many relation field picker |
-| GET | `/api/tables/{id}/rows/{rowKey}/m2m-links` | Get current linked keys for a row's Many-to-Many field |
+| GET | `/api/data/{name}` | Data-page definition JSON (same shape as the management def detail) |
+| GET | `/api/data/{name}/rows` | List rows with search (`search=`), sort (`sort=`, `dir=`), and pagination (`page=`, `limit=`) |
+| POST | `/api/data/{name}/rows` | Insert a new row |
+| GET / PUT / DELETE | `/api/data/{name}/rows/{rowKey}` | View, update, or delete a specific row by composite key |
+| GET | `/api/data/{name}/rows/export` | Export filtered/sorted rows to BOM UTF-8 CSV (up to 100,000 rows) |
+| POST | `/api/data/{name}/rows/bulk-delete` | Bulk delete rows by array of keys (up to 1,000 keys per request) |
+| POST | `/api/data/{name}/rows/{rowKey}/action` | Run a custom row action (sync hook, returns `{"message"}`) |
+| GET | `/api/data/{name}/fkoptions/{column}` | Fetch related-record options for an fk field picker |
+| GET | `/api/data/{name}/m2moptions/{column}` | Fetch target table options for Many-to-Many relation field picker |
+| GET | `/api/data/{name}/rows/{rowKey}/m2m/{column}` | Get current linked keys for a row's Many-to-Many field |
+| POST | `/api/data/{name}/import/preview` | Upload and preview CSV file with column auto-mapping and validation |
+| POST | `/api/data/{name}/import/apply` | Batch insert records from CSV (`mode=valid` or `mode=all`) |
 
 ### Administration & Audit
 | Method | Endpoint | Description |
@@ -295,20 +301,31 @@ Under systemd, follow with `journalctl -u ku-crud -f`.
     cmd/seed-admin/        create an admin login user in the metadata store
     cmd/hookgen/           go:generate AST scanner: regenerates
                            hooks/registry_gen.go from the functions in hooks/
+    core/                  kucrud-core — the extracted CRUD engine module
+                           (github.com/luthfi9251/kucrud-core; zero
+                           persistence, auth-free): defs (ID-free table
+                           definition contract), ds (dialect-neutral
+                           `Adapter` interface + `ds.Open` factory, sqlkit,
+                           postgres & mysql adapters), engine (row
+                           read/write/import services), hooks (hook
+                           contract), httpapi (name-based data-route
+                           generator serving /api/data/{name})
     hooks/                 developer-written hook functions (HookFunc
                            signature) + the generated registry_gen.go
-    internal/hooks/        hook contract, executor (before-hooks), outbox
-                           worker (after-hooks with retry/backoff)
+    internal/hooks/        hook host: outbox worker (after-hooks with
+                           retry/backoff) + platformhooks (audit and
+                           durable-outbox enqueue as core hook
+                           implementations)
     internal/meta/         SQLite metadata store: migrations, users, roles,
                            datasources, table defs, audit
-    internal/ds/           Adapter layer: dialect-neutral `Adapter` interface +
-                           `ds.Open` factory, sqlkit (dialect SQL builders),
-                           postgres & mysql adapters (introspection, drift
-                           compare inputs, fully parameterized SQL)
     internal/tokenid/      masked id codec (Feistel-HMAC, 11-char tokens)
     internal/api/          HTTP handlers: auth, RBAC gates, datasources,
-                           table defs, rows, users, roles, audit, logging
-                           middleware
+                           table defs, data pages via core/httpapi
+                           (/api/data/{name}), users, roles, audit,
+                           logging middleware
+    template/              full-stack starter app consuming kucrud-core
+                           (standalone module: schema.sql, auth stub,
+                           embedded web UI, smoke test)
     web/                   React + Vite + TypeScript + Tailwind v3 + shadcn/ui
     web/embed.go           go:embed of web/dist (lives next to the embedded dir —
                            embed cannot reach parent directories)

@@ -140,8 +140,10 @@ func TestTableDefDescriptionValidation(t *testing.T) {
 		!strings.Contains(w.Body.String(), "description too long") {
 		t.Fatalf("long description = %d %s", w.Code, w.Body)
 	}
-	// exactly 200 is allowed
-	if w := do(s, "POST", "/api/tables", defBodyDesc(s, strings.Repeat("x", 200)), c); w.Code != 200 {
+	// exactly 200 is allowed (its own table name — table names are a
+	// globally unique namespace, see TestTableDefDuplicateNameRejected)
+	if w := do(s, "POST", "/api/tables", strings.Replace(defBodyDesc(s, strings.Repeat("x", 200)),
+		`"tableName":"customers"`, `"tableName":"customers200"`, 1), c); w.Code != 200 {
 		t.Fatalf("200-char description = %d %s", w.Code, w.Body)
 	}
 
@@ -200,6 +202,48 @@ func TestIntrospectionEndpoints(t *testing.T) {
 	w = do(s, "GET", "/api/datasources/"+s.ids.Encode("ds", 1)+"/tables/public/customers/columns", "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"fieldType":"enum"`) {
 		t.Fatalf("columns = %d %s", w.Code, w.Body)
+	}
+}
+
+// TestTableDefDuplicateNameRejected pins the global table-name namespace:
+// /api/data/{name} is name-addressed, so a second def sharing a TableName
+// (even on another schema or datasource) would serve one def's page with
+// another def's rows — rejected at save with the group-taken error shape.
+func TestTableDefDuplicateNameRejected(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	seedDS(t, s)
+	if w := do(s, "POST", "/api/tables", defBody(s), c); w.Code != 200 {
+		t.Fatalf("create = %d %s", w.Code, w.Body)
+	}
+	id := tdTok(s, 1)
+
+	// same table name in another schema → still taken (the namespace is global)
+	w := do(s, "POST", "/api/tables", strings.Replace(defBody(s),
+		`"schemaName":"public"`, `"schemaName":"sales"`, 1), c)
+	if w.Code != 409 || !strings.Contains(w.Body.String(), "TABLE_NAME_TAKEN") {
+		t.Fatalf("dup name = %d %s", w.Code, w.Body)
+	}
+
+	// update keeping its own name → OK
+	if w = do(s, "PUT", "/api/tables/"+id, strings.Replace(defBody(s),
+		`"label":"Customers"`, `"label":"Customers v2"`, 1), c); w.Code != 200 {
+		t.Fatalf("own name on update = %d %s", w.Code, w.Body)
+	}
+
+	// rename to a free name → OK, and the freed name is claimable again
+	if w = do(s, "PUT", "/api/tables/"+id, strings.Replace(defBody(s),
+		`"tableName":"customers"`, `"tableName":"clients"`, 1), c); w.Code != 200 {
+		t.Fatalf("rename = %d %s", w.Code, w.Body)
+	}
+	if w = do(s, "POST", "/api/tables", defBody(s), c); w.Code != 200 {
+		t.Fatalf("reclaim freed name = %d %s", w.Code, w.Body)
+	}
+
+	// update onto another def's name → 409
+	if w = do(s, "PUT", "/api/tables/"+id, defBody(s), c); w.Code != 409 ||
+		!strings.Contains(w.Body.String(), "TABLE_NAME_TAKEN") {
+		t.Fatalf("update to taken name = %d %s", w.Code, w.Body)
 	}
 }
 

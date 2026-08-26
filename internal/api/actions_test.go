@@ -31,9 +31,13 @@ func defsEnv(t *testing.T) *Server {
 	return s
 }
 
-// defBodyWithActions splices an actions field into defBody(s).
+// defBodyWithActions splices an actions field into defBody(s); the def
+// gets its own table name so action-save tests can create it next to the
+// seeded def (table names are a globally unique namespace).
 func defBodyWithActions(s *Server, actions string) string {
-	return strings.Replace(defBody(s), `"columns":[`, `"actions":`+actions+`,"columns":[`, 1)
+	return strings.Replace(strings.Replace(defBody(s),
+		`"tableName":"customers"`, `"tableName":"actions_def"`, 1),
+		`"columns":[`, `"actions":`+actions+`,"columns":[`, 1)
 }
 
 // createWithActions saves a def carrying the actions JSON and returns the

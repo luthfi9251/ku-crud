@@ -735,6 +735,26 @@ func (s *Server) validateFK(def *meta.TableDef, cols []meta.ColumnDef, c meta.Co
 	return ""
 }
 
+// writeTableNameTaken rejects a def save whose table name another
+// definition already owns: /api/data/{name} is a global name namespace,
+// so two defs sharing a TableName would serve one def's page with
+// another def's rows (silent wrong-data). Mirrors the group-taken
+// convention (meta.ErrGroupTaken → 409 GROUP_NAME_TAKEN); the def being
+// saved keeps its own name (its id is excluded). Runs after validateDef
+// so structural 400s win, and before the save-time EXPLAIN. Returns true
+// when it wrote the error response.
+func (s *Server) writeTableNameTaken(w http.ResponseWriter, def *meta.TableDef) bool {
+	if err := s.store.CheckTableDefName(def.TableName, def.ID); err != nil {
+		if errors.Is(err, meta.ErrTableTaken) {
+			writeErr(w, 409, "TABLE_NAME_TAKEN", "table name already exists", nil)
+			return true
+		}
+		writeErr(w, 500, "INTERNAL", "server error", nil)
+		return true
+	}
+	return false
+}
+
 func (s *Server) handleTableCreate(w http.ResponseWriter, r *http.Request) {
 	var in tableDefInput
 	if err := readJSON(r, &in); err != nil {
@@ -749,6 +769,9 @@ func (s *Server) handleTableCreate(w http.ResponseWriter, r *http.Request) {
 	cols := s.toCols(in.Columns)
 	if msg := s.validateDef(def, cols); msg != "" {
 		writeErr(w, 400, "VALIDATION", msg, nil)
+		return
+	}
+	if s.writeTableNameTaken(w, def) {
 		return
 	}
 	if s.explainQueryDef(w, def) {
@@ -838,6 +861,9 @@ func (s *Server) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if msg := s.validateDef(def, cols); msg != "" {
 		writeErr(w, 400, "VALIDATION", msg, nil)
+		return
+	}
+	if s.writeTableNameTaken(w, def) {
 		return
 	}
 	if s.explainQueryDef(w, def) {

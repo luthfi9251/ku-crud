@@ -3,9 +3,35 @@ package meta
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 
 	"github.com/luthfi9251/kucrud-core/defs"
 )
+
+// ErrTableTaken marks a duplicate def table name. The /api/data/{name}
+// namespace is global — schema and datasource do not disambiguate — so no
+// two definitions may share one (the ErrGroupTaken convention: the store
+// reports the conflict, the API maps it to 409).
+var ErrTableTaken = errors.New("table name already taken")
+
+// CheckTableDefName returns ErrTableTaken when any persisted def other
+// than excludeID already carries tableName; a def keeps its own name on
+// update (pass its id). Query views are nameless (empty table name,
+// token-addressed) and never conflict.
+func (s *Store) CheckTableDefName(tableName string, excludeID int64) error {
+	if tableName == "" {
+		return nil
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM table_defs WHERE table_name=? AND id<>?`,
+		tableName, excludeID).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return ErrTableTaken
+	}
+	return nil
+}
 
 // SelfRef marks an FK target as "this table definition"; Save/Update rewrite
 // it to the real def id before columns hit the store.
