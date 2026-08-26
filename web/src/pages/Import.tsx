@@ -48,6 +48,9 @@ export default function Import() {
     queryKey: ["def", id],
     queryFn: () => api<TableDefPayload>(`/tables/${id}`),
   });
+  // import endpoints are name-addressed; nameless query views fall back
+  // to the masked def id
+  const dataName = def.data?.tableName || id || "";
 
   const [file, setFile] = useState<File | null>(null);
   const [mapping, setMapping] = useState<Record<string, string>>({});
@@ -59,7 +62,7 @@ export default function Import() {
     mutationFn: async (f: File) => {
       const fd = new FormData();
       fd.append("file", f);
-      return api<PreviewRes>(`/tables/${id}/import/preview`, { method: "POST", body: fd });
+      return api<PreviewRes>(`/data/${dataName}/import/preview`, { method: "POST", body: fd });
     },
     onSuccess: (res) => {
       setPreview(res);
@@ -76,7 +79,7 @@ export default function Import() {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("mapping", JSON.stringify(mapping));
-      return api<PreviewRes>(`/tables/${id}/import/preview`, { method: "POST", body: fd });
+      return api<PreviewRes>(`/data/${dataName}/import/preview`, { method: "POST", body: fd });
     },
     onSuccess: (res) => {
       setPreview(res);
@@ -92,7 +95,7 @@ export default function Import() {
       fd.append("file", file);
       fd.append("mapping", JSON.stringify(mapping));
       fd.append("mode", mode);
-      return api<ApplyRes>(`/tables/${id}/import/apply`, { method: "POST", body: fd });
+      return api<ApplyRes>(`/data/${dataName}/import/apply`, { method: "POST", body: fd });
     },
     onSuccess: (res) => {
       setResult(res);
