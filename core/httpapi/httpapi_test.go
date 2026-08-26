@@ -199,3 +199,30 @@ func TestDefsHandler(t *testing.T) {
 		t.Fatalf("post defs: %d", w.Code)
 	}
 }
+
+func TestStatsAnchor(t *testing.T) {
+	src := &fakeSource{list: []*defs.Table{testTable()}}
+	h := httpapi.New("things", src.list[0], src, httpapi.Options{})
+
+	// wrong method proves the route resolved (405, not 404)
+	if w := serve(t, h, http.MethodPost, "/stats"); w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != "GET" {
+		t.Fatalf("stats POST = %d %s", w.Code, w.Body)
+	}
+	// trailing segments are not part of the route
+	if w := serve(t, h, http.MethodGet, "/stats/extra"); w.Code != http.StatusNotFound {
+		t.Fatalf("stats/extra = %d", w.Code)
+	}
+	// gate denial fires with OpRead before any datasource use
+	var gotOp httpapi.Op
+	h2 := httpapi.New("things", src.list[0], src, httpapi.Options{
+		Gate: func(r *http.Request, op httpapi.Op, table string) error {
+			gotOp = op
+			return errors.New("no")
+		}})
+	if w := serve(t, h2, http.MethodGet, "/stats?func=count"); w.Code != http.StatusForbidden {
+		t.Fatalf("gated stats = %d %s", w.Code, w.Body)
+	}
+	if gotOp != httpapi.OpRead {
+		t.Fatalf("op = %q", gotOp)
+	}
+}

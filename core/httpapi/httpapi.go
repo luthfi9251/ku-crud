@@ -76,10 +76,11 @@ type Options struct {
 
 // Resource is a plain http.Handler serving ONE definition's data routes.
 // Routes are RELATIVE to the host's mount point: the handler finds its
-// anchor segment (rows/fkoptions/m2moptions/import) wherever it appears
-// in the URL, so it can be mounted under any prefix — but a mount prefix
-// must not itself contain a segment named rows, fkoptions, m2moptions or
-// import. It does not serve /defs (that lives on the App mux only).
+// anchor segment (rows/fkoptions/m2moptions/import/stats) wherever it
+// appears in the URL, so it can be mounted under any prefix — but a
+// mount prefix must not itself contain a segment named rows, fkoptions,
+// m2moptions, import or stats. It does not serve /defs (that lives on
+// the App mux only).
 type Resource struct {
 	name string
 	t    *defs.Table
@@ -119,7 +120,7 @@ func writeMethodNotAllowed(w http.ResponseWriter, allow string) {
 // anchors are the route roots a Resource serves; everything before the
 // first anchor in the URL path is the host's mount prefix.
 var anchors = map[string]bool{
-	"rows": true, "fkoptions": true, "m2moptions": true, "import": true,
+	"rows": true, "fkoptions": true, "m2moptions": true, "import": true, "stats": true,
 }
 
 // routePath extracts the def-independent sub-path from a mounted URL:
@@ -292,6 +293,17 @@ func (h *Resource) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			imp.ApplyImport(w, r, h.t)
 		})
+	case "stats":
+		if len(segs) != 1 {
+			writeErr(w, 404, "NOT_FOUND", "route not found", nil)
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, "GET")
+			return
+		}
+		read, _, _ := h.services(r)
+		h.dispatch(w, r, OpRead, false, func() { read.Stats(w, r, h.t) })
 	default:
 		writeErr(w, 404, "NOT_FOUND", "route not found", nil)
 	}
