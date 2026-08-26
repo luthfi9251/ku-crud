@@ -72,12 +72,11 @@ func (s *Server) metaRes(def *meta.TableDef) *metaResolver {
 	return res
 }
 
-// readService wires the engine read path for one request: the meta-backed
-// resolver, the perm-checked fk filter callback and the per-target read
+// readService wires the engine read path for one request over a shared
+// resolver: the perm-checked fk filter callback and the per-target read
 // grant predicate (the engine itself stays auth-free). Returns the service
 // plus the request def converted to the core contract with fk/m2m names.
-func (s *Server) readService(u CtxUser, def *meta.TableDef, cols []meta.ColumnDef) (*engine.ReadService, *defs.Table) {
-	res := s.metaRes(def)
+func (s *Server) readService(u CtxUser, res *metaResolver, def *meta.TableDef, cols []meta.ColumnDef) (*engine.ReadService, *defs.Table) {
 	ct := meta.ToCoreDef(*def, cols, res.idToName)
 	return &engine.ReadService{
 		R:      res,
@@ -154,13 +153,12 @@ func (h *hookAdapter) RunAfter(ev hooks.Event, t *defs.Table, row hooks.RowPaylo
 	return nil
 }
 
-// writeService wires the engine write path for one request: the meta
-// resolver, the platform hook adapter (before-hooks synchronous,
+// writeService wires the engine write path for one request over a shared
+// resolver: the platform hook adapter (before-hooks synchronous,
 // after-hooks via outbox), the junction-grant predicate and inbound-fk
 // discovery. The engine writes no audit rows — audit returns as an
 // AfterX hook (platformhooks, Task 11).
-func (s *Server) writeService(u CtxUser, r *http.Request, def *meta.TableDef, cols []meta.ColumnDef) (*engine.WriteService, *defs.Table) {
-	res := s.metaRes(def)
+func (s *Server) writeService(u CtxUser, r *http.Request, res *metaResolver, def *meta.TableDef, cols []meta.ColumnDef) (*engine.WriteService, *defs.Table) {
 	ha := &hookAdapter{s: s, u: u, req: r, mainDef: def, mainCols: cols, res: res}
 	ct := meta.ToCoreDef(*def, cols, res.idToName)
 	return &engine.WriteService{
@@ -194,13 +192,13 @@ func (s *Server) writeService(u CtxUser, r *http.Request, def *meta.TableDef, co
 	}, &ct
 }
 
-// importService wires the engine import path for one request: the meta
-// resolver and the platform hook adapter (guard up-front, before-hooks
-// synchronous, after-hooks via outbox) — the same adapter the write path
-// uses, so import hooks keep their historical execution semantics.
-func (s *Server) importService(r *http.Request, def *meta.TableDef, cols []meta.ColumnDef) (*engine.ImportService, *defs.Table) {
+// importService wires the engine import path for one request over a
+// shared resolver: the platform hook adapter (guard up-front,
+// before-hooks synchronous, after-hooks via outbox) — the same adapter
+// the write path uses, so import hooks keep their historical execution
+// semantics.
+func (s *Server) importService(r *http.Request, res *metaResolver, def *meta.TableDef, cols []meta.ColumnDef) (*engine.ImportService, *defs.Table) {
 	u := userFrom(r)
-	res := s.metaRes(def)
 	ha := &hookAdapter{s: s, u: u, req: r, mainDef: def, mainCols: cols, res: res}
 	ct := meta.ToCoreDef(*def, cols, res.idToName)
 	return &engine.ImportService{R: res, H: ha}, &ct

@@ -33,10 +33,10 @@ func TestImportPreviewAndApply(t *testing.T) {
 	s := newTestServer(t)
 	c := login(s)
 	seedLive(t, s) // customers: name required, status enum, balance numeric
-	tok := tdTok(s, 1)
+	tok := defName(s, 1)
 
 	csv := "name,balance,born,status\nnia,7.25,1990-01-02,rainy\nbad,notanumber,1990-01-02,sunny\nmissing,,1990-01-02,snowy\n"
-	req := importRequest(t, "/api/tables/"+tok+"/import/preview", csv, nil)
+	req := importRequest(t, "/api/data/"+tok+"/import/preview", csv, nil)
 	req.Header.Set("Cookie", *c)
 	w := httptest.NewRecorder()
 	s.Routes().ServeHTTP(w, req)
@@ -52,7 +52,7 @@ func TestImportPreviewAndApply(t *testing.T) {
 	}
 
 	// apply valid-only: one row inserted, others skipped
-	req = importRequest(t, "/api/tables/"+tok+"/import/apply", csv, map[string]string{
+	req = importRequest(t, "/api/data/"+tok+"/import/apply", csv, map[string]string{
 		"mapping": `{"name":"name","balance":"balance","born":"born","status":"status"}`,
 		"mode":    "valid",
 	})
@@ -64,7 +64,7 @@ func TestImportPreviewAndApply(t *testing.T) {
 	}
 
 	// row actually landed
-	if w := do(s, "GET", "/api/tables/"+tok+"/rows?search=nia", "", c); !strings.Contains(w.Body.String(), `"total":1`) {
+	if w := do(s, "GET", "/api/data/"+tok+"/rows?search=nia", "", c); !strings.Contains(w.Body.String(), `"total":1`) {
 		t.Fatalf("inserted row missing: %s", w.Body)
 	}
 
@@ -73,7 +73,7 @@ func TestImportPreviewAndApply(t *testing.T) {
 
 	// apply mode=all: invalid cells are omitted (best-effort NULL) and the
 	// rows are still attempted — all three rows insert (nia again), none fail
-	req = importRequest(t, "/api/tables/"+tok+"/import/apply", csv, map[string]string{
+	req = importRequest(t, "/api/data/"+tok+"/import/apply", csv, map[string]string{
 		"mapping": `{"name":"name","balance":"balance","born":"born","status":"status"}`,
 		"mode":    "all",
 	})
@@ -92,9 +92,9 @@ func TestImportSemicolonFile(t *testing.T) {
 	s := newTestServer(t)
 	c := login(s)
 	seedLive(t, s)
-	tok := tdTok(s, 1)
+	tok := defName(s, 1)
 
-	req := importRequest(t, "/api/tables/"+tok+"/import/preview", "name;status\nsemi;sunny\n", nil)
+	req := importRequest(t, "/api/data/"+tok+"/import/preview", "name;status\nsemi;sunny\n", nil)
 	req.Header.Set("Cookie", *c)
 	w := httptest.NewRecorder()
 	s.Routes().ServeHTTP(w, req)
@@ -106,11 +106,11 @@ func TestImportSemicolonFile(t *testing.T) {
 func TestImportRequiresCreateGrant(t *testing.T) {
 	s := newTestServer(t)
 	seedLive(t, s)
-	tok := tdTok(s, 1)
+	tok := defName(s, 1)
 
 	reader := loginAs(t, s, "reader2", &meta.Role{Name: "Reader2"},
 		[]meta.TableGrant{{TableDefID: 1, CanRead: true, CanCreate: false}})
-	req := importRequest(t, "/api/tables/"+tok+"/import/preview", "name\nx\n", nil)
+	req := importRequest(t, "/api/data/"+tok+"/import/preview", "name\nx\n", nil)
 	req.Header.Set("Cookie", *reader)
 	w := httptest.NewRecorder()
 	s.Routes().ServeHTTP(w, req)
@@ -125,7 +125,7 @@ func TestImportFKValidation(t *testing.T) {
 	seedFKLive(t, s) // orders def 2: note text, customer_id fk → customers.id
 
 	csv := "note,customer_id\no9,1\no10,999\n"
-	req := importRequest(t, "/api/tables/"+tdTok(s, 2)+"/import/preview", csv, nil)
+	req := importRequest(t, "/api/data/"+defName(s, 2)+"/import/preview", csv, nil)
 	req.Header.Set("Cookie", *c)
 	w := httptest.NewRecorder()
 	s.Routes().ServeHTTP(w, req)

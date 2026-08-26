@@ -163,7 +163,7 @@ func TestM2MEndToEnd(t *testing.T) {
 	addM2MColumn(t, s, c, custTok, "")
 
 	// 1. list carries m2mRels: jo → [vip, beta], ana → [lead]
-	w := do(s, "GET", "/api/tables/"+custTok+"/rows", "", c)
+	w := do(s, "GET", "/api/data/customers/rows", "", c)
 	if w.Code != 200 {
 		t.Fatalf("list = %d %s", w.Code, w.Body)
 	}
@@ -177,34 +177,34 @@ func TestM2MEndToEnd(t *testing.T) {
 	}
 
 	// 2. options picker on target with search
-	w = do(s, "GET", "/api/tables/"+custTok+"/m2moptions/m2m_tags?search=vi", "", c)
+	w = do(s, "GET", "/api/data/customers/m2moptions/m2m_tags?search=vi", "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"label":"vip"`) || !strings.Contains(w.Body.String(), `"total":1`) {
 		t.Fatalf("m2moptions = %d %s", w.Code, w.Body)
 	}
 
 	// 3. links endpoint for row jo (key 1)
-	w = do(s, "GET", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"})+"/m2m/m2m_tags", "", c)
+	w = do(s, "GET", "/api/data/customers/rows/"+engine.EncodeRowKey([]string{"1"})+"/m2m/m2m_tags", "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"values":[1,2]`) {
 		t.Fatalf("links = %d %s", w.Code, w.Body)
 	}
 
 	// 4. update: jo gets [vip, lead] → beta removed, lead added
-	w = do(s, "PUT", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}),
+	w = do(s, "PUT", "/api/data/customers/rows/"+engine.EncodeRowKey([]string{"1"}),
 		`{"name":"jo","m2m_tags":[1,3]}`, c)
 	if w.Code != 200 {
 		t.Fatalf("update with m2m = %d %s", w.Code, w.Body)
 	}
-	w = do(s, "GET", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"})+"/m2m/m2m_tags", "", c)
+	w = do(s, "GET", "/api/data/customers/rows/"+engine.EncodeRowKey([]string{"1"})+"/m2m/m2m_tags", "", c)
 	if !strings.Contains(w.Body.String(), `"values":[1,3]`) {
 		t.Fatalf("links after update = %s", w.Body)
 	}
 
 	// 5. create with m2m: explicit key + selection
-	w = do(s, "POST", "/api/tables/"+custTok+"/rows", `{"id":3,"name":"nia","m2m_tags":[2,3]}`, c)
+	w = do(s, "POST", "/api/data/customers/rows", `{"id":3,"name":"nia","m2m_tags":[2,3]}`, c)
 	if w.Code != 200 {
 		t.Fatalf("create with m2m = %d %s", w.Code, w.Body)
 	}
-	w = do(s, "GET", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"3"})+"/m2m/m2m_tags", "", c)
+	w = do(s, "GET", "/api/data/customers/rows/"+engine.EncodeRowKey([]string{"3"})+"/m2m/m2m_tags", "", c)
 	if !strings.Contains(w.Body.String(), `"values":[2,3]`) {
 		t.Fatalf("links after create = %s", w.Body)
 	}
@@ -214,13 +214,13 @@ func TestM2MEndToEnd(t *testing.T) {
 	// the write path's audit decoupling.
 
 	// 7. delete protection: jo has links → delete blocked
-	w = do(s, "DELETE", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c)
+	w = do(s, "DELETE", "/api/data/customers/rows/"+engine.EncodeRowKey([]string{"1"}), "", c)
 	if w.Code != 409 || !strings.Contains(w.Body.String(), "Customer Tags") {
 		t.Fatalf("delete protection = %d %s", w.Code, w.Body)
 	}
 
 	// 8. bad selection shape → 400
-	w = do(s, "PUT", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}),
+	w = do(s, "PUT", "/api/data/customers/rows/"+engine.EncodeRowKey([]string{"1"}),
 		`{"name":"jo","m2m_tags":"vip"}`, c)
 	if w.Code != 400 {
 		t.Fatalf("bad shape = %d %s", w.Code, w.Body)
@@ -283,18 +283,18 @@ func TestM2MJunctionGrants(t *testing.T) {
 		{TableDefID: 1, CanRead: true, CanUpdate: true},
 		{TableDefID: 2, CanRead: true},
 	})
-	w := do(s, "GET", "/api/tables/"+custTok+"/rows", "", reader)
+	w := do(s, "GET", "/api/data/customers/rows", "", reader)
 	if w.Code != 200 || strings.Contains(w.Body.String(), `"m2mRels":{"m2m_tags"`) {
 		t.Fatalf("m2mRels without junction read = %d %s", w.Code, w.Body)
 	}
-	w = do(s, "PUT", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}),
+	w = do(s, "PUT", "/api/data/customers/rows/"+engine.EncodeRowKey([]string{"1"}),
 		`{"name":"jo","m2m_tags":[1]}`, reader)
 	if w.Code != 403 || !strings.Contains(w.Body.String(), "Customer Tags") {
 		t.Fatalf("junction grant = %d %s", w.Code, w.Body)
 	}
 
 	// m2moptions without junction read → 403
-	w = do(s, "GET", "/api/tables/"+custTok+"/m2moptions/m2m_tags", "", reader)
+	w = do(s, "GET", "/api/data/customers/m2moptions/m2m_tags", "", reader)
 	if w.Code != 403 {
 		t.Fatalf("options grant = %d %s", w.Code, w.Body)
 	}
@@ -306,7 +306,7 @@ func TestM2MExport(t *testing.T) {
 	custTok, _ := seedM2M(t, s)
 	addM2MColumn(t, s, &c, custTok, "")
 
-	body, _ := exportCSV(t, s, custTok, "", c)
+	body, _ := exportCSV(t, s, "customers", "", c)
 	if !strings.Contains(body, "id,name,m2m_tags") {
 		t.Fatalf("header = %q", body)
 	}
@@ -363,7 +363,7 @@ func TestM2MDanglingTargetErrors(t *testing.T) {
 	}
 
 	// admin: old perm passed on the dangling id, then def lookup failed → 404
-	w := do(s, "GET", "/api/tables/"+custTok+"/m2moptions/m2m_tags", "", c)
+	w := do(s, "GET", "/api/data/customers/m2moptions/m2m_tags", "", c)
 	if w.Code != 404 || !strings.Contains(w.Body.String(), "table def not found") {
 		t.Fatalf("admin m2moptions = %d %s", w.Code, w.Body)
 	}
@@ -374,7 +374,7 @@ func TestM2MDanglingTargetErrors(t *testing.T) {
 		{TableDefID: 1, CanRead: true},
 		{TableDefID: 3, CanRead: true},
 	})
-	w = do(s, "GET", "/api/tables/"+custTok+"/m2moptions/m2m_tags", "", reader)
+	w = do(s, "GET", "/api/data/customers/m2moptions/m2m_tags", "", reader)
 	if w.Code != 403 || !strings.Contains(w.Body.String(), "no read access to the related tables") {
 		t.Fatalf("reader m2moptions = %d %s", w.Code, w.Body)
 	}

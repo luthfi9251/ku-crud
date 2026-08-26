@@ -9,18 +9,14 @@ import (
 	"ku-crud/internal/meta"
 )
 
-// handleRowAction runs one custom row action synchronously (v1.9):
-// POST /api/tables/{id}/rows/{pk}/action  body {"actionId":"..."}
+// runRowAction runs one custom row action synchronously (v1.9):
+// POST /api/data/{name}/rows/{pk}/action  body {"actionId":"..."}
 // The row is fetched fresh from the database (never trusted from the
 // client), the acting user must hold the action's grant, and every run —
-// success or failure — writes an ACTION audit entry.
-func (s *Server) handleRowAction(w http.ResponseWriter, r *http.Request) {
+// success or failure — writes an ACTION audit entry. The def arrives
+// already resolved by name (the /api/data dispatcher).
+func (s *Server) runRowAction(w http.ResponseWriter, r *http.Request, def *meta.TableDef, cols []meta.ColumnDef) {
 	u := userFrom(r)
-	def, cols, err := s.tableCtx(r)
-	if err != nil {
-		s.writeDefErr(w, err)
-		return
-	}
 	if writeQueryReadOnly(w, def) {
 		return
 	}

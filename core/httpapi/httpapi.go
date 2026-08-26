@@ -49,12 +49,29 @@ type DefSource interface {
 	Defs() []*defs.Table
 }
 
+// ServiceSet bundles the engine services one request runs on. Hosts that
+// own their wiring (per-target read grants, junction write grants,
+// metadata-derived ref sources, an outbox-backed hook adapter) supply the
+// full set; the Resource itself only routes, guards and gates.
+type ServiceSet struct {
+	Read   *engine.ReadService
+	Write  *engine.WriteService
+	Import *engine.ImportService
+}
+
 // Options configures one Resource handler.
 type Options struct {
 	// Gate, when non-nil, is called before every op.
 	Gate Gate
 	// Registry resolves hook names; nil means hooks.Default.
 	Registry *hooks.Registry
+	// Services, when non-nil, replaces the default engine wiring for every
+	// op — the advanced path for hosts whose resolver spans multiple
+	// connections or whose hook execution is not registry-synchronous (the
+	// platform is the first consumer: meta-backed defs, perm-checked fk
+	// joins, async after-hooks via outbox). Nil wires the DefSource
+	// defaults.
+	Services func(r *http.Request, t *defs.Table) ServiceSet
 }
 
 // Resource is a plain http.Handler serving ONE definition's data routes.
@@ -69,6 +86,7 @@ type Resource struct {
 	src  DefSource
 	gate Gate
 	reg  *hooks.Registry
+	svc  func(r *http.Request, t *defs.Table) ServiceSet
 }
 
 // New builds the def's HTTP handler. The table must come fully built
@@ -78,7 +96,7 @@ func New(name string, t *defs.Table, src DefSource, o Options) *Resource {
 	if reg == nil {
 		reg = hooks.Default
 	}
-	return &Resource{name: name, t: t, src: src, gate: o.Gate, reg: reg}
+	return &Resource{name: name, t: t, src: src, gate: o.Gate, reg: reg, svc: o.Services}
 }
 
 func writeErr(w http.ResponseWriter, status int, code, msg string, detail any) {
@@ -123,10 +141,15 @@ func routePath(p string) (string, bool) {
 
 // services wires the engine services for one request. They are built per
 // request so the hook adapter can thread the request context (and with it
-// the actor the host may have injected via hooks.WithActor).
+// the actor the host may have injected via hooks.WithActor). A host
+// Services func replaces the default wiring wholesale.
 func (h *Resource) services(r *http.Request) (read *engine.ReadService,
 	write *engine.WriteService, imp *engine.ImportService,
 ) {
+	if h.svc != nil {
+		ss := h.svc(r, h.t)
+		return ss.Read, ss.Write, ss.Import
+	}
 	var hh engine.Hooks
 	if h.reg != nil {
 		hh = &hookAdapter{src: h.src, reg: h.reg, r: r}
@@ -220,7 +243,10 @@ func (h *Resource) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			pk, col := segs[1], segs[3]
 			read, _, _ := h.services(r)
-			h.dispatch(w, r, OpRead, false, func() { setPK(pk); setCol(col); read.M2MLinks(w, r, h.t) })
+			// write-guarded read: query views reject relation endpoints
+			// outright (they cannot declare fk/m2m columns), matching the
+			// host's historical guard-before-grant order
+			h.dispatch(w, r, OpRead, true, func() { setPK(pk); setCol(col); read.M2MLinks(w, r, h.t) })
 		default:
 			writeErr(w, 404, "NOT_FOUND", "route not found", nil)
 		}
@@ -235,7 +261,7 @@ func (h *Resource) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		col := segs[1]
 		read, _, _ := h.services(r)
-		h.dispatch(w, r, OpRead, false, func() { setCol(col); read.FKOptions(w, r, h.t) })
+		h.dispatch(w, r, OpRead, true, func() { setCol(col); read.FKOptions(w, r, h.t) })
 	case "m2moptions":
 		if len(segs) != 2 {
 			writeErr(w, 404, "NOT_FOUND", "route not found", nil)
@@ -247,7 +273,7 @@ func (h *Resource) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		col := segs[1]
 		read, _, _ := h.services(r)
-		h.dispatch(w, r, OpRead, false, func() { setCol(col); read.M2MOptions(w, r, h.t) })
+		h.dispatch(w, r, OpRead, true, func() { setCol(col); read.M2MOptions(w, r, h.t) })
 	case "import":
 		if len(segs) != 2 || (segs[1] != "preview" && segs[1] != "apply") {
 			writeErr(w, 404, "NOT_FOUND", "route not found", nil)

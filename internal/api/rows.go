@@ -3,11 +3,14 @@ package api
 import (
 	"encoding/json"
 	"log/slog"
-	"net/http"
 
 	"github.com/luthfi9251/kucrud-core/defs"
 	"ku-crud/internal/meta"
 )
+
+// Row endpoints are served by core/httpapi under /api/data/{name}
+// (defsource.go). This file keeps the def/audit helpers the remaining
+// platform handlers (actions, groups, metatransfer, saved filters) share.
 
 func colNames(cols []meta.ColumnDef) []string {
 	names := make([]string, len(cols))
@@ -39,38 +42,6 @@ func toCore(def *meta.TableDef, cols []meta.ColumnDef) *defs.Table {
 	return &t
 }
 
-func (s *Server) handleRowList(w http.ResponseWriter, r *http.Request) {
-	def, cols, err := s.tableCtx(r)
-	if err != nil {
-		s.writeDefErr(w, err)
-		return
-	}
-	u := userFrom(r)
-	if !s.hasTablePerm(u, def.ID, "read") {
-		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
-		return
-	}
-	svc, ct := s.readService(u, def, cols)
-	svc.List(w, r, ct)
-}
-
-func (s *Server) handleRowGet(w http.ResponseWriter, r *http.Request) {
-	def, cols, err := s.tableCtx(r)
-	if err != nil {
-		s.writeDefErr(w, err)
-		return
-	}
-	// perm check before the engine's QUERY_NO_KEY so no-grant users can't
-	// probe whether a query view has key columns
-	u := userFrom(r)
-	if !s.hasTablePerm(u, def.ID, "read") {
-		writeErr(w, 403, "FORBIDDEN", "no read access to this table", nil)
-		return
-	}
-	svc, ct := s.readService(u, def, cols)
-	svc.Get(w, r, ct)
-}
-
 func mustJSON(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -94,58 +65,4 @@ func (s *Server) auditBestEffort(u CtxUser, defID int64, action, rowPK string, o
 	}); err != nil {
 		slog.Warn("audit write failed", "def", defID, "action", action, "rowPk", rowPK, "err", err.Error())
 	}
-}
-
-func (s *Server) handleRowCreate(w http.ResponseWriter, r *http.Request) {
-	u := userFrom(r)
-	def, cols, err := s.tableCtx(r)
-	if err != nil {
-		s.writeDefErr(w, err)
-		return
-	}
-	if writeQueryReadOnly(w, def) {
-		return
-	}
-	if !s.hasTablePerm(u, def.ID, "create") {
-		writeErr(w, 403, "FORBIDDEN", "no create access to this table", nil)
-		return
-	}
-	svc, ct := s.writeService(u, r, def, cols)
-	svc.Insert(w, r, ct)
-}
-
-func (s *Server) handleRowUpdate(w http.ResponseWriter, r *http.Request) {
-	u := userFrom(r)
-	def, cols, err := s.tableCtx(r)
-	if err != nil {
-		s.writeDefErr(w, err)
-		return
-	}
-	if writeQueryReadOnly(w, def) {
-		return
-	}
-	if !s.hasTablePerm(u, def.ID, "update") {
-		writeErr(w, 403, "FORBIDDEN", "no update access to this table", nil)
-		return
-	}
-	svc, ct := s.writeService(u, r, def, cols)
-	svc.Update(w, r, ct)
-}
-
-func (s *Server) handleRowDelete(w http.ResponseWriter, r *http.Request) {
-	u := userFrom(r)
-	def, cols, err := s.tableCtx(r)
-	if err != nil {
-		s.writeDefErr(w, err)
-		return
-	}
-	if writeQueryReadOnly(w, def) {
-		return
-	}
-	if !s.hasTablePerm(u, def.ID, "delete") {
-		writeErr(w, 403, "FORBIDDEN", "no delete access to this table", nil)
-		return
-	}
-	svc, ct := s.writeService(u, r, def, cols)
-	svc.Delete(w, r, ct)
 }

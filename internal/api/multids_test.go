@@ -62,7 +62,7 @@ func seedMultiDS(t *testing.T, s *Server) (custTok, ordTok string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return tdTok(s, cust.ID), tdTok(s, orders.ID)
+	return cust.TableName, orders.TableName
 }
 
 func seedPG(cs string) error {
@@ -108,26 +108,26 @@ func TestCrossDriverRelations(t *testing.T) {
 	custTok, ordTok := seedMultiDS(t, s)
 
 	// rels: MySQL orders list enriched from PG customers
-	w := do(s, "GET", "/api/tables/"+ordTok+"/rows", "", c)
+	w := do(s, "GET", "/api/data/"+ordTok+"/rows", "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"rels":{"customer_id"`) ||
 		!strings.Contains(w.Body.String(), `"name":"jo"`) {
 		t.Fatalf("cross rels = %d %s", w.Code, w.Body)
 	}
 
 	// fkoptions picker reads PG target from MySQL source def
-	w = do(s, "GET", "/api/tables/"+ordTok+"/fkoptions/customer_id?search=joe", "", c)
+	w = do(s, "GET", "/api/data/"+ordTok+"/fkoptions/customer_id?search=joe", "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"name":"joe"`) {
 		t.Fatalf("cross fkoptions = %d %s", w.Code, w.Body)
 	}
 
 	// create with dangling fk → 400 (target lookup crosses drivers)
-	w = do(s, "POST", "/api/tables/"+ordTok+"/rows", `{"note":"x","customer_id":999}`, c)
+	w = do(s, "POST", "/api/data/"+ordTok+"/rows", `{"note":"x","customer_id":999}`, c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "referenced row not found") {
 		t.Fatalf("cross dangling = %d %s", w.Code, w.Body)
 	}
 
 	// delete referenced PG customer via API → 409 (metadata protection, cross-driver)
-	w = do(s, "DELETE", "/api/tables/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c)
+	w = do(s, "DELETE", "/api/data/"+custTok+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c)
 	if w.Code != 409 || !strings.Contains(w.Body.String(), "Orders") {
 		t.Fatalf("cross delete protection = %d %s", w.Code, w.Body)
 	}
@@ -186,7 +186,7 @@ func TestMySQLFKViolation409(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	w := do(s, "DELETE", "/api/tables/"+tdTok(s, def.ID)+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c)
+	w := do(s, "DELETE", "/api/data/"+def.TableName+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c)
 	if w.Code != 409 {
 		t.Fatalf("mysql fk violation = %d %s", w.Code, w.Body)
 	}

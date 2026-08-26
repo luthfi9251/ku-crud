@@ -68,7 +68,7 @@ func TestRowListAndGet(t *testing.T) {
 	c := login(s)
 	seedLive(t, s)
 
-	w := do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows", "", c)
+	w := do(s, "GET", "/api/data/"+defName(s, 1)+"/rows", "", c)
 	if w.Code != 200 {
 		t.Fatalf("list = %d %s", w.Code, w.Body)
 	}
@@ -77,12 +77,12 @@ func TestRowListAndGet(t *testing.T) {
 		t.Fatalf("page1 = %s", w.Body)
 	}
 
-	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows?search=jo", "", c)
+	w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows?search=jo", "", c)
 	if !strings.Contains(w.Body.String(), `"total":2`) {
 		t.Fatalf("search = %s", w.Body)
 	}
 
-	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows?sort=name&dir=DESC", "", c)
+	w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows?sort=name&dir=DESC", "", c)
 	body := w.Body.String()
 	// DESC: "joe" sorts before "jo" (prefix compares less); brief's original
 	// `<` was inverted — it fired on correct DESC output.
@@ -91,23 +91,23 @@ func TestRowListAndGet(t *testing.T) {
 	}
 
 	// sort on non-sortable column (born) silently falls back to pk ASC
-	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows?sort=born&dir=DESC", "", c)
+	w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows?sort=born&dir=DESC", "", c)
 	if !strings.Contains(w.Body.String(), `"total":3`) {
 		t.Fatalf("fallback sort = %s", w.Body)
 	}
 
 	// page 2 with pageSize 2 → last row only
-	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows?page=2", "", c)
+	w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows?page=2", "", c)
 	if !strings.Contains(w.Body.String(), `"total":3`) ||
 		strings.Count(w.Body.String(), `"name":`) != 1 {
 		t.Fatalf("page2 = %s", w.Body)
 	}
 
-	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"2"}), "", c)
+	w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"2"}), "", c)
 	if !strings.Contains(w.Body.String(), `"name":"joe"`) {
 		t.Fatalf("get row = %s", w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"999"}), "", c); w.Code != 404 {
+	if w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"999"}), "", c); w.Code != 404 {
 		t.Fatalf("missing row = %d", w.Code)
 	}
 }
@@ -150,7 +150,7 @@ func seedSortable(t *testing.T, s *Server, defaultSortCol, defaultSortDir string
 	if err := s.store.SaveTableDef(def, cols); err != nil {
 		t.Fatal(err)
 	}
-	return tdTok(s, 1)
+	return def.TableName
 }
 
 func firstNames(t *testing.T, body string) []string {
@@ -175,7 +175,7 @@ func TestDefaultSort(t *testing.T) {
 	c := login(s)
 	tok := seedSortable(t, s, "name", "DESC")
 
-	w := do(s, "GET", "/api/tables/"+tok+"/rows", "", c)
+	w := do(s, "GET", "/api/data/"+tok+"/rows", "", c)
 	got := firstNames(t, w.Body.String())
 	want := []string{"gamma", "delta", "beta", "alpha"}
 	if !equalSlice(got, want) {
@@ -183,14 +183,14 @@ func TestDefaultSort(t *testing.T) {
 	}
 
 	// explicit sort overrides the default
-	w = do(s, "GET", "/api/tables/"+tok+"/rows?sort=name&dir=ASC", "", c)
+	w = do(s, "GET", "/api/data/"+tok+"/rows?sort=name&dir=ASC", "", c)
 	got = firstNames(t, w.Body.String())
 	if !equalSlice(got, []string{"alpha", "beta", "delta", "gamma"}) {
 		t.Fatalf("explicit override: %v", got)
 	}
 
 	// non-sortable explicit column falls back to the default sort
-	w = do(s, "GET", "/api/tables/"+tok+"/rows?sort=note&dir=DESC", "", c)
+	w = do(s, "GET", "/api/data/"+tok+"/rows?sort=note&dir=DESC", "", c)
 	got = firstNames(t, w.Body.String())
 	if !equalSlice(got, want) {
 		t.Fatalf("invalid explicit falls to default: %v", got)
@@ -202,11 +202,54 @@ func TestDefaultSortInvalidColumnFallsBackToKey(t *testing.T) {
 	c := login(s)
 	// default sort column dropped from live → resolveSort falls back to key ASC
 	tok := seedSortable(t, s, "gone", "DESC")
-	w := do(s, "GET", "/api/tables/"+tok+"/rows", "", c)
+	w := do(s, "GET", "/api/data/"+tok+"/rows", "", c)
 	got := firstNames(t, w.Body.String())
 	// insertion order by id: delta, alpha, gamma, beta
 	if !equalSlice(got, []string{"delta", "alpha", "gamma", "beta"}) {
 		t.Fatalf("key fallback: %v", got)
+	}
+}
+
+// TestDataNamespace pins the /api/data namespace: the def fetch is
+// name-addressed and byte-compatible with the management def detail,
+// nameless query views are addressed by their masked id token, and the
+// old id-addressed data routes are gone.
+func TestDataNamespace(t *testing.T) {
+	s := newTestServer(t)
+	c := login(s)
+	seedDS(t, s)
+	if w := do(s, "POST", "/api/tables", defBody(s), c); w.Code != 200 {
+		t.Fatalf("create def = %d %s", w.Code, w.Body)
+	}
+
+	// def by name ≡ def by id (same serialization)
+	byID := do(s, "GET", "/api/tables/"+tdTok(s, 1), "", c)
+	byName := do(s, "GET", "/api/data/customers", "", c)
+	if byID.Code != 200 || byName.Code != 200 || byID.Body.String() != byName.Body.String() {
+		t.Fatalf("def by name = %d %s (by id = %d)", byName.Code, byName.Body, byID.Code)
+	}
+
+	// unknown name → the management def-detail 404 shape
+	if w := do(s, "GET", "/api/data/nope", "", c); w.Code != 404 ||
+		!strings.Contains(w.Body.String(), "table def not found") {
+		t.Fatalf("unknown name = %d %s", w.Code, w.Body)
+	}
+
+	// nameless query view: token-addressed, same def JSON both ways
+	seedQueryDef(t, s, []string{"n"})
+	qByToken := do(s, "GET", "/api/data/"+tdTok(s, 2), "", c)
+	qByID := do(s, "GET", "/api/tables/"+tdTok(s, 2), "", c)
+	if qByToken.Code != 200 || qByToken.Body.String() != qByID.Body.String() {
+		t.Fatalf("query def by token = %d %s", qByToken.Code, qByToken.Body)
+	}
+
+	// a token pointing at a NAMED def never resolves (names own the
+	// namespace); the old id-addressed data routes are gone
+	if w := do(s, "GET", "/api/data/"+tdTok(s, 1), "", c); w.Code != 404 {
+		t.Fatalf("named def by token = %d", w.Code)
+	}
+	if w := do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows", "", c); w.Code != 404 {
+		t.Fatalf("old row route = %d", w.Code)
 	}
 }
 

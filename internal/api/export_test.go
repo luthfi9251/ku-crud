@@ -14,7 +14,7 @@ import (
 // stripped, plus the raw first three bytes for BOM assertions.
 func exportCSV(t *testing.T, s *Server, tok, query, cookie string) (body string, hasBOM bool) {
 	t.Helper()
-	w := do(s, "GET", "/api/tables/"+tok+"/rows/export"+query, "", &cookie)
+	w := do(s, "GET", "/api/data/"+tok+"/rows/export"+query, "", &cookie)
 	if w.Code != 200 {
 		t.Fatalf("export = %d %s", w.Code, w.Body)
 	}
@@ -29,7 +29,7 @@ func TestExportCSV(t *testing.T) {
 	s := newTestServer(t)
 	c := *login(s)
 	seedLive(t, s)
-	tok := tdTok(s, 1)
+	tok := defName(s, 1)
 
 	body, bom := exportCSV(t, s, tok, "", c)
 	if !bom {
@@ -63,7 +63,7 @@ func TestExportCSV(t *testing.T) {
 	}
 
 	// quoting: a value with comma/quote/newline is quoted properly (create one)
-	w := do(s, "POST", "/api/tables/"+tok+"/rows", `{"name":"a,b \"q\"\nc","status":"sunny"}`, &c)
+	w := do(s, "POST", "/api/data/"+tok+"/rows", `{"name":"a,b \"q\"\nc","status":"sunny"}`, &c)
 	if w.Code != 200 {
 		t.Fatalf("create = %d %s", w.Code, w.Body)
 	}
@@ -79,7 +79,7 @@ func TestExportCSVFKDisplay(t *testing.T) {
 	c := *login(s)
 	seedFKLive(t, s)
 
-	body, _ := exportCSV(t, s, tdTok(s, 2), "", c)
+	body, _ := exportCSV(t, s, defName(s, 2), "", c)
 	if !strings.Contains(body, "jo — Bandung") || !strings.Contains(body, "joe — Jakarta") {
 		t.Fatalf("fk display in export: %q", body)
 	}
@@ -91,17 +91,17 @@ func TestExportCSVFKDisplay(t *testing.T) {
 func TestExportCSVGrants(t *testing.T) {
 	s := newTestServer(t)
 	seedLive(t, s)
-	tok := tdTok(s, 1)
+	tok := defName(s, 1)
 
 	// read grant → 200
 	reader := loginAs(t, s, "reader", &meta.Role{Name: "Reader"},
 		[]meta.TableGrant{{TableDefID: 1, CanRead: true}})
-	if w := do(s, "GET", "/api/tables/"+tok+"/rows/export", "", reader); w.Code != 200 {
+	if w := do(s, "GET", "/api/data/"+tok+"/rows/export", "", reader); w.Code != 200 {
 		t.Fatalf("reader export = %d %s", w.Code, w.Body)
 	}
 	// no grant → 403
 	noGrant := loginAs(t, s, "nogrant", &meta.Role{Name: "NoGrant"}, nil)
-	if w := do(s, "GET", "/api/tables/"+tok+"/rows/export", "", noGrant); w.Code != 403 {
+	if w := do(s, "GET", "/api/data/"+tok+"/rows/export", "", noGrant); w.Code != 403 {
 		t.Fatalf("no-grant export = %d %s", w.Code, w.Body)
 	}
 }
