@@ -119,6 +119,13 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/tables/{id}/saved-filters", s.RequireAuth(s.handleSavedFilterCreate))
 	mux.HandleFunc("PUT /api/tables/{id}/saved-filters/{fid}", s.RequireAuth(s.handleSavedFilterUpdate))
 	mux.HandleFunc("DELETE /api/tables/{id}/saved-filters/{fid}", s.RequireAuth(s.handleSavedFilterDelete))
+
+	// admin-defined dashboard stat cards (v1.10)
+	mux.HandleFunc("GET /api/cards", s.RequireAuth(s.handleCardList))
+	mux.HandleFunc("POST /api/cards", s.RequireTablesManage(s.handleCardCreate))
+	mux.HandleFunc("PUT /api/cards/{id}", s.RequireTablesManage(s.handleCardUpdate))
+	mux.HandleFunc("DELETE /api/cards/{id}", s.RequireTablesManage(s.handleCardDelete))
+	mux.HandleFunc("POST /api/cards/{id}/move", s.RequireTablesManage(s.handleCardMove))
 	mux.HandleFunc("GET /api/audit", s.RequireAuditView(s.handleAuditList))
 
 	mux.HandleFunc("GET /api/hooks", s.RequireTablesManage(s.handleHooksList))
