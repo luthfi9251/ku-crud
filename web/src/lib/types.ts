@@ -98,6 +98,17 @@ export interface RowsRes {
 
 export interface FkOptionsRes { rows: Row[]; total: number; page: number; pageSize: number }
 
+export type AggFunc = "count" | "sum" | "avg" | "min" | "max";
+
+// StatCard is an admin-defined dashboard aggregate card (filters is the
+// serialized ActiveFilter[] JSON produced by serializeFilters).
+export interface StatCard {
+  id: Id; tableDefId: Id; tableName: string; tableLabel: string;
+  label: string; func: AggFunc; column: string; filters: string; position: number;
+}
+
+export interface StatsResult { func: AggFunc; column: string; value: unknown; hasRows: boolean }
+
 export interface AuditEntry {
   id: Id; userId: Id; username: string; tableDefId: Id; action: string; rowPk: string;
   oldValues: Record<string, unknown> | null;
