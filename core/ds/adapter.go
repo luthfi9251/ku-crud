@@ -102,6 +102,9 @@ type Adapter interface {
 
 	ListRows(p ListParams) ([]map[string]any, error)
 	CountRows(p ListParams) (int, error)
+	// AggregateRows computes one single-value aggregate (dashboard cards):
+	// Query set = query-view mode (read-only tx + timeout), else table mode.
+	AggregateRows(p AggregateParams) (*AggregateResult, error)
 	FetchByKey(schema, table string, keyCols []string, keyVals []any, cols []string) ([]map[string]any, error)
 
 	Insert(schema, table string, cols []string, vals []any) error

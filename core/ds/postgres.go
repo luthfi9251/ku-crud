@@ -209,6 +209,32 @@ func (a *pgAdapter) CountRows(p ListParams) (int, error) {
 	return n, nil
 }
 
+func (a *pgAdapter) AggregateRows(p AggregateParams) (*AggregateResult, error) {
+	if p.Query != "" {
+		sqlText, args, err := pgDialect.buildQueryAggregate(p)
+		if err != nil {
+			return nil, err
+		}
+		out := &AggregateResult{}
+		err = a.queryExec(func(tx *sql.Tx) error {
+			return scanAggregate(tx.QueryRow(sqlText, args...), out)
+		})
+		if err != nil {
+			return nil, err
+		}
+		return out, nil
+	}
+	sqlText, args, err := pgDialect.buildAggregate(p)
+	if err != nil {
+		return nil, err
+	}
+	out := &AggregateResult{}
+	if err := scanAggregate(a.db.QueryRow(sqlText, args...), out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (a *pgAdapter) FetchByKey(schema, table string, keyCols []string, keyVals []any, cols []string) ([]map[string]any, error) {
 	sqlText, args, err := pgDialect.buildFetchByKey(schema, table, keyCols, keyVals, cols)
 	if err != nil {

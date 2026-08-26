@@ -220,6 +220,32 @@ func (a *mysqlAdapter) CountRows(p ListParams) (int, error) {
 	return n, nil
 }
 
+func (a *mysqlAdapter) AggregateRows(p AggregateParams) (*AggregateResult, error) {
+	if p.Query != "" {
+		sqlText, args, err := mysqlDialect.buildQueryAggregate(p)
+		if err != nil {
+			return nil, err
+		}
+		out := &AggregateResult{}
+		err = a.withQueryConn(func(ctx context.Context, q ctxQuerier) error {
+			return scanAggregate(q.QueryRowContext(ctx, sqlText, args...), out)
+		})
+		if err != nil {
+			return nil, err
+		}
+		return out, nil
+	}
+	sqlText, args, err := mysqlDialect.buildAggregate(p)
+	if err != nil {
+		return nil, err
+	}
+	out := &AggregateResult{}
+	if err := scanAggregate(a.db.QueryRow(sqlText, args...), out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (a *mysqlAdapter) FetchByKey(schema, table string, keyCols []string, keyVals []any, cols []string) ([]map[string]any, error) {
 	sqlText, args, err := mysqlDialect.buildFetchByKey(schema, table, keyCols, keyVals, cols)
 	if err != nil {
@@ -359,6 +385,7 @@ func (a *mysqlAdapter) queryMaps(sqlText string, args ...any) ([]map[string]any,
 
 type ctxQuerier interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
