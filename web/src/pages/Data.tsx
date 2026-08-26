@@ -29,9 +29,10 @@ import { humanError } from "../lib/errors";
 import { ErrorBox } from "../components/ErrorBox";
 import { encodeRowKey } from "../lib/rowkey";
 import { enumColorClass, formatCell } from "../lib/format";
-import type { ColumnDef, CustomAction, FkOptionsRes, Me, Row, RowsRes, SavedFilter, TableDefPayload, ViewConfig, ViewMode } from "../lib/types";
+import type { ColumnDef, CustomAction, FkOptionsRes, Me, Row, RowsRes, SavedFilter, StatCard, TableDefPayload, ViewConfig, ViewMode } from "../lib/types";
 import { HelpPopover } from "../components/ColumnListEditor";
 import { FilterBar, serializeFilters, deserializeFilters, type ActiveFilter } from "../components/FilterBar";
+import { StatCardView } from "../components/StatCardView";
 import { KanbanView } from "../components/views/KanbanView";
 import { CalendarView } from "../components/views/CalendarView";
 import { useT, useI18nLang } from "../lib/i18n";
@@ -61,6 +62,9 @@ export default function Data() {
   const qc = useQueryClient();
   const def = useQuery({ queryKey: ["def", id], queryFn: () => api<TableDefPayload>(`/tables/${id}`) });
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/auth/me") });
+  // stat cards whose table matches this definition (dashboard strip)
+  const cards = useQuery({ queryKey: ["cards"], queryFn: () => api<StatCard[]>("/cards") });
+  const tableCards = (cards.data ?? []).filter((c) => def.data && c.tableDefId === def.data.id);
   // data endpoints are name-addressed (/api/data/{name}); nameless query
   // views fall back to the masked def id the router already carries
   const dataName = def.data?.tableName || id || "";
@@ -627,6 +631,14 @@ export default function Data() {
 
   return (
     <div className="space-y-6">
+      {/* stat cards configured for this table (admin dashboard cards) */}
+      {tableCards.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {tableCards.map((c) => (
+            <StatCardView key={c.id} card={c} compact />
+          ))}
+        </div>
+      )}
       {/* Top Header & Action Toolbar */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b pb-4">
         {/* Table Title & Metadata */}
