@@ -68,8 +68,10 @@ func TestImportPreviewAndApply(t *testing.T) {
 		t.Fatalf("inserted row missing: %s", w.Body)
 	}
 
-	// audit returns in Task 11 (platformhooks): the import INSERT audit
-	// assertion was removed with the write path's audit decoupling.
+	// audit got an INSERT for the import
+	if w := do(s, "GET", "/api/audit?tableDefId="+tdTok(s, 1), "", c); !strings.Contains(w.Body.String(), `"INSERT"`) {
+		t.Fatalf("audit missing import insert: %s", w.Body)
+	}
 
 	// apply mode=all: invalid cells are omitted (best-effort NULL) and the
 	// rows are still attempted — all three rows insert (nia again), none fail

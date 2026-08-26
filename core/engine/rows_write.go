@@ -24,6 +24,29 @@ type Hooks interface {
 	RunAfter(ev hooks.Event, t *defs.Table, row hooks.RowPayload) error
 }
 
+// SyncAfterHooks is the optional Hooks extension for synchronous
+// post-write side effects that complete inside the request, ahead of any
+// scheduled RunAfter work — the platform's audit trail ran inline in the
+// write path before after-hooks were enqueued, and keeps that timing
+// here. Implementations must be best-effort like RunAfter and may never
+// fail the request. rowKey is the audit-shaped key of the affected row
+// (EncodeKey over the pre-write row); empty where the write path
+// addresses no single row key (creates, junction link changes, import).
+type SyncAfterHooks interface {
+	Hooks
+	RunSyncAfter(ev hooks.Event, t *defs.Table, row hooks.RowPayload, rowKey string)
+}
+
+// runSyncAfter invokes the optional synchronous-after slot; a host that
+// implements only Hooks (or none) gets a no-op.
+func runSyncAfter(h Hooks, ev hooks.Event, t *defs.Table, row hooks.RowPayload, rowKey string) {
+	sa, ok := h.(SyncAfterHooks)
+	if !ok {
+		return
+	}
+	sa.RunSyncAfter(ev, t, row, rowKey)
+}
+
 // RefSource is one inbound fk reference for delete protection: Src is the
 // referencing definition, Column its fk column, RefColumn the referenced
 // column on the target table, Label the conflict-detail display label.
@@ -38,7 +61,8 @@ type RefSource struct {
 // delete). It is auth-free like ReadService: the platform checks
 // table-level grants before calling; junction grants and inbound-fk
 // discovery ride on the callbacks. Audit rows are not written here —
-// audit returns as an AfterX hook (platformhooks).
+// the host's optional SyncAfterHooks slot carries them (the platform's
+// platformhooks.Audit).
 type WriteService struct {
 	R Resolver
 	H Hooks // may be nil
@@ -262,7 +286,7 @@ func (s *WriteService) syncM2MLinks(c defs.Column, cfg *M2MCfg, srcVal any, want
 			[]string{c.M2M.SrcCol, c.M2M.TgtCol}, []any{srcVal, w}); err != nil {
 			return err
 		}
-		// audit returns in Task 11 (platformhooks)
+		runSyncAfter(s.H, hooks.AfterCreate, cfg.Junction, hooks.RowPayload{Values: linkVals}, "")
 		s.runAfter(hooks.AfterCreate, cfg.Junction, hooks.RowPayload{Values: linkVals})
 	}
 	for k, v := range current { // removed links
@@ -277,7 +301,7 @@ func (s *WriteService) syncM2MLinks(c defs.Column, cfg *M2MCfg, srcVal any, want
 			c.M2M.SrcCol, srcVal, c.M2M.TgtCol, v); err != nil {
 			return err
 		}
-		// audit returns in Task 11 (platformhooks)
+		runSyncAfter(s.H, hooks.AfterDelete, cfg.Junction, hooks.RowPayload{Old: linkVals}, "")
 		s.runAfter(hooks.AfterDelete, cfg.Junction, hooks.RowPayload{Old: linkVals})
 	}
 	return nil
@@ -453,7 +477,7 @@ func (s *WriteService) Insert(w http.ResponseWriter, r *http.Request, t *defs.Ta
 		writeM2MErr(w, err)
 		return
 	}
-	// audit returns in Task 11 (platformhooks)
+	runSyncAfter(s.H, hooks.AfterCreate, t, hooks.RowPayload{Values: body}, "")
 	s.runAfter(hooks.AfterCreate, t, hooks.RowPayload{Values: body})
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
@@ -556,7 +580,8 @@ func (s *WriteService) Update(w http.ResponseWriter, r *http.Request, t *defs.Ta
 			merged[k] = v
 		}
 		mergedLast = merged
-		// audit returns in Task 11 (platformhooks)
+		rowPK, _ := EncodeKey(t, old)
+		runSyncAfter(s.H, hooks.AfterUpdate, t, hooks.RowPayload{Values: merged, Old: old}, rowPK)
 	}
 	s.runAfter(hooks.AfterUpdate, t, hooks.RowPayload{Values: mergedLast, Old: oldRows[0]})
 	if err := s.applyM2MPayload(t, body, oldRows[0], selections); err != nil {
@@ -621,7 +646,10 @@ func (s *WriteService) Delete(w http.ResponseWriter, r *http.Request, t *defs.Ta
 		writeErr(w, 502, "CONN", "delete failed", err.Error())
 		return
 	}
-	// audit returns in Task 11 (platformhooks)
+	for _, old := range oldRows {
+		rowPK, _ := EncodeKey(t, old)
+		runSyncAfter(s.H, hooks.AfterDelete, t, hooks.RowPayload{Old: old}, rowPK)
+	}
 	for _, old := range oldRows {
 		s.runAfter(hooks.AfterDelete, t, hooks.RowPayload{Old: old})
 	}
@@ -726,7 +754,8 @@ func (s *WriteService) BulkDelete(w http.ResponseWriter, r *http.Request, t *def
 			continue
 		}
 		for _, old := range oldRows {
-			// audit returns in Task 11 (platformhooks)
+			rowPK, _ := EncodeKey(t, old)
+			runSyncAfter(s.H, hooks.AfterDelete, t, hooks.RowPayload{Old: old}, rowPK)
 			deletedOlds = append(deletedOlds, old)
 		}
 		deleted++

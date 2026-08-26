@@ -21,9 +21,11 @@ func TestBulkDelete(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"deleted":2`) || !strings.Contains(w.Body.String(), `"failed":0`) {
 		t.Fatalf("bulk orders = %d %s", w.Code, w.Body)
 	}
-	// audit returns in Task 11 (platformhooks): assertion of 2 DELETE
-	// audit entries for orders removed with the write path's audit
-	// decoupling.
+	// audit: 2 DELETE entries for orders
+	w = do(s, "GET", "/api/audit?tableDefId="+tdTok(s, 2), "", c)
+	if strings.Count(w.Body.String(), `"DELETE"`) != 2 {
+		t.Fatalf("audit deletes = %s", w.Body)
+	}
 
 	// customers: 1 & 2 are referenced? orders 1 & 2 just deleted, so only the
 	// rows themselves remain; delete 1 (ok), 2 (ok), 999 (not found)

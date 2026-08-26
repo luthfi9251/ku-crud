@@ -350,7 +350,7 @@ func (s *ImportService) ApplyImport(w http.ResponseWriter, r *http.Request, t *d
 		}
 		inserted++
 		insertedPayloads = append(insertedPayloads, p)
-		// audit returns in Task 11 (platformhooks)
+		runSyncAfter(s.H, hooks.AfterCreate, t, hooks.RowPayload{Values: payloads[i]}, "")
 	}
 	for _, p := range insertedPayloads {
 		s.runAfter(hooks.AfterCreate, t, hooks.RowPayload{Values: p})

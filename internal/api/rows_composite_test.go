@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -109,9 +110,31 @@ func TestCompositeKeyCRUD(t *testing.T) {
 		t.Fatalf("deleted = %d", w.Code)
 	}
 
-	// audit returns in Task 11 (platformhooks): assertion that the DELETE
-	// audit rowPk is the composite JSON key array ["2","5"] removed with
-	// the write path's audit decoupling.
+	// audit row_pk is the JSON key array
+	w = do(s, "GET", "/api/audit?tableDefId="+tdTok(s, 1), "", c)
+	if w.Code != 200 {
+		t.Fatalf("audit = %d %s", w.Code, w.Body)
+	}
+	{
+		var res struct {
+			Entries []struct {
+				Action string `json:"action"`
+				RowPK  string `json:"rowPk"`
+			} `json:"entries"`
+		}
+		json.Unmarshal(w.Body.Bytes(), &res)
+		var sawJSONKey bool
+		for _, e := range res.Entries {
+			var arr []string
+			if e.Action == "DELETE" && json.Unmarshal([]byte(e.RowPK), &arr) == nil &&
+				len(arr) == 2 && arr[0] == "2" && arr[1] == "5" {
+				sawJSONKey = true
+			}
+		}
+		if !sawJSONKey {
+			t.Fatalf("audit row_pk not composite JSON: %s", w.Body)
+		}
+	}
 }
 
 func TestCompositeGrantsEndToEnd(t *testing.T) {

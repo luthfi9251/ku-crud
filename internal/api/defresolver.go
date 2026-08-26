@@ -10,6 +10,7 @@ import (
 	"github.com/luthfi9251/kucrud-core/ds"
 	"github.com/luthfi9251/kucrud-core/engine"
 	"github.com/luthfi9251/kucrud-core/hooks"
+	"ku-crud/internal/hooks/platformhooks"
 	"ku-crud/internal/meta"
 )
 
@@ -94,13 +95,16 @@ func (s *Server) readService(u CtxUser, res *metaResolver, def *meta.TableDef, c
 	}, &ct
 }
 
-// hookAdapter maps the engine's synchronous Hooks contract onto the
-// platform: Guard checks a definition's assignments against this binary's
-// registry, RunBefore executes compiled-in before-hooks (request context
-// on the request's own table, background elsewhere — the m2m link sync
-// always ran detached; the actor rides both the context and the hook
-// context), RunAfter enqueues one outbox entry per after-hook assignment
-// for the worker.
+// hookAdapter maps the engine's Hooks contract onto the platform: Guard
+// checks a definition's assignments against this binary's registry,
+// RunBefore executes compiled-in before-hooks (request context on the
+// request's own table, background elsewhere — the m2m link sync always
+// ran detached; the actor rides both the context and the hook context),
+// RunSyncAfter writes the platform audit trail synchronously inside the
+// request — exactly where the pre-extraction handlers called
+// auditBestEffort, ahead of RunAfter — and RunAfter enqueues one outbox
+// entry per after-hook assignment for the worker. Every definition gets
+// the audit hook by adapter construction; nothing is persisted to meta.
 type hookAdapter struct {
 	s        *Server
 	u        CtxUser
@@ -153,11 +157,21 @@ func (h *hookAdapter) RunAfter(ev hooks.Event, t *defs.Table, row hooks.RowPaylo
 	return nil
 }
 
+// RunSyncAfter writes the audit entry synchronously (best-effort, never
+// fails the request) — the pre-extraction audit timing, before RunAfter
+// enqueues the outbox.
+func (h *hookAdapter) RunSyncAfter(ev hooks.Event, t *defs.Table, row hooks.RowPayload, rowKey string) {
+	def, _, err := h.defCols(t)
+	if err != nil {
+		return // best-effort, mirrors RunAfter's swallow-on-error
+	}
+	platformhooks.Audit(h.s.store, def.ID, h.u.ID, ev, row, rowKey)
+}
+
 // writeService wires the engine write path for one request over a shared
-// resolver: the platform hook adapter (before-hooks synchronous,
-// after-hooks via outbox), the junction-grant predicate and inbound-fk
-// discovery. The engine writes no audit rows — audit returns as an
-// AfterX hook (platformhooks, Task 11).
+// resolver: the platform hook adapter (before-hooks synchronous, the
+// audit trail synchronous-after, user after-hooks via outbox), the
+// junction-grant predicate and inbound-fk discovery.
 func (s *Server) writeService(u CtxUser, r *http.Request, res *metaResolver, def *meta.TableDef, cols []meta.ColumnDef) (*engine.WriteService, *defs.Table) {
 	ha := &hookAdapter{s: s, u: u, req: r, mainDef: def, mainCols: cols, res: res}
 	ct := meta.ToCoreDef(*def, cols, res.idToName)
