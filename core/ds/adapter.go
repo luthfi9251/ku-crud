@@ -23,6 +23,44 @@ type FKJoin struct {
 	DisplayColumns           []string
 }
 
+// AggregateParams carries one single-value aggregate request (dashboard
+// cards). Query set = query-view mode (Schema/Table ignored); otherwise
+// the physical table is aggregated. Filters ride the same validated
+// pipeline as list requests.
+type AggregateParams struct {
+	Schema, Table string
+	Query         string
+	Func          string // count|sum|avg|min|max
+	Column        string // required for sum/avg/min/max; empty for count
+	Filters       []ColumnFilter
+}
+
+// AggregateResult is one aggregate value. Value is nil when the SQL
+// aggregate returned NULL (sum/avg/min/max over zero rows); HasRows
+// reports whether the filtered set was non-empty (COUNT(*) sidecar).
+type AggregateResult struct {
+	Value   any
+	HasRows bool
+}
+
+// scanner is the shared shape of *sql.Row and tx-returned rows.
+type scanner interface{ Scan(dest ...any) error }
+
+// scanAggregate scans the (agg, COUNT(*)) pair every aggregate query
+// selects; the sidecar count drives HasRows. []byte values (numeric
+// strings on some drivers) become plain strings.
+func scanAggregate(sc scanner, out *AggregateResult) error {
+	var n int64
+	if err := sc.Scan(&out.Value, &n); err != nil {
+		return err
+	}
+	out.HasRows = n > 0
+	if b, ok := out.Value.([]byte); ok {
+		out.Value = string(b)
+	}
+	return nil
+}
+
 // ColumnFilter is one validated per-column filter (AND-combined).
 type ColumnFilter struct {
 	Column string  // definition column name (validated by the api layer)

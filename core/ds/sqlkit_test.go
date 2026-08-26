@@ -1,6 +1,7 @@
 package ds
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -198,5 +199,72 @@ func TestFilterBadColumnRejected(t *testing.T) {
 		Filters: []ColumnFilter{{Column: "id; DROP TABLE users", Op: "eq", Values: []any{float64(1)}}}}
 	if _, _, err := pgDialect.buildList(p); err == nil {
 		t.Fatal("injection-like column must be rejected")
+	}
+}
+
+func TestBuildAggregate(t *testing.T) {
+	cases := []struct {
+		name string
+		dt   sqlDialect
+		p    AggregateParams
+		sql  string
+		args []any
+	}{
+		{"pg count", pgDialect, AggregateParams{Schema: "public", Table: "orders", Func: "count"},
+			`SELECT COUNT(*),COUNT(*) FROM "public"."orders"`, nil},
+		{"pg sum+filter", pgDialect, AggregateParams{Schema: "public", Table: "orders", Func: "sum", Column: "amount",
+			Filters: []ColumnFilter{{Column: "status", Op: "eq", Values: []any{"paid"}}}},
+			`SELECT SUM("amount"),COUNT(*) FROM "public"."orders" WHERE ("status" = $1)`, []any{"paid"}},
+		{"pg min+fkjoin", pgDialect, AggregateParams{Schema: "public", Table: "orders", Func: "min", Column: "created",
+			Filters: []ColumnFilter{{Column: "cust", Op: "contains", Values: []any{"acme"}, Join: &FKJoin{Schema: "public", Table: "customers", RefColumn: "id", DisplayColumns: []string{"name"}}}}},
+			`SELECT MIN("orders"."created"),COUNT(*) FROM "public"."orders" LEFT JOIN "public"."customers" "f_cust" ON "f_cust"."id" = "orders"."cust" WHERE ("f_cust"."name"::text ILIKE $1 ESCAPE '\')`, []any{"%acme%"}},
+		{"mysql avg", mysqlDialect, AggregateParams{Schema: "shop", Table: "orders", Func: "avg", Column: "amount"},
+			"SELECT AVG(`amount`),COUNT(*) FROM `shop`.`orders`", nil},
+	}
+	for _, c := range cases {
+		sqlText, args, err := c.dt.buildAggregate(c.p)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if sqlText != c.sql {
+			t.Errorf("%s sql:\n got %s\nwant %s", c.name, sqlText, c.sql)
+		}
+		if fmt.Sprint(args) != fmt.Sprint(c.args) {
+			t.Errorf("%s args: got %v want %v", c.name, args, c.args)
+		}
+	}
+}
+
+func TestBuildAggregateValidation(t *testing.T) {
+	if _, _, err := pgDialect.buildAggregate(AggregateParams{Schema: "public", Table: "t", Func: "median", Column: "x"}); err == nil {
+		t.Fatal("unknown func accepted")
+	}
+	if _, _, err := pgDialect.buildAggregate(AggregateParams{Schema: "public", Table: "t", Func: "sum", Column: ""}); err == nil {
+		t.Fatal("sum without column accepted")
+	}
+	if _, _, err := pgDialect.buildAggregate(AggregateParams{Schema: "public", Table: "t", Func: "count", Column: "x"}); err == nil {
+		t.Fatal("count with column accepted")
+	}
+	if _, _, err := pgDialect.buildAggregate(AggregateParams{Schema: "public", Table: "t", Func: "sum", Column: "a;b"}); err == nil {
+		t.Fatal("bad identifier accepted")
+	}
+}
+
+func TestBuildQueryAggregate(t *testing.T) {
+	sqlText, args, err := pgDialect.buildQueryAggregate(AggregateParams{Query: "SELECT id, amount FROM orders", Func: "sum", Column: "amount",
+		Filters: []ColumnFilter{{Column: "id", Op: "gt", Values: []any{float64(5)}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `SELECT SUM(ku_q."amount"),COUNT(*) FROM (SELECT id, amount FROM orders) ku_q WHERE (ku_q."id" > $1)`
+	if sqlText != want {
+		t.Errorf("sql:\n got %s\nwant %s", sqlText, want)
+	}
+	if fmt.Sprint(args) != fmt.Sprint([]any{float64(5)}) {
+		t.Errorf("args: got %v", args)
+	}
+	if _, _, err := pgDialect.buildQueryAggregate(AggregateParams{Query: "SELECT 1", Func: "count",
+		Filters: []ColumnFilter{{Column: "c", Op: "eq", Values: []any{1}, Join: &FKJoin{Schema: "s", Table: "t", RefColumn: "id", DisplayColumns: []string{"n"}}}}}); err == nil {
+		t.Fatal("fk join on query view accepted")
 	}
 }

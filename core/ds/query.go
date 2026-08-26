@@ -123,3 +123,30 @@ func (dt sqlDialect) buildQueryCount(p QueryParams) (string, []any, error) {
 	}
 	return "SELECT COUNT(*) FROM (" + p.Query + ") " + alias + whereAll, append(sArgs, fArgs...), nil
 }
+
+// buildQueryAggregate renders the single-value aggregate over a stored
+// query view: SELECT AGG(...),COUNT(*) FROM (<query>) ku_q WHERE ...
+func (dt sqlDialect) buildQueryAggregate(p AggregateParams) (string, []any, error) {
+	for _, f := range p.Filters {
+		if f.Join != nil {
+			return "", nil, fmt.Errorf("fk join filters are not supported on query views")
+		}
+	}
+	if err := validAgg(p.Func, p.Column); err != nil {
+		return "", nil, err
+	}
+	alias := queryAlias
+	agg, err := dt.aggExpr(p.Func, p.Column, alias)
+	if err != nil {
+		return "", nil, err
+	}
+	_, fCond, fArgs, _, err := dt.filterParts(p.Filters, 1, alias)
+	if err != nil {
+		return "", nil, err
+	}
+	sqlText := "SELECT " + agg + ",COUNT(*) FROM (" + p.Query + ") " + alias
+	if fCond != "" {
+		sqlText += " WHERE " + fCond
+	}
+	return sqlText, fArgs, nil
+}

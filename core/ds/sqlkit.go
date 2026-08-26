@@ -311,6 +311,68 @@ func (dt sqlDialect) buildCount(p ListParams) (string, []any, error) {
 	return "SELECT COUNT(*) FROM " + tbl + joins + whereAll, append(sArgs, fArgs...), nil
 }
 
+// validAgg enforces the aggregate allowlist and column presence. Values
+// never reach SQL text; identifiers are checked at render time.
+func validAgg(fn, col string) error {
+	switch fn {
+	case "count":
+		if col != "" {
+			return fmt.Errorf("count takes no column")
+		}
+	case "sum", "avg", "min", "max":
+		if col == "" {
+			return fmt.Errorf("%s requires a column", fn)
+		}
+	default:
+		return fmt.Errorf("unsupported aggregate %q", fn)
+	}
+	return nil
+}
+
+// aggExpr renders the aggregate projection; count is column-free.
+func (dt sqlDialect) aggExpr(fn, col, baseRef string) (string, error) {
+	if fn == "count" {
+		return "COUNT(*)", nil
+	}
+	qc, err := dt.colRef(baseRef, col)
+	if err != nil {
+		return "", err
+	}
+	return strings.ToUpper(fn) + "(" + qc + ")", nil
+}
+
+// buildAggregate renders the single-value aggregate for a physical
+// table: SELECT AGG(...),COUNT(*) FROM schema.tbl [fk joins] WHERE ...
+// (filterParts reused — same injection posture as the grid).
+func (dt sqlDialect) buildAggregate(p AggregateParams) (string, []any, error) {
+	if err := validAgg(p.Func, p.Column); err != nil {
+		return "", nil, err
+	}
+	tbl, err := dt.qualify(p.Schema, p.Table)
+	if err != nil {
+		return "", nil, err
+	}
+	baseRef := ""
+	if hasFKJoin(p.Filters) {
+		if baseRef, err = dt.quoteIdent(p.Table); err != nil {
+			return "", nil, err
+		}
+	}
+	agg, err := dt.aggExpr(p.Func, p.Column, baseRef)
+	if err != nil {
+		return "", nil, err
+	}
+	joins, fCond, fArgs, _, err := dt.filterParts(p.Filters, 1, baseRef)
+	if err != nil {
+		return "", nil, err
+	}
+	sqlText := "SELECT " + agg + ",COUNT(*) FROM " + tbl + joins
+	if fCond != "" {
+		sqlText += " WHERE " + fCond
+	}
+	return sqlText, fArgs, nil
+}
+
 func (dt sqlDialect) buildInsert(schema, table string, cols []string, vals []any) (string, error) {
 	if len(cols) == 0 {
 		return "", fmt.Errorf("no columns to insert")
