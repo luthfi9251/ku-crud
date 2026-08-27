@@ -36,6 +36,7 @@ http.ListenAndServe(":8080", mux)
 | [07 — Datasources](07-datasources.md) | Connections, dialects, the `Adapter` contract, query-view guards, drift, aggregates |
 | [08 — Embedding the engine](08-embedding.md) | Driving services without `httpapi`, the CSV import pipeline, testing patterns |
 | [09 — API reference](09-api-reference.md) | Compact per-package reference of every exported identifier |
+| [10 — FAQ](10-faq.md) | Questions developers actually ask — multi-database setups, auth, limits, ops |
 
 ## Five-minute quickstart
 
