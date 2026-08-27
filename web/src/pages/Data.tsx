@@ -29,6 +29,7 @@ import { humanError } from "../lib/errors";
 import { ErrorBox } from "../components/ErrorBox";
 import { encodeRowKey } from "../lib/rowkey";
 import { enumColorClass, formatCell } from "../lib/format";
+import { looksLikeJSON } from "../lib/jsondetect";
 import type { ColumnDef, CustomAction, FkOptionsRes, Me, Row, RowsRes, SavedFilter, StatCard, TableDefPayload, ViewConfig, ViewMode } from "../lib/types";
 import { HelpPopover } from "../components/ColumnListEditor";
 import { FilterBar, serializeFilters, deserializeFilters, type ActiveFilter } from "../components/FilterBar";
@@ -78,7 +79,7 @@ export default function Data() {
   const [filterMenu, setFilterMenu] = useState(false);
   const [drift, setDrift] = useState<{ missing: string[]; added: string[]; typeChanged: string[] } | null>(null);
   const [connErr, setConnErr] = useState("");
-  const [form, setForm] = useState<{ mode: "new" | "edit"; row: Row; initialKey?: string[] | null } | null>(null);
+  const [form, setForm] = useState<{ mode: "new" | "edit"; row: Row; initialKey?: string[] | null; jsonModes?: string[] } | null>(null);
   // bumped after any row mutation lands (save/delete/bulk/resync) so the
   // kanban and calendar views re-fetch their data
   const [dataVersion, setDataVersion] = useState(0);
@@ -221,24 +222,32 @@ export default function Data() {
     return vals as string[];
   };
 
-  // pretty-print json column values once, when form state is created (keeps
-  // the textarea a plain controlled input while editing)
-  const prettifyFormRow = (row: Row): Row => {
+  // pretty-print json column values (and JSON-looking text values) once,
+  // when form state is created (keeps the textarea a plain controlled
+  // input while editing); jsonModes records the text columns that started
+  // as JSON — their edited content must stay valid JSON on save
+  const prettifyFormRow = (row: Row): { row: Row; jsonModes: string[] } => {
     const out: Row = { ...row };
+    const modes: string[] = [];
     for (const c of def.data?.columns ?? []) {
-      if (c.fieldType === "json" && typeof out[c.name] === "string") {
-        out[c.name] = prettyJSON(out[c.name] as string);
+      if (typeof out[c.name] !== "string") continue;
+      const s = out[c.name] as string;
+      if (c.fieldType === "json") {
+        out[c.name] = prettyJSON(s);
+      } else if (c.fieldType === "text" && looksLikeJSON(s)) {
+        out[c.name] = prettyJSON(s);
+        modes.push(c.name);
       }
     }
-    return out;
+    return { row: out, jsonModes: modes };
   };
 
   const handleCopy = (row: Row) => {
-    const copiedRow: Row = prettifyFormRow(row);
+    const { row: copiedRow, jsonModes } = prettifyFormRow(row);
     for (const k of keyCols) {
       delete copiedRow[k];
     }
-    setForm({ mode: "new", row: copiedRow });
+    setForm({ mode: "new", row: copiedRow, jsonModes });
   };
 
   // Auto-open edit modal if navigated here with autoEdit parameter once fresh rows for current id have loaded
@@ -250,7 +259,8 @@ export default function Data() {
     });
     if (target) {
       const k = rowKey(target);
-      setForm({ mode: "edit", row: prettifyFormRow({ ...target }), initialKey: k });
+      const p = prettifyFormRow({ ...target });
+      setForm({ mode: "edit", row: p.row, initialKey: k, jsonModes: p.jsonModes });
       const next = new URLSearchParams(searchParams);
       next.delete("autoEdit");
       setSearchParams(next, { replace: true });
@@ -603,7 +613,7 @@ export default function Data() {
                  variant="ghost"
                  size="icon"
                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                 onClick={() => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
+                 onClick={() => { const p = prettifyFormRow({ ...row }); setForm({ mode: "edit", row: p.row, initialKey: rowKey(row), jsonModes: p.jsonModes }); }}
                  title={t("data.editRow")}
                >
                  <Edit className="h-3.5 w-3.5" />
@@ -932,7 +942,7 @@ export default function Data() {
             search={debounced} filters={serializeFilters(filters)} pageSize={d.pageSize}
             lang={lang}
             onRowMoved={() => setDataVersion((v) => v + 1)}
-            onEdit={(row) => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
+            onEdit={(row) => { const p = prettifyFormRow({ ...row }); setForm({ mode: "edit", row: p.row, initialKey: rowKey(row), jsonModes: p.jsonModes }); }}
             onDelete={(key) => { if (confirm(t("data.deleteConfirm"))) del.mutate(key); }}
             onCreate={() => setForm({ mode: "new", row: {} })}
           />
@@ -947,7 +957,7 @@ export default function Data() {
             def={d} startCol={startCol} endCol={endCol} dataVersion={dataVersion}
             filters={filters} search={debounced} pageSize={d.pageSize}
             lang={lang}
-            onEdit={(row) => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
+            onEdit={(row) => { const p = prettifyFormRow({ ...row }); setForm({ mode: "edit", row: p.row, initialKey: rowKey(row), jsonModes: p.jsonModes }); }}
             onDayCreate={(date) => setForm({ mode: "new", row: { [startCol.name]: date } })}
           />
         );
@@ -1225,8 +1235,11 @@ export default function Data() {
                 if (missing.length) {
                   return alert(t("form.requiredMissing", { fields: missing.map((c) => c.label).join(", ") }));
                 }
+                const jsonCols = new Set(form!.jsonModes ?? []);
                 const badJson = modalFields.filter(
-                  (c) => c.fieldType === "json" && typeof form!.row[c.name] === "string" &&
+                  (c) =>
+                    (c.fieldType === "json" || (c.fieldType === "text" && jsonCols.has(c.name))) &&
+                    typeof form!.row[c.name] === "string" &&
                     (() => { try { JSON.parse(form!.row[c.name] as string); return false; } catch { return true; } })()
                 );
                 if (badJson.length) {
@@ -1263,7 +1276,7 @@ function renderValue(v: unknown, type: ColumnDef["fieldType"]): React.ReactNode 
   if (type === "uuid") {
     return <span className="font-mono text-xs">{String(v)}</span>;
   }
-  if (type === "json") {
+  if (type === "json" || (type === "text" && typeof v === "string" && looksLikeJSON(v))) {
     const pretty = prettyJSON(String(v));
     return (
       <pre
@@ -1342,6 +1355,13 @@ function FieldInput({
           onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
         />
       ) : col.fieldType === "json" ? (
+        <Textarea
+          disabled={disabled}
+          className="min-h-[100px] font-mono text-xs"
+          value={val}
+          onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
+        />
+      ) : col.fieldType === "text" && looksLikeJSON(val) ? (
         <Textarea
           disabled={disabled}
           className="min-h-[100px] font-mono text-xs"
