@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	kuhooks "ku-crud/internal/hooks"
+	kuhooks "github.com/luthfi9251/ku-crud/core/hooks"
 )
 
 func WrongParams(a int) error { return nil }

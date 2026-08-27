@@ -14,6 +14,7 @@ import {
   ChevronUp,
   Sparkles,
   Layers,
+  LayoutDashboard,
   PanelLeftClose,
   PanelLeft,
   Pencil,
@@ -208,6 +209,7 @@ export function Sidebar({ className }: SidebarProps) {
     ...(canDS && canTables
       ? [{ label: t("nav.transfer"), path: "/meta", icon: ArrowLeftRight }]
       : []),
+    { label: t("nav.dashboard"), path: "/dashboard", icon: LayoutDashboard },
     { label: t("nav.tables"), path: "/", icon: Table2 },
     { label: t("nav.docs"), path: "/docs", icon: BookOpen },
     ...(isAdmin

@@ -57,21 +57,21 @@ func TestQueryDefGrantMatrix(t *testing.T) {
 		!strings.Contains(w.Body.String(), "FORBIDDEN") {
 		t.Fatalf("stranger def = %d %s", w.Code, w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/"+tok+"/rows", "", stranger); w.Code != 403 ||
+	if w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows", "", stranger); w.Code != 403 ||
 		!strings.Contains(w.Body.String(), "FORBIDDEN") {
 		t.Fatalf("stranger rows = %d %s", w.Code, w.Body)
 	}
 
 	// precedence: the QUERY_READONLY guard fires before the perm check on
 	// writes — structural behavior pinned
-	if w = do(s, "POST", "/api/tables/"+tok+"/rows", "{}", stranger); w.Code != 403 ||
+	if w = do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", "{}", stranger); w.Code != 403 ||
 		!strings.Contains(w.Body.String(), "QUERY_READONLY") {
 		t.Fatalf("stranger write = %d %s", w.Code, w.Body)
 	}
 
 	// keyed def: no-grant row-get hits the perm wall (403 FORBIDDEN)
 	pk := rowKeyToken([]string{"jo"})
-	if w = do(s, "GET", "/api/tables/"+tok+"/rows/"+pk, "", stranger); w.Code != 403 ||
+	if w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows/"+pk, "", stranger); w.Code != 403 ||
 		!strings.Contains(w.Body.String(), "FORBIDDEN") {
 		t.Fatalf("stranger row get = %d %s", w.Code, w.Body)
 	}
@@ -83,7 +83,7 @@ func TestQueryDefNoKeyNoGrantPermFirst(t *testing.T) {
 	s := newTestServer(t)
 	seedQueryDef(t, s, nil) // query def without key columns
 	stranger := loginAs(t, s, "qstranger2", &meta.Role{Name: "QStranger2"}, nil)
-	w := do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/anything", "", stranger)
+	w := do(s, "GET", "/api/data/"+defName(s, 1)+"/rows/anything", "", stranger)
 	if w.Code != 403 || !strings.Contains(w.Body.String(), "FORBIDDEN") {
 		t.Fatalf("no-grant no-key row get = %d %s", w.Code, w.Body)
 	}

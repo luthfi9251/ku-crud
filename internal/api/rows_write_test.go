@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luthfi9251/ku-crud/core/engine"
 	"ku-crud/internal/meta"
 )
 
@@ -17,52 +18,52 @@ func TestRowWriteAndAudit(t *testing.T) {
 	seedLive(t, s)
 
 	// CREATE
-	w := do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows",
+	w := do(s, "POST", "/api/data/"+defName(s, 1)+"/rows",
 		`{"name":"nia","active":false,"balance":7.25,"born":"1990-01-02","status":"rainy"}`, c)
 	if w.Code != 200 {
 		t.Fatalf("create = %d %s", w.Code, w.Body)
 	}
 
 	// CREATE with unknown column → VALIDATION
-	if w = do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"name":"x","hax":1}`, c); w.Code != 400 {
+	if w = do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"name":"x","hax":1}`, c); w.Code != 400 {
 		t.Fatalf("unknown col = %d %s", w.Code, w.Body)
 	}
 	// CREATE missing required (name) → VALIDATION
-	if w = do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"active":true}`, c); w.Code != 400 {
+	if w = do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"active":true}`, c); w.Code != 400 {
 		t.Fatalf("missing required = %d %s", w.Code, w.Body)
 	}
 	// bad enum → VALIDATION
-	if w = do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"name":"y","status":"snowy"}`, c); w.Code != 400 {
+	if w = do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"name":"y","status":"snowy"}`, c); w.Code != 400 {
 		t.Fatalf("bad enum = %d %s", w.Code, w.Body)
 	}
 	// bad datetime → VALIDATION
-	if w = do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"name":"y","born":"02/01/1990"}`, c); w.Code != 400 {
+	if w = do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"name":"y","born":"02/01/1990"}`, c); w.Code != 400 {
 		t.Fatalf("bad datetime = %d %s", w.Code, w.Body)
 	}
 	// key column (id) is a known field during insert (PKs are insertable),
 	// but the required name is still missing → VALIDATION
-	if w = do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"id":9}`, c); w.Code != 400 {
+	if w = do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"id":9}`, c); w.Code != 400 {
 		t.Fatalf("missing required with key = %d %s", w.Code, w.Body)
 	}
 	// non-editable column (id) rejected on UPDATE
-	if w = do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"1"}), `{"id":99}`, c); w.Code != 400 {
+	if w = do(s, "PUT", "/api/data/"+defName(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"1"}), `{"id":99}`, c); w.Code != 400 {
 		t.Fatalf("non-editable update = %d %s", w.Code, w.Body)
 	}
 
 	// UPDATE row 1
-	w = do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"1"}), `{"name":"jo!"}`, c)
+	w = do(s, "PUT", "/api/data/"+defName(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"1"}), `{"name":"jo!"}`, c)
 	if w.Code != 200 {
 		t.Fatalf("update = %d %s", w.Code, w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"1"}), "", c); !strings.Contains(w.Body.String(), `"name":"jo!"`) {
+	if w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"1"}), "", c); !strings.Contains(w.Body.String(), `"name":"jo!"`) {
 		t.Fatalf("row after update = %s", w.Body)
 	}
 
 	// DELETE row 4 (nia)
-	if w = do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"4"}), "", c); w.Code != 200 {
+	if w = do(s, "DELETE", "/api/data/"+defName(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"4"}), "", c); w.Code != 200 {
 		t.Fatalf("delete = %d %s", w.Code, w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"4"}), "", c); w.Code != 404 {
+	if w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"4"}), "", c); w.Code != 404 {
 		t.Fatalf("deleted row still there = %d", w.Code)
 	}
 
@@ -150,32 +151,32 @@ func TestUUIDJSONColumns(t *testing.T) {
 	s := newTestServer(t)
 	c := login(s)
 	seedUUIDJSON(t, s)
-	tok := tdTok(s, 1)
+	tok := defName(s, 1)
 
 	// list: both rows, uuid key round-trips
-	w := do(s, "GET", "/api/tables/"+tok+"/rows", "", c)
+	w := do(s, "GET", "/api/data/"+tok+"/rows", "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"total":2`) {
 		t.Fatalf("list = %d %s", w.Code, w.Body)
 	}
 
 	// invalid uuid → 400
-	if w = do(s, "POST", "/api/tables/"+tok+"/rows",
+	if w = do(s, "POST", "/api/data/"+tok+"/rows",
 		`{"id":"not-a-uuid","meta":{"a":1}}`, c); w.Code != 400 {
 		t.Fatalf("bad uuid = %d %s", w.Code, w.Body)
 	}
 	// invalid json string → 400
-	if w = do(s, "POST", "/api/tables/"+tok+"/rows",
+	if w = do(s, "POST", "/api/data/"+tok+"/rows",
 		`{"id":"123e4567-e89b-12d3-a456-426614174009","meta":"{a}"}`, c); w.Code != 400 {
 		t.Fatalf("bad json = %d %s", w.Code, w.Body)
 	}
 	// valid create with object + string forms
-	w = do(s, "POST", "/api/tables/"+tok+"/rows",
+	w = do(s, "POST", "/api/data/"+tok+"/rows",
 		`{"id":"123e4567-e89b-12d3-a456-426614174009","meta":{"n":1},"doc":"[1,2]"}`, c)
 	if w.Code != 200 {
 		t.Fatalf("create = %d %s", w.Code, w.Body)
 	}
-	key := encodeRowKey([]string{"123e4567-e89b-12d3-a456-426614174009"})
-	w = do(s, "GET", "/api/tables/"+tok+"/rows/"+key, "", c)
+	key := engine.EncodeRowKey([]string{"123e4567-e89b-12d3-a456-426614174009"})
+	w = do(s, "GET", "/api/data/"+tok+"/rows/"+key, "", c)
 	if w.Code != 200 {
 		t.Fatalf("get after create = %d %s", w.Code, w.Body)
 	}
@@ -196,12 +197,12 @@ func TestUUIDJSONColumns(t *testing.T) {
 		t.Fatalf("doc roundtrip = %q", getRes.Row.Doc)
 	}
 	// update json column with invalid text → 400
-	if w = do(s, "PUT", "/api/tables/"+tok+"/rows/"+key, `{"doc":"nope{"}`, c); w.Code != 400 {
+	if w = do(s, "PUT", "/api/data/"+tok+"/rows/"+key, `{"doc":"nope{"}`, c); w.Code != 400 {
 		t.Fatalf("bad json update = %d %s", w.Code, w.Body)
 	}
 	// search inside json column works via ::text cast (jsonb output has
 	// cosmetic spaces, so search a plain fragment)
-	if w = do(s, "GET", "/api/tables/"+tok+"/rows?search="+encodeQuery(`w`), "", c); !strings.Contains(w.Body.String(), `"total":1`) {
+	if w = do(s, "GET", "/api/data/"+tok+"/rows?search="+encodeQuery(`w`), "", c); !strings.Contains(w.Body.String(), `"total":1`) {
 		t.Fatalf("json search = %s", w.Body)
 	}
 }
@@ -254,13 +255,14 @@ func TestValidationRuleBlocksWriteAndImport(t *testing.T) {
 	}
 
 	// row create with a bad email -> 400
-	w = do(s, "POST", "/api/tables/"+tok+"/rows", `{"id":99,"name":"not-an-email"}`, c)
+	name := defName(s, 1)
+	w = do(s, "POST", "/api/data/"+name+"/rows", `{"id":99,"name":"not-an-email"}`, c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "email") {
 		t.Fatalf("rule not enforced on create: %d %s", w.Code, w.Body)
 	}
 
 	// import preview marks the row invalid
-	req := importRequest(t, "/api/tables/"+tok+"/import/preview", "id,name\n9,also-bad\n", nil)
+	req := importRequest(t, "/api/data/"+name+"/import/preview", "id,name\n9,also-bad\n", nil)
 	req.Header.Set("Cookie", *c)
 	resp := httptest.NewRecorder()
 	s.Routes().ServeHTTP(resp, req)

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"math"
 
-	kuhooks "ku-crud/internal/hooks"
+	kuhooks "github.com/luthfi9251/ku-crud/core/hooks"
 )
 
 // NormalizePrice is an example before-create hook: rounds the "price"
@@ -37,6 +37,6 @@ func NormalizePrice(ctx context.Context, hc *kuhooks.HookContext, ev kuhooks.Eve
 // LogAfterCreate is an example after-create hook: side effect only.
 func LogAfterCreate(ctx context.Context, hc *kuhooks.HookContext, ev kuhooks.Event,
 	row kuhooks.RowPayload, cfg json.RawMessage) (kuhooks.RowPayload, error) {
-	hc.Logger.Info("row created", "table", hc.TableDef.Label, "values", row.Values)
+	hc.Logger.Info("row created", "table", hc.Table.Label, "values", row.Values)
 	return row, nil
 }

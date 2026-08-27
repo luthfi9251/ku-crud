@@ -168,6 +168,15 @@ ALTER TABLE table_defs ADD COLUMN description TEXT NOT NULL DEFAULT '';`,
 ALTER TABLE table_defs ADD COLUMN query_sql TEXT NOT NULL DEFAULT '';`,
 	// v1.9: customizable table actions (hide built-ins + custom hook actions).
 	`ALTER TABLE table_defs ADD COLUMN actions TEXT NOT NULL DEFAULT '';`,
+	// v1.10: admin-defined dashboard stat cards.
+	`CREATE TABLE stat_cards(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_def_id INTEGER NOT NULL REFERENCES table_defs(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  func TEXT NOT NULL,
+  column_name TEXT NOT NULL DEFAULT '',
+  filters TEXT NOT NULL DEFAULT '[]',
+  position INTEGER NOT NULL DEFAULT 0);`,
 }
 
 func Open(path string) (*Store, error) {

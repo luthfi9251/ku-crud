@@ -29,9 +29,11 @@ import { humanError } from "../lib/errors";
 import { ErrorBox } from "../components/ErrorBox";
 import { encodeRowKey } from "../lib/rowkey";
 import { enumColorClass, formatCell } from "../lib/format";
-import type { ColumnDef, CustomAction, FkOptionsRes, Me, Row, RowsRes, SavedFilter, TableDefPayload, ViewConfig, ViewMode } from "../lib/types";
+import { looksLikeJSON } from "../lib/jsondetect";
+import type { ColumnDef, CustomAction, FkOptionsRes, Me, Row, RowsRes, SavedFilter, StatCard, TableDefPayload, ViewConfig, ViewMode } from "../lib/types";
 import { HelpPopover } from "../components/ColumnListEditor";
 import { FilterBar, serializeFilters, deserializeFilters, type ActiveFilter } from "../components/FilterBar";
+import { StatCardView } from "../components/StatCardView";
 import { KanbanView } from "../components/views/KanbanView";
 import { CalendarView } from "../components/views/CalendarView";
 import { useT, useI18nLang } from "../lib/i18n";
@@ -61,6 +63,12 @@ export default function Data() {
   const qc = useQueryClient();
   const def = useQuery({ queryKey: ["def", id], queryFn: () => api<TableDefPayload>(`/tables/${id}`) });
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/auth/me") });
+  // stat cards whose table matches this definition (dashboard strip)
+  const cards = useQuery({ queryKey: ["cards"], queryFn: () => api<StatCard[]>("/cards") });
+  const tableCards = (cards.data ?? []).filter((c) => def.data && c.tableDefId === def.data.id);
+  // data endpoints are name-addressed (/api/data/{name}); nameless query
+  // views fall back to the masked def id the router already carries
+  const dataName = def.data?.tableName || id || "";
   const [search, setSearch] = useState(searchParam);
   const [debounced, setDebounced] = useState(searchParam);
   const [sort, setSort] = useState("");
@@ -71,7 +79,7 @@ export default function Data() {
   const [filterMenu, setFilterMenu] = useState(false);
   const [drift, setDrift] = useState<{ missing: string[]; added: string[]; typeChanged: string[] } | null>(null);
   const [connErr, setConnErr] = useState("");
-  const [form, setForm] = useState<{ mode: "new" | "edit"; row: Row; initialKey?: string[] | null } | null>(null);
+  const [form, setForm] = useState<{ mode: "new" | "edit"; row: Row; initialKey?: string[] | null; jsonModes?: string[] } | null>(null);
   // bumped after any row mutation lands (save/delete/bulk/resync) so the
   // kanban and calendar views re-fetch their data
   const [dataVersion, setDataVersion] = useState(0);
@@ -157,7 +165,7 @@ export default function Data() {
         p.set("dir", dir);
       }
       p.set("page", String(page));
-      return api<RowsRes>(`/tables/${id}/rows?${p}`);
+      return api<RowsRes>(`/data/${dataName}/rows?${p}`);
     },
   });
 
@@ -185,7 +193,7 @@ export default function Data() {
         }
         p.set("page", String(page));
         p.set("limit", String(Math.min(200, CAP)));
-        const res = await api<RowsRes>(`/tables/${id}/rows?${p}`);
+        const res = await api<RowsRes>(`/data/${dataName}/rows?${p}`);
         all.push(...res.rows);
         for (const [col, m] of Object.entries(res.rels ?? {})) {
           rels[col] = { ...(rels[col] ?? {}), ...m };
@@ -214,24 +222,32 @@ export default function Data() {
     return vals as string[];
   };
 
-  // pretty-print json column values once, when form state is created (keeps
-  // the textarea a plain controlled input while editing)
-  const prettifyFormRow = (row: Row): Row => {
+  // pretty-print json column values (and JSON-looking text values) once,
+  // when form state is created (keeps the textarea a plain controlled
+  // input while editing); jsonModes records the text columns that started
+  // as JSON — their edited content must stay valid JSON on save
+  const prettifyFormRow = (row: Row): { row: Row; jsonModes: string[] } => {
     const out: Row = { ...row };
+    const modes: string[] = [];
     for (const c of def.data?.columns ?? []) {
-      if (c.fieldType === "json" && typeof out[c.name] === "string") {
-        out[c.name] = prettyJSON(out[c.name] as string);
+      if (typeof out[c.name] !== "string") continue;
+      const s = out[c.name] as string;
+      if (c.fieldType === "json") {
+        out[c.name] = prettyJSON(s);
+      } else if (c.fieldType === "text" && looksLikeJSON(s)) {
+        out[c.name] = prettyJSON(s);
+        modes.push(c.name);
       }
     }
-    return out;
+    return { row: out, jsonModes: modes };
   };
 
   const handleCopy = (row: Row) => {
-    const copiedRow: Row = prettifyFormRow(row);
+    const { row: copiedRow, jsonModes } = prettifyFormRow(row);
     for (const k of keyCols) {
       delete copiedRow[k];
     }
-    setForm({ mode: "new", row: copiedRow });
+    setForm({ mode: "new", row: copiedRow, jsonModes });
   };
 
   // Auto-open edit modal if navigated here with autoEdit parameter once fresh rows for current id have loaded
@@ -243,7 +259,8 @@ export default function Data() {
     });
     if (target) {
       const k = rowKey(target);
-      setForm({ mode: "edit", row: prettifyFormRow({ ...target }), initialKey: k });
+      const p = prettifyFormRow({ ...target });
+      setForm({ mode: "edit", row: p.row, initialKey: k, jsonModes: p.jsonModes });
       const next = new URLSearchParams(searchParams);
       next.delete("autoEdit");
       setSearchParams(next, { replace: true });
@@ -267,7 +284,7 @@ export default function Data() {
             payload[c.name] = v;
           }
         }
-        await api(`/tables/${id}/rows`, { method: "POST", body: JSON.stringify(payload) });
+        await api(`/data/${dataName}/rows`, { method: "POST", body: JSON.stringify(payload) });
       } else {
         // In edit mode, strip PKs and non-editable fields from PUT payload
         // (m2m selections always ride along — the server strips and syncs them)
@@ -281,7 +298,7 @@ export default function Data() {
         }
         const key = form!.initialKey || rowKey(form!.row);
         if (!key) throw new Error("row has a null key value");
-        await api(`/tables/${id}/rows/${encodeRowKey(key)}`, { method: "PUT", body: JSON.stringify(payload) });
+        await api(`/data/${dataName}/rows/${encodeRowKey(key)}`, { method: "PUT", body: JSON.stringify(payload) });
       }
     },
     onSuccess: () => {
@@ -313,7 +330,7 @@ export default function Data() {
     setActionBusy(act.id);
     try {
       const res = await api<{ message: string }>(
-        `/tables/${id}/rows/${encodeRowKey(key)}/action`,
+        `/data/${dataName}/rows/${encodeRowKey(key)}/action`,
         { method: "POST", body: JSON.stringify({ actionId: act.id }) }
       );
       setNotice({ kind: "ok", text: `${act.label}: ${res.message || t("data.actionDone")}` });
@@ -339,7 +356,7 @@ export default function Data() {
       }
       const fs = serializeFilters(filters);
       if (fs) p.set("filters", fs);
-      const res = await fetch(`/api/tables/${id}/rows/export?${p}`, { credentials: "same-origin" });
+      const res = await fetch(`/api/data/${dataName}/rows/export?${p}`, { credentials: "same-origin" });
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;
         try {
@@ -365,7 +382,7 @@ export default function Data() {
     }
   };
   const del = useMutation({
-    mutationFn: (key: string[]) => api(`/tables/${id}/rows/${encodeRowKey(key)}`, { method: "DELETE" }),
+    mutationFn: (key: string[]) => api(`/data/${dataName}/rows/${encodeRowKey(key)}`, { method: "DELETE" }),
     onSuccess: () => {
       setDelErr("");
       setDataVersion((v) => v + 1);
@@ -410,7 +427,7 @@ export default function Data() {
       const failed: { key: string; code: string; message: string }[] = [];
       for (let i = 0; i < keys.length; i += 500) {
         const res = await api<{ deleted: number; failures: { key: string; code: string; message: string }[] }>(
-          `/tables/${id}/rows/bulk-delete`,
+          `/data/${dataName}/rows/bulk-delete`,
           { method: "POST", body: JSON.stringify({ keys: keys.slice(i, i + 500) }) }
         );
         deleted += res.deleted;
@@ -596,7 +613,7 @@ export default function Data() {
                  variant="ghost"
                  size="icon"
                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                 onClick={() => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
+                 onClick={() => { const p = prettifyFormRow({ ...row }); setForm({ mode: "edit", row: p.row, initialKey: rowKey(row), jsonModes: p.jsonModes }); }}
                  title={t("data.editRow")}
                >
                  <Edit className="h-3.5 w-3.5" />
@@ -624,6 +641,14 @@ export default function Data() {
 
   return (
     <div className="space-y-6">
+      {/* stat cards configured for this table (admin dashboard cards) */}
+      {tableCards.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {tableCards.map((c) => (
+            <StatCardView key={c.id} card={c} compact />
+          ))}
+        </div>
+      )}
       {/* Top Header & Action Toolbar */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b pb-4">
         {/* Table Title & Metadata */}
@@ -917,7 +942,7 @@ export default function Data() {
             search={debounced} filters={serializeFilters(filters)} pageSize={d.pageSize}
             lang={lang}
             onRowMoved={() => setDataVersion((v) => v + 1)}
-            onEdit={(row) => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
+            onEdit={(row) => { const p = prettifyFormRow({ ...row }); setForm({ mode: "edit", row: p.row, initialKey: rowKey(row), jsonModes: p.jsonModes }); }}
             onDelete={(key) => { if (confirm(t("data.deleteConfirm"))) del.mutate(key); }}
             onCreate={() => setForm({ mode: "new", row: {} })}
           />
@@ -932,7 +957,7 @@ export default function Data() {
             def={d} startCol={startCol} endCol={endCol} dataVersion={dataVersion}
             filters={filters} search={debounced} pageSize={d.pageSize}
             lang={lang}
-            onEdit={(row) => setForm({ mode: "edit", row: prettifyFormRow({ ...row }), initialKey: rowKey(row) })}
+            onEdit={(row) => { const p = prettifyFormRow({ ...row }); setForm({ mode: "edit", row: p.row, initialKey: rowKey(row), jsonModes: p.jsonModes }); }}
             onDayCreate={(date) => setForm({ mode: "new", row: { [startCol.name]: date } })}
           />
         );
@@ -1158,7 +1183,7 @@ export default function Data() {
                   <FkField
                     key={c.name}
                     col={c}
-                    tableId={id}
+                    tableId={dataName}
                     row={form.row}
                     rels={rows.data?.rels}
                     onChange={(v) => setForm({ ...form, row: { ...form.row, [c.name]: v } })}
@@ -1167,7 +1192,7 @@ export default function Data() {
                   <div key={c.name} className="md:col-span-2">
                     <M2MField
                       col={c}
-                      tableId={id}
+                      tableId={dataName}
                       mode={form.mode}
                       rowKey={form.initialKey || rowKey(form.row)}
                       value={(form.row[c.name] as unknown[]) ?? []}
@@ -1210,8 +1235,11 @@ export default function Data() {
                 if (missing.length) {
                   return alert(t("form.requiredMissing", { fields: missing.map((c) => c.label).join(", ") }));
                 }
+                const jsonCols = new Set(form!.jsonModes ?? []);
                 const badJson = modalFields.filter(
-                  (c) => c.fieldType === "json" && typeof form!.row[c.name] === "string" &&
+                  (c) =>
+                    (c.fieldType === "json" || (c.fieldType === "text" && jsonCols.has(c.name))) &&
+                    typeof form!.row[c.name] === "string" &&
                     (() => { try { JSON.parse(form!.row[c.name] as string); return false; } catch { return true; } })()
                 );
                 if (badJson.length) {
@@ -1248,7 +1276,7 @@ function renderValue(v: unknown, type: ColumnDef["fieldType"]): React.ReactNode 
   if (type === "uuid") {
     return <span className="font-mono text-xs">{String(v)}</span>;
   }
-  if (type === "json") {
+  if (type === "json" || (type === "text" && typeof v === "string" && looksLikeJSON(v))) {
     const pretty = prettyJSON(String(v));
     return (
       <pre
@@ -1333,6 +1361,13 @@ function FieldInput({
           value={val}
           onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
         />
+      ) : col.fieldType === "text" && looksLikeJSON(val) ? (
+        <Textarea
+          disabled={disabled}
+          className="min-h-[100px] font-mono text-xs"
+          value={val}
+          onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
+        />
       ) : col.fieldType === "uuid" ? (
         <Input disabled={disabled} className="h-9 font-mono text-xs" value={val} placeholder="00000000-0000-0000-0000-000000000000" onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)} />
       ) : (
@@ -1366,7 +1401,7 @@ function FkField({
     enabled: open,
     queryFn: () =>
       api<FkOptionsRes>(
-        `/tables/${tableId}/fkoptions/${col.name}?` +
+        `/data/${tableId}/fkoptions/${col.name}?` +
           new URLSearchParams({ ...(debounced ? { search: debounced } : {}), page: String(page) })
       ),
   });
@@ -1552,7 +1587,7 @@ function M2MField({
     enabled: open,
     queryFn: () =>
       api<FkOptionsRes>(
-        `/tables/${tableId}/m2moptions/${col.name}?` +
+        `/data/${tableId}/m2moptions/${col.name}?` +
           new URLSearchParams({ ...(debounced ? { search: debounced } : {}), page: String(page) })
       ),
   });
@@ -1564,7 +1599,7 @@ function M2MField({
     enabled: mode === "edit" && !!encodedKey,
     queryFn: () =>
       api<{ values: unknown[]; rows: Row[] }>(
-        `/tables/${tableId}/rows/${encodedKey}/m2m/${col.name}`
+        `/data/${tableId}/rows/${encodedKey}/m2m/${col.name}`
       ),
   });
 

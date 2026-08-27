@@ -27,3 +27,7 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+require github.com/luthfi9251/ku-crud/core v0.0.0
+
+replace github.com/luthfi9251/ku-crud/core => ./core

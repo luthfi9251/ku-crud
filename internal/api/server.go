@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"ku-crud/internal/hooks"
+	"github.com/luthfi9251/ku-crud/core/hooks"
 	"ku-crud/internal/meta"
 	"ku-crud/internal/tokenid"
 )
@@ -109,23 +109,23 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/groups/{id}", s.RequireTablesManage(s.handleGroupDelete))
 	mux.HandleFunc("PATCH /api/tables/{id}", s.RequireTablesManage(s.handleTableSetGroup))
 
-	mux.HandleFunc("GET /api/tables/{id}/rows", s.RequireAuth(s.handleRowList))
-	mux.HandleFunc("POST /api/tables/{id}/rows", s.RequireAuth(s.handleRowCreate))
-	mux.HandleFunc("GET /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowGet))
-	mux.HandleFunc("PUT /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowUpdate))
-	mux.HandleFunc("DELETE /api/tables/{id}/rows/{pk}", s.RequireAuth(s.handleRowDelete))
-	mux.HandleFunc("POST /api/tables/{id}/rows/bulk-delete", s.RequireAuth(s.handleRowBulkDelete))
-	mux.HandleFunc("POST /api/tables/{id}/rows/{pk}/action", s.RequireAuth(s.handleRowAction))
-	mux.HandleFunc("GET /api/tables/{id}/fkoptions/{column}", s.RequireAuth(s.handleFKOptions))
-	mux.HandleFunc("GET /api/tables/{id}/m2moptions/{column}", s.RequireAuth(s.handleM2MOptions))
-	mux.HandleFunc("GET /api/tables/{id}/rows/{pk}/m2m/{column}", s.RequireAuth(s.handleM2MLinks))
-	mux.HandleFunc("GET /api/tables/{id}/rows/export", s.RequireAuth(s.handleRowExport))
-	mux.HandleFunc("POST /api/tables/{id}/import/preview", s.RequireAuth(s.handleImportPreview))
-	mux.HandleFunc("POST /api/tables/{id}/import/apply", s.RequireAuth(s.handleImportApply))
+	// data endpoints (rows CRUD, fk/m2m pickers, CSV export/import,
+	// def-by-name fetch, v1.9 action execution) live under /api/data/,
+	// served by core/httpapi over the meta-backed defsource; saved-filters
+	// (user state) stay on the id-addressed management routes
+	mux.HandleFunc("/api/data/", s.RequireAuth(s.handleData))
+
 	mux.HandleFunc("GET /api/tables/{id}/saved-filters", s.RequireAuth(s.handleSavedFilterList))
 	mux.HandleFunc("POST /api/tables/{id}/saved-filters", s.RequireAuth(s.handleSavedFilterCreate))
 	mux.HandleFunc("PUT /api/tables/{id}/saved-filters/{fid}", s.RequireAuth(s.handleSavedFilterUpdate))
 	mux.HandleFunc("DELETE /api/tables/{id}/saved-filters/{fid}", s.RequireAuth(s.handleSavedFilterDelete))
+
+	// admin-defined dashboard stat cards (v1.10)
+	mux.HandleFunc("GET /api/cards", s.RequireAuth(s.handleCardList))
+	mux.HandleFunc("POST /api/cards", s.RequireTablesManage(s.handleCardCreate))
+	mux.HandleFunc("PUT /api/cards/{id}", s.RequireTablesManage(s.handleCardUpdate))
+	mux.HandleFunc("DELETE /api/cards/{id}", s.RequireTablesManage(s.handleCardDelete))
+	mux.HandleFunc("POST /api/cards/{id}/move", s.RequireTablesManage(s.handleCardMove))
 	mux.HandleFunc("GET /api/audit", s.RequireAuditView(s.handleAuditList))
 
 	mux.HandleFunc("GET /api/hooks", s.RequireTablesManage(s.handleHooksList))

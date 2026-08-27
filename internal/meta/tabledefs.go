@@ -3,7 +3,35 @@ package meta
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
+
+	"github.com/luthfi9251/ku-crud/core/defs"
 )
+
+// ErrTableTaken marks a duplicate def table name. The /api/data/{name}
+// namespace is global — schema and datasource do not disambiguate — so no
+// two definitions may share one (the ErrGroupTaken convention: the store
+// reports the conflict, the API maps it to 409).
+var ErrTableTaken = errors.New("table name already taken")
+
+// CheckTableDefName returns ErrTableTaken when any persisted def other
+// than excludeID already carries tableName; a def keeps its own name on
+// update (pass its id). Query views are nameless (empty table name,
+// token-addressed) and never conflict.
+func (s *Store) CheckTableDefName(tableName string, excludeID int64) error {
+	if tableName == "" {
+		return nil
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM table_defs WHERE table_name=? AND id<>?`,
+		tableName, excludeID).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return ErrTableTaken
+	}
+	return nil
+}
 
 // SelfRef marks an FK target as "this table definition"; Save/Update rewrite
 // it to the real def id before columns hit the store.
@@ -77,6 +105,86 @@ func resolveSelfRefs(defID int64, cols []ColumnDef) {
 			cols[i].FKTableDefID = defID
 		}
 	}
+}
+
+// ToCoreDef converts a persisted definition into the ID-free core contract.
+// FK and M2M links become definition names via idToName; a self-FK targets
+// "". A non-self def id absent from idToName (its definition was deleted)
+// maps to defs.MissingTable so dangling refs stay distinguishable from
+// self-references.
+func ToCoreDef(md TableDef, cols []ColumnDef, idToName map[int64]string) defs.Table {
+	t := defs.Table{
+		Name:           md.TableName,
+		Label:          md.Label,
+		Description:    md.Description,
+		Schema:         md.SchemaName,
+		PhysTab:        md.TableName,
+		Keys:           md.KeyColumns,
+		PageSize:       md.PageSize,
+		DefaultSortCol: md.DefaultSortCol,
+		DefaultSortDir: md.DefaultSortDir,
+		DefaultView:    md.DefaultView,
+		ViewConfig:     md.ViewConfig,
+		SourceType:     md.SourceType,
+		QuerySQL:       md.QuerySQL,
+		Hooks:          md.Hooks,
+		Actions:        md.Actions,
+		Columns:        make([]defs.Column, 0, len(cols)),
+	}
+	for _, c := range cols {
+		dc := defs.Column{
+			Name:            c.Name,
+			Label:           c.Label,
+			FieldType:       c.FieldType,
+			EnumOptions:     c.EnumOptions,
+			Editable:        c.Editable,
+			Required:        c.Required,
+			Visible:         c.Visible,
+			Searchable:      c.Searchable,
+			Sortable:        c.Sortable,
+			Position:        c.Position,
+			Validations:     toCoreValidations(c.Validations),
+			Formatting:      c.Formatting,
+			IsComputed:      c.IsComputed,
+			ComputedFormula: c.ComputedFormula,
+			BaseType:        c.BaseType,
+		}
+		if c.FieldType == "fk" && c.FKTableDefID > 0 {
+			fk := &defs.FK{RefColumn: c.FKRefColumn, DisplayColumns: c.FKDisplayColumns}
+			if c.FKTableDefID != md.ID {
+				fk.Table = idToName[c.FKTableDefID]
+				if fk.Table == "" {
+					fk.Table = defs.MissingTable
+				}
+			}
+			dc.FK = fk
+		}
+		if c.FieldType == "m2m" && c.M2MJunctionDefID > 0 {
+			junction := idToName[c.M2MJunctionDefID]
+			if junction == "" {
+				junction = defs.MissingTable
+			}
+			dc.M2M = &defs.M2M{
+				JunctionTable:  junction,
+				SrcCol:         c.M2MJunctionSrcCol,
+				TgtCol:         c.M2MJunctionTgtCol,
+				DisplayColumns: c.M2MDisplayColumns,
+			}
+		}
+		t.Columns = append(t.Columns, dc)
+	}
+	return t
+}
+
+func toCoreValidations(vs []ValidationRule) []defs.ValidationRule {
+	if len(vs) == 0 {
+		return nil
+	}
+	out := make([]defs.ValidationRule, len(vs))
+	for i, v := range vs {
+		out[i] = defs.ValidationRule{Type: v.Type, Param: v.Param}
+	}
+	return out
 }
 
 func insertCols(tx *sql.Tx, defID int64, cols []ColumnDef) error {

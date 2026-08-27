@@ -37,16 +37,16 @@ func TestQueryDefWriteGuards(t *testing.T) {
 	s := newTestServer(t)
 	c := login(s) // alice = first user = Admin
 	seedQueryDef(t, s, []string{"n"})
-	tok := tdTok(s, 1)
+	tok := defName(s, 1)
 	pk := rowKeyToken([]string{"jo"}) // helper from rows_composite_test.go
 	endpoints := []struct{ method, path string }{
-		{"POST", "/api/tables/" + tok + "/rows"},
-		{"PUT", "/api/tables/" + tok + "/rows/" + pk},
-		{"DELETE", "/api/tables/" + tok + "/rows/" + pk},
-		{"POST", "/api/tables/" + tok + "/rows/bulk-delete"},
-		{"GET", "/api/tables/" + tok + "/fkoptions/n"},
-		{"GET", "/api/tables/" + tok + "/m2moptions/n"},
-		{"GET", "/api/tables/" + tok + "/rows/" + pk + "/m2m/n"},
+		{"POST", "/api/data/" + tok + "/rows"},
+		{"PUT", "/api/data/" + tok + "/rows/" + pk},
+		{"DELETE", "/api/data/" + tok + "/rows/" + pk},
+		{"POST", "/api/data/" + tok + "/rows/bulk-delete"},
+		{"GET", "/api/data/" + tok + "/fkoptions/n"},
+		{"GET", "/api/data/" + tok + "/m2moptions/n"},
+		{"GET", "/api/data/" + tok + "/rows/" + pk + "/m2m/n"},
 	}
 	for _, e := range endpoints {
 		w := do(s, e.method, e.path, "{}", c)
@@ -55,7 +55,7 @@ func TestQueryDefWriteGuards(t *testing.T) {
 		}
 	}
 	// admin included — query views have no write path at all
-	w := do(s, "POST", "/api/tables/"+tok+"/rows", `{"n":"x"}`, c)
+	w := do(s, "POST", "/api/data/"+tok+"/rows", `{"n":"x"}`, c)
 	if w.Code != 403 {
 		t.Fatalf("admin write = %d %s", w.Code, w.Body)
 	}
@@ -65,7 +65,7 @@ func TestQueryDefNoKeyRowGet(t *testing.T) {
 	s := newTestServer(t)
 	c := login(s)
 	seedQueryDef(t, s, nil)
-	w := do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows/anything", "", c)
+	w := do(s, "GET", "/api/data/"+defName(s, 1)+"/rows/anything", "", c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "QUERY_NO_KEY") {
 		t.Fatalf("row get no-key = %d %s", w.Code, w.Body)
 	}

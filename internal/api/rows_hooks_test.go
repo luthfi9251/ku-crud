@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"ku-crud/internal/hooks"
+	"github.com/luthfi9251/ku-crud/core/engine"
+	"github.com/luthfi9251/ku-crud/core/hooks"
 )
 
 // hookEnv wires a server with three hooks: RejectNames refuses values of
@@ -47,13 +48,13 @@ func TestBeforeCreateRejectAndMutate(t *testing.T) {
 	c := login(s)
 	setHooks(t, s, 1, `{"beforeCreate":[{"hook":"UpperName","order":1}],"afterCreate":[{"hook":"NoteAfter","order":1}]}`)
 
-	tok := tdTok(s, 1)
-	w := do(s, "POST", "/api/tables/"+tok+"/rows", `{"name":"nia","status":"sunny"}`, c)
+	tok := defName(s, 1)
+	w := do(s, "POST", "/api/data/"+tok+"/rows", `{"name":"nia","status":"sunny"}`, c)
 	if w.Code != 200 {
 		t.Fatalf("create = %d %s", w.Code, w.Body)
 	}
 	// mutation landed (uppercase) — verify via list search
-	w = do(s, "GET", "/api/tables/"+tok+"/rows?search=NIA", "", c)
+	w = do(s, "GET", "/api/data/"+tok+"/rows?search=NIA", "", c)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "NIA") {
 		t.Fatalf("mutated row not found: %d %s", w.Code, w.Body)
 	}
@@ -66,12 +67,12 @@ func TestBeforeCreateRejection(t *testing.T) {
 	s, _ := hookEnv(t)
 	c := login(s)
 	setHooks(t, s, 1, `{"beforeCreate":[{"hook":"RejectNames","order":1}]}`)
-	w := do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"name":"forbidden"}`, c)
+	w := do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"name":"forbidden"}`, c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "HOOK_REJECTED") {
 		t.Fatalf("reject = %d %s", w.Code, w.Body)
 	}
 	// nothing inserted
-	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows?search=forbidden", "", c)
+	w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows?search=forbidden", "", c)
 	if strings.Contains(w.Body.String(), "forbidden") {
 		t.Fatal("rejected row must not exist")
 	}
@@ -84,7 +85,7 @@ func TestAfterEnqueued(t *testing.T) {
 	s, _ := hookEnv(t)
 	c := login(s)
 	setHooks(t, s, 1, `{"afterCreate":[{"hook":"NoteAfter","order":1}]}`)
-	do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"name":"enia"}`, c)
+	do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"name":"enia"}`, c)
 	entries, total, _ := s.store.ListOutbox("", 0, 10, 0)
 	if total != 1 || entries[0].HookName != "NoteAfter" || entries[0].Event != "afterCreate" {
 		t.Fatalf("outbox = %+v", entries)
@@ -102,7 +103,7 @@ func TestHookMissingBlocksWrite(t *testing.T) {
 	c := login(s)
 	seedLive(t, s)
 	setHooks(t, s, 1, `{"beforeCreate":[{"hook":"Ghost","order":1}]}`)
-	w := do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"name":"x"}`, c)
+	w := do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"name":"x"}`, c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "HOOK_MISSING") {
 		t.Fatalf("missing = %d %s", w.Code, w.Body)
 	}
@@ -115,14 +116,14 @@ func TestBeforeDeleteRejection(t *testing.T) {
 	s, _ := hookEnv(t)
 	c := login(s)
 	// create with an explicit key so the row key is known (PKs are insertable)
-	do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"id":50,"name":"forbidden"}`, c)
+	do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"id":50,"name":"forbidden"}`, c)
 	setHooks(t, s, 1, `{"beforeDelete":[{"hook":"RejectNames","order":1}]}`)
-	w := do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"50"}), "", c)
+	w := do(s, "DELETE", "/api/data/"+defName(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"50"}), "", c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "HOOK_REJECTED") {
 		t.Fatalf("delete reject = %d %s", w.Code, w.Body)
 	}
 	// row survives
-	w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows?search=forbidden", "", c)
+	w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows?search=forbidden", "", c)
 	if !strings.Contains(w.Body.String(), "forbidden") {
 		t.Fatal("row must survive a rejected delete")
 	}
@@ -134,9 +135,9 @@ func TestAfterDeleteEnqueues(t *testing.T) {
 	}
 	s, _ := hookEnv(t)
 	c := login(s)
-	do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"id":51,"name":"gone"}`, c)
+	do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"id":51,"name":"gone"}`, c)
 	setHooks(t, s, 1, `{"afterDelete":[{"hook":"NoteAfter","order":1}]}`)
-	w := do(s, "DELETE", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"51"}), "", c)
+	w := do(s, "DELETE", "/api/data/"+defName(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"51"}), "", c)
 	if w.Code != 200 {
 		t.Fatalf("delete = %d %s", w.Code, w.Body)
 	}
@@ -155,21 +156,21 @@ func TestBeforeUpdateRejectAndAfterEnqueue(t *testing.T) {
 	}
 	s, _ := hookEnv(t)
 	c := login(s)
-	do(s, "POST", "/api/tables/"+tdTok(s, 1)+"/rows", `{"id":60,"name":"mia"}`, c)
+	do(s, "POST", "/api/data/"+defName(s, 1)+"/rows", `{"id":60,"name":"mia"}`, c)
 
 	// beforeUpdate rejection: row keeps its old name
 	setHooks(t, s, 1, `{"beforeUpdate":[{"hook":"RejectNames","order":1}]}`)
-	w := do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"60"}), `{"name":"forbidden"}`, c)
+	w := do(s, "PUT", "/api/data/"+defName(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"60"}), `{"name":"forbidden"}`, c)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "HOOK_REJECTED") {
 		t.Fatalf("update reject = %d %s", w.Code, w.Body)
 	}
-	if w = do(s, "GET", "/api/tables/"+tdTok(s, 1)+"/rows?search=mia", "", c); !strings.Contains(w.Body.String(), "mia") {
+	if w = do(s, "GET", "/api/data/"+defName(s, 1)+"/rows?search=mia", "", c); !strings.Contains(w.Body.String(), "mia") {
 		t.Fatal("row must keep old name after rejected update")
 	}
 
 	// afterUpdate enqueue: valid PUT snapshots old + merged new values
 	setHooks(t, s, 1, `{"afterUpdate":[{"hook":"NoteAfter","order":1}]}`)
-	w = do(s, "PUT", "/api/tables/"+tdTok(s, 1)+"/rows/"+encodeRowKey([]string{"60"}), `{"name":"mia2"}`, c)
+	w = do(s, "PUT", "/api/data/"+defName(s, 1)+"/rows/"+engine.EncodeRowKey([]string{"60"}), `{"name":"mia2"}`, c)
 	if w.Code != 200 {
 		t.Fatalf("update = %d %s", w.Code, w.Body)
 	}
