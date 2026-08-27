@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/luthfi9251/kucrud-core/engine"
+	"github.com/luthfi9251/ku-crud/core/engine"
 	"ku-crud/internal/meta"
 )
 

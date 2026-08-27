@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	kucrud "github.com/luthfi9251/kucrud-core"
-	"github.com/luthfi9251/kucrud-core/engine"
+	kucrud "github.com/luthfi9251/ku-crud/core"
+	"github.com/luthfi9251/ku-crud/core/engine"
 
 	"kucrud-template/authstub"
 )

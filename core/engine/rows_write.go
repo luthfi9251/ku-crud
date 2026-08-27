@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/luthfi9251/kucrud-core/defs"
-	"github.com/luthfi9251/kucrud-core/hooks"
+	"github.com/luthfi9251/ku-crud/core/defs"
+	"github.com/luthfi9251/ku-crud/core/hooks"
 )
 
 // Hooks is the zero-persistence callback contract over the hooks

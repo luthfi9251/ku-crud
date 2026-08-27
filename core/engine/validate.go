@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/luthfi9251/kucrud-core/defs"
+	"github.com/luthfi9251/ku-crud/core/defs"
 )
 
 var datetimeLayouts = []string{time.RFC3339, "2006-01-02T15:04", "2006-01-02"}

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/luthfi9251/kucrud-core/hooks"
+	"github.com/luthfi9251/ku-crud/core/hooks"
 	"ku-crud/internal/meta"
 	"ku-crud/internal/tokenid"
 )

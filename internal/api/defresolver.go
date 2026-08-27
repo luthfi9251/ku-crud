@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/luthfi9251/kucrud-core/defs"
-	"github.com/luthfi9251/kucrud-core/ds"
-	"github.com/luthfi9251/kucrud-core/engine"
-	"github.com/luthfi9251/kucrud-core/hooks"
+	"github.com/luthfi9251/ku-crud/core/defs"
+	"github.com/luthfi9251/ku-crud/core/ds"
+	"github.com/luthfi9251/ku-crud/core/engine"
+	"github.com/luthfi9251/ku-crud/core/hooks"
 	"ku-crud/internal/hooks/platformhooks"
 	"ku-crud/internal/meta"
 )

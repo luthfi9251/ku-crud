@@ -47,7 +47,7 @@ import (
     "log"
     "net/http"
 
-    kucrud "github.com/luthfi9251/kucrud-core"
+    kucrud "github.com/luthfi9251/ku-crud/core"
 )
 
 func main() {
@@ -86,16 +86,21 @@ $ curl -s 'localhost:8080/api/data/products/rows?page=1' | jq '.total, .rows[0]'
 
 ## Installation
 
-The module lives in the `core/` directory of the Ku-CRUD monorepo and is consumed by
-the platform via a `replace` directive:
+The module lives in the `core/` directory of the Ku-CRUD monorepo and is released as
+the submodule `github.com/luthfi9251/ku-crud/core` with `core/vX.Y.Z` tags:
 
 ```
-require github.com/luthfi9251/kucrud-core v0.0.0
-replace github.com/luthfi9251/kucrud-core => ./core
+go get github.com/luthfi9251/ku-crud/core@v1.10.0
 ```
 
-Standalone consumption from the monorepo works with a `replace` pointing at a local
-checkout (or your own fork tag). Dependencies: `github.com/jackc/pgx/v5` (Postgres) and
+Inside the monorepo (platform + template) a `replace` pins it to the local directory:
+
+```
+require github.com/luthfi9251/ku-crud/core v0.0.0
+replace github.com/luthfi9251/ku-crud/core => ./core
+```
+
+Dependencies: `github.com/jackc/pgx/v5` (Postgres) and
 `github.com/go-sql-driver/mysql` (MySQL). Go 1.25+.
 
 ## Where is what

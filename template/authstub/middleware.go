@@ -6,7 +6,7 @@ import (
 	"errors"
 	"net/http"
 
-	kucrud "github.com/luthfi9251/kucrud-core"
+	kucrud "github.com/luthfi9251/ku-crud/core"
 )
 
 // TODO: wire host auth — replace Gate with your real authorization

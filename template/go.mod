@@ -2,7 +2,7 @@ module kucrud-template
 
 go 1.25.0
 
-require github.com/luthfi9251/kucrud-core v0.0.0
+require github.com/luthfi9251/ku-crud/core v0.0.0
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
@@ -15,4 +15,4 @@ require (
 	golang.org/x/text v0.29.0 // indirect
 )
 
-replace github.com/luthfi9251/kucrud-core => ../core
+replace github.com/luthfi9251/ku-crud/core => ../core

@@ -59,7 +59,7 @@ func(ctx context.Context, hc *hooks.HookContext, ev hooks.Event,
     row hooks.RowPayload, cfg json.RawMessage) (hooks.RowPayload, error)
 ```
 
-where `hooks` is the package `github.com/luthfi9251/kucrud-core/hooks` (imported in
+where `hooks` is the package `github.com/luthfi9251/ku-crud/core/hooks` (imported in
 `hooks/example.go` as `kuhooks`).
 
 Every hook must match this signature exactly. The `cmd/hookgen` scanner
@@ -143,7 +143,7 @@ type HookContext struct {
   **You must `Close()` the adapter when done.** The definition's own
   datasource is `hc.Open(hc.Table.Name)`.
 - **`Table` / `Columns`** are the ID-free definition contract
-  (`github.com/luthfi9251/kucrud-core/defs`): names, types, validations, FK/M2M links by
+  (`github.com/luthfi9251/ku-crud/core/defs`): names, types, validations, FK/M2M links by
   target *name* — never internal integer ids.
 - **`Host`** is a host-private payload. On this platform it is the
   SQLite metadata store (`hc.Host.(*meta.Store)`); for library users it
@@ -511,7 +511,7 @@ import (
     "encoding/json"
     "strings"
 
-    kuhooks "github.com/luthfi9251/kucrud-core/hooks"
+    kuhooks "github.com/luthfi9251/ku-crud/core/hooks"
 )
 
 // TrimName is a before-create hook: trims whitespace on the "name" column

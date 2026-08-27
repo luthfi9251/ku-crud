@@ -8,7 +8,7 @@ Full-stack starter consuming [kucrud-core](../core): declare tables in
 
 ```bash
 # 1. clone, then point the template at the in-repo core (already set):
-#    template/go.mod:  replace github.com/luthfi9251/kucrud-core => ../core
+#    template/go.mod:  replace github.com/luthfi9251/ku-crud/core => ../core
 # 2. rename the module to yours. The path kucrud-template is not only
 #    in go.mod — main.go and smoke_test.go import kucrud-template/authstub —
 #    so replace it in go.mod AND Go sources (from template/):

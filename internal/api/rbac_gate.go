@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/luthfi9251/kucrud-core/httpapi"
+	"github.com/luthfi9251/ku-crud/core/httpapi"
 )
 
 // opGrant maps each core/httpapi op onto the platform grant it requires.

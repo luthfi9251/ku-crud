@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	"github.com/luthfi9251/kucrud-core/defs"
+	"github.com/luthfi9251/ku-crud/core/defs"
 	"ku-crud/internal/meta"
 )
 

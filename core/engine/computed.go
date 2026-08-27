@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/luthfi9251/kucrud-core/defs"
+	"github.com/luthfi9251/ku-crud/core/defs"
 )
 
 // cnode is one AST node of a compiled computed formula.

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	corehooks "github.com/luthfi9251/kucrud-core/hooks"
+	corehooks "github.com/luthfi9251/ku-crud/core/hooks"
 
 	"ku-crud/internal/meta"
 )

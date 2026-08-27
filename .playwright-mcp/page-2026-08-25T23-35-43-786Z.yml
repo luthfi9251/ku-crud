@@ -1,0 +1,126 @@
+- generic [ref=e64]:
+  - complementary [ref=e65]:
+    - generic [ref=e66]:
+      - generic [ref=e67]:
+        - img [ref=e69]
+        - generic [ref=e73]:
+          - generic [ref=e74]:
+            - generic [ref=e75]: Ku-CRUD
+            - generic [ref=e76]: v1.9
+          - generic [ref=e77]: Database Portal
+      - button "Collapse sidebar" [ref=e78] [cursor=pointer]:
+        - img
+    - generic [ref=e79]:
+      - generic [ref=e80]:
+        - paragraph [ref=e81]: Navigation
+        - link "Datasources" [ref=e82] [cursor=pointer]:
+          - /url: /datasources
+          - img [ref=e83]
+          - generic [ref=e86]: Datasources
+        - link "Definitions Transfer" [ref=e87] [cursor=pointer]:
+          - /url: /meta
+          - img [ref=e88]
+          - generic [ref=e91]: Definitions Transfer
+        - link "Tables & Schema" [ref=e92] [cursor=pointer]:
+          - /url: /
+          - img [ref=e93]
+          - generic [ref=e95]: Tables & Schema
+        - link "Documentation" [ref=e97] [cursor=pointer]:
+          - /url: /docs
+          - img [ref=e98]
+          - generic [ref=e100]: Documentation
+        - link "Users" [ref=e101] [cursor=pointer]:
+          - /url: /users
+          - img [ref=e102]
+          - generic [ref=e107]: Users
+        - link "Roles & Access" [ref=e108] [cursor=pointer]:
+          - /url: /roles
+          - img [ref=e109]
+          - generic [ref=e112]: Roles & Access
+        - link "Audit Trail" [ref=e113] [cursor=pointer]:
+          - /url: /audit
+          - img [ref=e114]
+          - generic [ref=e117]: Audit Trail
+        - link "Hook Outbox" [ref=e118] [cursor=pointer]:
+          - /url: /hooks-outbox
+          - img [ref=e119]
+          - generic [ref=e121]: Hook Outbox
+      - generic [ref=e122]:
+        - generic [ref=e123]:
+          - paragraph [ref=e124]: Active Tables (0)
+          - img [ref=e125]
+        - button "New group" [ref=e128] [cursor=pointer]:
+          - img [ref=e129]
+          - text: New group
+        - generic [ref=e130]: No tables defined yet
+    - generic [ref=e131]:
+      - generic [ref=e132]:
+        - generic [ref=e133]: Language
+        - combobox [ref=e134] [cursor=pointer]:
+          - generic: English
+          - img [ref=e135]
+      - generic [ref=e137]:
+        - generic [ref=e138]:
+          - generic [ref=e140]: AD
+          - generic [ref=e141]:
+            - generic [ref=e142]: admin
+            - generic [ref=e143]: Online
+        - button "Logout" [ref=e144] [cursor=pointer]:
+          - img
+  - generic [ref=e145]:
+    - banner [ref=e146]:
+      - generic [ref=e147]:
+        - img [ref=e149]
+        - generic [ref=e151]:
+          - heading "Tables & Schema" [level=1] [ref=e152]
+          - paragraph [ref=e153]: Configure dynamic database definitions
+    - main [ref=e154]:
+      - generic [ref=e156]:
+        - generic [ref=e157]:
+          - generic [ref=e158]:
+            - generic [ref=e159]:
+              - heading "Configured Tables" [level=3] [ref=e160]
+              - img [ref=e161]
+            - generic [ref=e163]:
+              - generic [ref=e164]: "0"
+              - paragraph [ref=e165]: Managed database schemas
+          - generic [ref=e166]:
+            - generic [ref=e167]:
+              - heading "Active Datasources" [level=3] [ref=e168]
+              - img [ref=e169]
+            - generic [ref=e172]:
+              - generic [ref=e173]: "0"
+              - paragraph [ref=e174]: Connected database pools
+          - generic [ref=e175]:
+            - generic [ref=e176]:
+              - heading "Status" [level=3] [ref=e177]
+              - img [ref=e178]
+            - generic [ref=e181]:
+              - generic [ref=e186]: Ready
+              - paragraph [ref=e187]: Auto CRUD API active
+        - generic [ref=e188]:
+          - generic [ref=e189]:
+            - generic [ref=e190]:
+              - heading "Table Definitions" [level=3] [ref=e191]
+              - paragraph [ref=e192]: Select or register a database table to start managing records
+            - generic [ref=e193]:
+              - textbox "Filter tables..." [ref=e194]
+              - link "Add Table" [ref=e195] [cursor=pointer]:
+                - /url: /tables/new
+                - button "Add Table" [ref=e196]:
+                  - img
+                  - text: Add Table
+          - table [ref=e199]:
+            - rowgroup [ref=e200]:
+              - row "Display Label Database Table Key Actions" [ref=e201]:
+                - columnheader "Display Label" [ref=e202]
+                - columnheader "Database Table" [ref=e203]
+                - columnheader "Key" [ref=e204]
+                - columnheader "Actions" [ref=e205]
+            - rowgroup [ref=e206]:
+              - row "No table definitions found Click \"Add Table\" to map a database table into Ku-CRUD." [ref=e207]:
+                - cell "No table definitions found Click \"Add Table\" to map a database table into Ku-CRUD." [ref=e208]:
+                  - generic [ref=e209]:
+                    - img [ref=e210]
+                    - paragraph [ref=e212]: No table definitions found
+                    - paragraph [ref=e213]: Click "Add Table" to map a database table into Ku-CRUD.

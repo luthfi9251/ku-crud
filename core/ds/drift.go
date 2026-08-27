@@ -1,6 +1,6 @@
 package ds
 
-import "github.com/luthfi9251/kucrud-core/defs"
+import "github.com/luthfi9251/ku-crud/core/defs"
 
 type DriftReport struct {
 	Missing     []string `json:"missing"`     // defined but dropped from the live table

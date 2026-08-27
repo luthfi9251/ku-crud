@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/luthfi9251/kucrud-core/engine"
-	"github.com/luthfi9251/kucrud-core/hooks"
+	"github.com/luthfi9251/ku-crud/core/engine"
+	"github.com/luthfi9251/ku-crud/core/hooks"
 	"ku-crud/internal/meta"
 )
 

@@ -302,7 +302,7 @@ Under systemd, follow with `journalctl -u ku-crud -f`.
     cmd/hookgen/           go:generate AST scanner: regenerates
                            hooks/registry_gen.go from the functions in hooks/
     core/                  kucrud-core — the extracted CRUD engine module
-                           (github.com/luthfi9251/kucrud-core; zero
+                           (github.com/luthfi9251/ku-crud/core; zero
                            persistence, auth-free): defs (ID-free table
                            definition contract), ds (dialect-neutral
                            `Adapter` interface + `ds.Open` factory, sqlkit,

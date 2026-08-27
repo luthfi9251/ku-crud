@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/luthfi9251/kucrud-core/defs"
-	"github.com/luthfi9251/kucrud-core/ds"
+	"github.com/luthfi9251/ku-crud/core/defs"
+	"github.com/luthfi9251/ku-crud/core/ds"
 )
 
 // M2MCfg is one m2m column's resolved link topology: the junction and

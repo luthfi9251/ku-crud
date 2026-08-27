@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/luthfi9251/kucrud-core/hooks"
+	"github.com/luthfi9251/ku-crud/core/hooks"
 	_ "ku-crud/hooks" // compiled-in hooks register via registry_gen init()
 	"ku-crud/internal/api"
 	kuhooks "ku-crud/internal/hooks"

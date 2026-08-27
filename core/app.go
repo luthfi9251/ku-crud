@@ -25,10 +25,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/luthfi9251/kucrud-core/defs"
-	"github.com/luthfi9251/kucrud-core/ds"
-	"github.com/luthfi9251/kucrud-core/hooks"
-	"github.com/luthfi9251/kucrud-core/httpapi"
+	"github.com/luthfi9251/ku-crud/core/defs"
+	"github.com/luthfi9251/ku-crud/core/ds"
+	"github.com/luthfi9251/ku-crud/core/hooks"
+	"github.com/luthfi9251/ku-crud/core/httpapi"
 )
 
 // Conn is the dialect-neutral connection description (raw overrides all).

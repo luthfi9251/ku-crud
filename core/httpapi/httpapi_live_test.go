@@ -13,11 +13,11 @@ import (
 	"strings"
 	"testing"
 
-	kucrud "github.com/luthfi9251/kucrud-core"
-	"github.com/luthfi9251/kucrud-core/defs"
-	"github.com/luthfi9251/kucrud-core/ds"
-	"github.com/luthfi9251/kucrud-core/engine"
-	"github.com/luthfi9251/kucrud-core/hooks"
+	kucrud "github.com/luthfi9251/ku-crud/core"
+	"github.com/luthfi9251/ku-crud/core/defs"
+	"github.com/luthfi9251/ku-crud/core/ds"
+	"github.com/luthfi9251/ku-crud/core/engine"
+	"github.com/luthfi9251/ku-crud/core/hooks"
 )
 
 // ---- live harness (self-skipping without KUCRUD_TEST_* env) ----

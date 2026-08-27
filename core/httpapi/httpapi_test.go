@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/luthfi9251/kucrud-core/defs"
-	"github.com/luthfi9251/kucrud-core/ds"
-	"github.com/luthfi9251/kucrud-core/httpapi"
+	"github.com/luthfi9251/ku-crud/core/defs"
+	"github.com/luthfi9251/ku-crud/core/ds"
+	"github.com/luthfi9251/ku-crud/core/httpapi"
 )
 
 // fakeSource stands in for the App registry; errAdapter's embedded nil

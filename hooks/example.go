@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"math"
 
-	kuhooks "github.com/luthfi9251/kucrud-core/hooks"
+	kuhooks "github.com/luthfi9251/ku-crud/core/hooks"
 )
 
 // NormalizePrice is an example before-create hook: rounds the "price"

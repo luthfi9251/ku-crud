@@ -6,18 +6,20 @@ described here is [`template/main.go`](../../template/main.go) in the monorepo.
 
 ## 1. Install
 
-`kucrud-core` lives in `core/` of the Ku-CRUD monorepo. Consume it from your own
-module with a `replace`:
+`kucrud-core` is released as the `core/` submodule of the Ku-CRUD monorepo — import it
+by its tagged versions (`core/vX.Y.Z` tags):
 
 ```
-go get github.com/luthfi9251/kucrud-core
+go get github.com/luthfi9251/ku-crud/core@v1.10.0
 ```
+
+Working against a local monorepo checkout instead? Use a `replace`:
 
 ```
 // go.mod
-require github.com/luthfi9251/kucrud-core v0.0.0
+require github.com/luthfi9251/ku-crud/core v0.0.0
 
-replace github.com/luthfi9251/kucrud-core => ../ku-crud/core   // or your fork
+replace github.com/luthfi9251/ku-crud/core => ../ku-crud/core   // or your fork
 ```
 
 Dependencies pulled in: `github.com/jackc/pgx/v5` (Postgres) and

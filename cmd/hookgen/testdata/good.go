@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	kuhooks "github.com/luthfi9251/kucrud-core/hooks"
+	kuhooks "github.com/luthfi9251/ku-crud/core/hooks"
 )
 
 func GoodHook(ctx context.Context, hc *kuhooks.HookContext, ev kuhooks.Event,

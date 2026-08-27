@@ -23,7 +23,7 @@ import (
 	"strconv"
 	"strings"
 
-	kucrud "github.com/luthfi9251/kucrud-core"
+	kucrud "github.com/luthfi9251/ku-crud/core"
 
 	"kucrud-template/authstub"
 )

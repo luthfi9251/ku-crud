@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/luthfi9251/kucrud-core/defs"
-	"github.com/luthfi9251/kucrud-core/ds"
+	"github.com/luthfi9251/ku-crud/core/defs"
+	"github.com/luthfi9251/ku-crud/core/ds"
 )
 
 // maxFilters bounds one request's filter count (AND combination).

@@ -1,4 +1,4 @@
-module github.com/luthfi9251/kucrud-core
+module github.com/luthfi9251/ku-crud/core
 
 go 1.25.0
 

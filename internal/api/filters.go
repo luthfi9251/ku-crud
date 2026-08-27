@@ -1,8 +1,8 @@
 package api
 
 import (
-	"github.com/luthfi9251/kucrud-core/ds"
-	"github.com/luthfi9251/kucrud-core/engine"
+	"github.com/luthfi9251/ku-crud/core/ds"
+	"github.com/luthfi9251/ku-crud/core/engine"
 	"ku-crud/internal/meta"
 )
 
